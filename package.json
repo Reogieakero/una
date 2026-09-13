@@ -1,30 +1,27 @@
 {
-  "name": "dorsu-counseling-landing",
+  "name": "dorsu-mental-monorepo",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@9.7.0",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
-  },
-  "dependencies": {
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.1.1",
-    "framer-motion": "^13.2.0",
-    "lucide-react": "^1.44.0",
-    "next": "^16.3.4",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "tailwind-merge": "^2.5.4",
-    "tailwindcss-animate": "^1.0.7"
+    "dev": "turbo dev",
+    "dev:web": "turbo dev --filter=@dorsu/web",
+    "build": "turbo build",
+    "build:web": "turbo build --filter=@dorsu/web",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "db:types": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID --schema public > packages/shared-types/src/database.ts",
+    "db:generate": "pnpm --filter @dorsu/db db:generate",
+    "db:validate": "pnpm --filter @dorsu/db db:validate",
+    "db:format": "pnpm --filter @dorsu/db db:format",
+    "db:push": "pnpm --filter @dorsu/db db:push"
   },
   "devDependencies": {
-    "@types/node": "^20.16.13",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.13",
-    "typescript": "^7.0.2"
+    "turbo": "^2.5.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18.18.0",
+    "pnpm": ">=9.0.0"
   }
 }

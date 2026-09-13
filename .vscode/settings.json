@@ -1,0 +1,8 @@
+{
+  // Use the repo's TypeScript (5.9.x) instead of VS Code's bundled copy.
+  // The configs use `"moduleResolution": "bundler"` (TS 5.0+); an older
+  // editor TS redlines that line even though the config is valid.
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "js/ts.tsdk.path": "node_modules/typescript/lib"
+}

@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 1.25rem;
+  }
+  html {
+    scroll-behavior: smooth;
+    /* Reserve scrollbar space on every page so centered content (e.g. the
+       top nav) never shifts when moving between pages of different heights. */
+    scrollbar-gutter: stable;
+  }
+  body {
+    @apply bg-cream text-ink font-body antialiased;
+    text-rendering: optimizeLegibility;
+    line-height: 1.75;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display text-ink;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  ::selection {
+    background: #FDE68A;
+    color: #1E3A5F;
+  }
+  /* Themed scrollbars (dropdown menus, tables, page) — slim rounded thumb
+     in ink tones instead of the chunky browser default. */  html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(30, 58, 95, 0.28) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(30, 58, 95, 0.22);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(30, 58, 95, 0.42);
+  }
+  /* Sonner toasts in the system palette, close button pinned top-right. */
+  [data-sonner-toast] {
+    background: #ffffff;
+    color: #1e3a5f;
+    border: 1px solid rgba(30, 58, 95, 0.1);
+    border-radius: 16px;
+    font-family: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+    box-shadow: 0 8px 24px rgba(30, 58, 95, 0.12);
+  }
+  [data-sonner-toast] [data-close-button] {
+    left: auto !important;
+    right: 0 !important;
+    transform: translate(35%, -35%) !important;
+    background: #ffffff !important;
+    border-color: rgba(30, 58, 95, 0.15) !important;
+    color: #1e3a5f !important;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  /* Full-page horizontal journey (Keeby-style): desktop with a fine
+     pointer and no reduced-motion preference. Everyone else — mobile,
+     touch, reduced-motion — gets the calm vertical page. */
+  .journey-only {
+    display: none;
+  }
+  .vertical-only {
+    display: block;
+  }
+  @media (min-width: 1024px) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+    .journey-only {
+      display: block;
+    }
+    .vertical-only {
+      display: none;
+    }
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.35;
+    background-image: radial-gradient(rgba(59,130,246,0.08) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+}

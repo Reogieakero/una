@@ -1,0 +1,736 @@
+// Prisma schema — DOrSU Digital Counseling and Appointment System with Analytics.
+// Source: Data Dictionary (PostgreSQL via Supabase, Auth via Supabase Auth).
+//
+// ROLE IN THIS REPO
+// - This file is the server-side ORM source of truth for `public.*` tables.
+//   Supabase Auth (`auth.users`), Supabase Realtime, and Row Level Security
+//   remain in Supabase: `supabase/migrations/*.sql` is still the DDL source
+//   of truth. Keep this schema and `supabase/migrations` in sync — additive
+//   alignment migration: `supabase/migrations/00020_prisma_dictionary_alignment.sql`.
+// - Client apps (web/mobile) keep using `@dorsu/supabase-client` (supabase-js)
+//   for Auth + Realtime + RLS-scoped reads. Use `@dorsu/db` (this package)
+//   ONLY in trusted server contexts (Next.js Route Handlers / Server Actions,
+//   Edge Functions with service-role, cron jobs) where bypassing RLS is
+//   intentional and RBAC is enforced in code (`packages/shared-services/rbac.ts`).
+// - `profiles.id` is `auth.users.id` (FK enforced in SQL, not modellable here
+//   because the `auth` schema is Supabase-managed and outside Prisma).
+//
+// CONVENTIONS
+// - `@@map` / `@map` preserve the exact snake_case SQL names so Prisma maps
+//   1:1 onto the existing Supabase tables (no renames, no data loss).
+// - Fields marked "Dictionary §N" come from the data dictionary; fields marked
+//   "Legacy" predate the dictionary and are kept for backward compatibility
+//   with `supabase/migrations/00001–00019` + `packages/shared-types`.
+//   New code should prefer the Dictionary field; services sync both on write.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["views"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── Enums ──────────────────────────────────────────────────────────────
+
+/// Dictionary §2: drives RLS policies and UI routing. `admin` is a legacy
+/// superset (used by existing migrations/RBAC); new rows use the 5 dict roles.
+enum UserRole {
+  student
+  counselor
+  guidance_head
+  faculty
+  guidance_personnel
+  admin
+}
+
+/// Dictionary §3 (pending/accepted/rescheduled/completed/canceled/no_show)
+/// superset with legacy values (confirmed/cancelled-double-L) so existing
+/// rows keep validating. New code uses the Dictionary spelling (`canceled`).
+enum AppointmentStatus {
+  pending
+  accepted
+  assigned
+  confirmed
+  rescheduled
+  completed
+  canceled
+  cancelled
+  rejected
+  no_show
+}
+
+/// Dictionary §3: selected by student at booking.
+enum ConcernType {
+  academic
+  financial
+  personal
+  social
+  other
+}
+
+/// Dictionary §3 (face_to_face/chat/phone/video) superset with legacy
+/// (in_person/online). New code uses the Dictionary values.
+enum AppointmentMode {
+  face_to_face
+  chat
+  phone
+  video
+  in_person
+  online
+}
+
+/// Dictionary §3: derived from total_score bands. Shared by `band` (legacy)
+/// and `stress_level` (dictionary) columns — services keep them in sync.
+enum StressLevel {
+  low
+  moderate
+  high
+}
+
+/// Dictionary §4 (appointment/followup/message/announcement/referral)
+/// superset with legacy (chat/assessment/system). `followup` is one word
+/// per the dictionary.
+enum NotificationType {
+  appointment
+  followup
+  message
+  announcement
+  referral
+  chat
+  assessment
+  system
+}
+
+/// Dictionary §5: faculty's observed-concern category.
+enum ReferralReasonCategory {
+  academic
+  behavioral
+  relational
+}
+
+/// Dictionary §5 (submitted/under_review/action_taken/closed) superset with
+/// legacy (pending/acknowledged/in_progress/resolved/escalated).
+enum ReferralStatus {
+  submitted
+  under_review
+  action_taken
+  closed
+  pending
+  acknowledged
+  in_progress
+  resolved
+  escalated
+}
+
+enum ReferralPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+/// Dictionary §3.5: where a push token was issued.
+enum DevicePlatform {
+  ios
+  android
+  web
+}
+
+/// Dictionary §3.5 (audit_logs.platform): which client originated the action.
+enum AuditPlatform {
+  web
+  mobile
+}
+
+enum ChatThreadStatus {
+  open
+  closed
+}
+
+// ── Core identity (§2) ─────────────────────────────────────────────────
+
+/// Dictionary §2 `profiles` — one row per `auth.users.id`.
+/// FK `profiles.id → auth.users.id` is enforced in SQL (see 00001 + 00020).
+model Profile {
+  id                  String   @id @db.Uuid
+  email               String   @unique @db.Text
+  role                UserRole
+  // Dictionary: display name (hidden from students under anonymous mode).
+  // Nullable for backward compat (00001 allowed NULL); new rows required.
+  fullName            String?  @map("full_name") @db.Text
+  // Dictionary: student/employee ID, unique.
+  idNumber            String?  @unique @map("id_number") @db.Text
+  // Dictionary: e.g. "College of Engineering".
+  departmentOrCollege String?  @map("department_or_college") @db.Text
+  // Dictionary: for emergency / break-glass contact.
+  contactNumber       String?  @map("contact_number") @db.Text
+  // Dictionary: active / deactivated (set by guidance_head). Legacy used
+  // `is_active` boolean — both are kept and synced (see 00020).
+  status              String   @default("active") @map("status") @db.Text
+  // Legacy (00001): kept for compat with existing RLS + UI.
+  avatarUrl           String?  @map("avatar_url") @db.Text
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  student               Student?
+  counselor             Counselor?
+  guidanceHead          GuidanceHead?
+  facultyMember         FacultyMember?
+  guidancePersonnel     GuidancePersonnel?
+  deviceTokens          DeviceToken[]
+  sentChatMessages      ChatMessage[]      @relation("MessageSender")
+  notifications         Notification[]     @relation("NotificationRecipient")
+  authoredAnnouncements Announcement[]
+  referralActions       ReferralAction[]   @relation("ReferralActor")
+  breakGlassAccessed    BreakGlassLog[]    @relation("BreakGlassAccessor")
+  breakGlassReviewed    BreakGlassLog[]    @relation("BreakGlassReviewer")
+  breakGlassApproved    BreakGlassLog[]    @relation("BreakGlassApprover")
+  auditLogs             AuditLog[]
+
+  @@map("profiles")
+}
+
+/// Dictionary §2 `students` — role-specific row hanging off `profiles.id`.
+/// PK stays `id` (legacy) with `profileId` UNIQUE so existing FKs
+/// (`appointments.student_id → students.id`, …) keep working; the dictionary
+/// describes `profile_id` as PK — `profileId` UNIQUE enforces the same 1:1.
+model Student {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId      String   @unique @map("profile_id") @db.Uuid
+  profile        Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  // Dictionary: system-generated alias (e.g. "Client-4821") for anonymous mode.
+  anonymousAlias String?  @unique @map("anonymous_alias") @db.Text
+  // Legacy (00002): kept; nullable going forward (dictionary uses
+  // `profiles.id_number` as the canonical ID — see 00020 DROP NOT NULL).
+  studentNo      String?  @unique @map("student_no") @db.Text
+  program        String?  @db.Text
+  yearLevel      String?  @map("year_level") @db.Text
+  // Legacy extras (00002).
+  college        String?  @db.Text
+  contactNo      String?  @map("contact_no") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  appointments     Appointment[]
+  pss10Assessments Pss10Assessment[]
+  chatThreads      ChatThread[]
+  feedbacks        Feedback[]
+  referrals        Referral[]        @relation("ReferralStudent")
+  breakGlassLogs   BreakGlassLog[]   @relation("BreakGlassStudent")
+
+  @@index([profileId])
+  @@map("students")
+}
+
+/// Dictionary §2 `counselors`.
+model Counselor {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId             String   @unique @map("profile_id") @db.Uuid
+  profile               Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  // Dictionary.
+  licenseNumber         String?  @map("license_number") @db.Text
+  specialization        String?  @db.Text
+  isRegisteredCounselor Boolean  @default(true) @map("is_registered_counselor")
+  // Legacy (00003).
+  employeeNo            String?  @unique @map("employee_no") @db.Text
+  isAvailable           Boolean  @default(true) @map("is_available")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  availability      CounselorAvailability[]
+  appointments      Appointment[]
+  sessionNotes      SessionNote[]
+  chatThreads       ChatThread[]
+  assignedReferrals Referral[]              @relation("ReferralAssignee")
+
+  @@index([profileId])
+  @@map("counselors")
+}
+
+/// Dictionary §1 overview (`profiles → guidance_heads`). The dictionary
+/// names the table but defines no columns — minimal 1:1 extension row.
+model GuidanceHead {
+  profileId String   @id @map("profile_id") @db.Uuid
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("guidance_heads")
+}
+
+/// Dictionary §2 `faculty_members`.
+model FacultyMember {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId         String   @unique @map("profile_id") @db.Uuid
+  profile           Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  // Dictionary (NOT NULL in spec; nullable here until backfilled — see 00020).
+  collegeDepartment String?  @map("college_department") @db.Text
+  // Legacy (00004).
+  employeeNo        String?  @unique @map("employee_no") @db.Text
+  department        String?  @db.Text
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  referrals Referral[] @relation("ReferralFaculty")
+
+  @@map("faculty_members")
+}
+
+/// Legacy (00005) `guidance_personnel` — kept; `role = 'guidance_personnel'`
+/// (dictionary §2 role list) and `referral_actions.handled_by` reference it.
+model GuidancePersonnel {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId  String   @unique @map("profile_id") @db.Uuid
+  profile    Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  employeeNo String?  @unique @map("employee_no") @db.Text
+  position   String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  referrals Referral[] @relation("ReferralPersonnel")
+
+  @@map("guidance_personnel")
+}
+
+// ── Appointments & assessments (§3) ────────────────────────────────────
+
+/// Dictionary §3 `counselor_availability`. FK stays `counselor_id →
+/// counselors.id` (legacy); dictionary text says `counselors.profile_id`
+/// but `counselors.profile_id` is UNIQUE so both identify the counselor —
+/// `id` is kept so existing rows/RLS keep working.
+model CounselorAvailability {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  counselorId String    @map("counselor_id") @db.Uuid
+  counselor   Counselor @relation(fields: [counselorId], references: [id], onDelete: Cascade)
+  // Dictionary `day_of_week` 0–6 == legacy `weekday` 0(Sun)–6(Sat): same column.
+  weekday     Int       @map("weekday")
+  startTime   DateTime  @map("start_time") @db.Time(6)
+  endTime     DateTime  @map("end_time") @db.Time(6)
+  // Dictionary.
+  isActive    Boolean   @default(true) @map("is_active")
+  // Legacy (00006).
+  isRecurring Boolean   @default(true) @map("is_recurring")
+  validFrom   DateTime? @map("valid_from") @db.Date
+  validTo     DateTime? @map("valid_to") @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([counselorId])
+  @@index([weekday])
+  @@map("counselor_availability")
+}
+
+/// Dictionary §3 `appointments` (superset with legacy 00007).
+/// Everything hangs off `profiles.id` indirectly via `students.id` /
+/// `counselors.id` (dictionary §1); FKs target `*.id` (not `profile_id`)
+/// to match the existing tables — the 1:1 UNIQUE on `profile_id` keeps the
+/// dictionary's identity guarantee.
+model Appointment {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId         String            @map("student_id") @db.Uuid
+  student           Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  counselorId       String?           @map("counselor_id") @db.Uuid
+  counselor         Counselor?        @relation(fields: [counselorId], references: [id], onDelete: SetNull)
+  // Dictionary: selected by student at booking. Legacy stored free-text
+  // `concern`; both kept — new writes set both (`concern` = label).
+  concernType       ConcernType?      @map("concern_type")
+  concern           String            @default("") @db.Text
+  mode              AppointmentMode
+  status            AppointmentStatus @default(pending)
+  // Dictionary: requested/confirmed datetimes. Legacy used `scheduled_at`;
+  // all three kept — new writes set `requestedDatetime` (+ `scheduledAt`
+  // mirror for old readers) and `confirmedDatetime` on accept.
+  requestedDatetime DateTime?         @map("requested_datetime") @db.Timestamptz(6)
+  confirmedDatetime DateTime?         @map("confirmed_datetime") @db.Timestamptz(6)
+  scheduledAt       DateTime?         @map("scheduled_at") @db.Timestamptz(6)
+  isAnonymous       Boolean           @default(false) @map("is_anonymous")
+  // Legacy back-reference (00008): the PSS-10 that gated this booking.
+  // Dictionary models the link from the other side
+  // (`pss10_assessments.appointment_id` UNIQUE) — both kept and synced.
+  pss10Id           String?           @map("pss10_id") @db.Uuid
+  gatingPss10       Pss10Assessment?  @relation("AppointmentGatingPss10", fields: [pss10Id], references: [id], onDelete: SetNull)
+  // Optional extension (dictionary §8 faculty-referral walkthrough):
+  // draft appointments created from a referral link back here so analytics
+  // can report "% of appointments originating from faculty referral".
+  sourceReferralId  String?           @map("source_referral_id") @db.Uuid
+  sourceReferral    Referral?         @relation("AppointmentSourceReferral", fields: [sourceReferralId], references: [id], onDelete: SetNull)
+  // Idempotency (00021): client-generated UUID per booking intent. Retries
+  // reuse the key and collapse to one row via the UNIQUE index (NULLs never
+  // conflict, so keyless legacy writes are unaffected).
+  idempotencyKey    String?           @unique(map: "appointments_idempotency_key_unique") @map("idempotency_key") @db.Text
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  pss10Assessments Pss10Assessment[] @relation("Pss10ForAppointment")
+  sessionNotes     SessionNote[]
+  feedback         Feedback?
+  chatThreads      ChatThread[]
+  breakGlassLogs   BreakGlassLog[]
+
+  @@index([studentId])
+  @@index([counselorId])
+  @@index([status])
+  @@index([requestedDatetime])
+  @@index([scheduledAt])
+  @@map("appointments")
+}
+
+/// Dictionary §3 `pss10_assessments` — PSS-10 gate: an appointment cannot move
+/// pending → accepted until a linked row exists (enforced in
+/// `booking-service`; see dictionary §3 rule).
+model Pss10Assessment {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Dictionary: UNIQUE — one assessment per appointment.
+  appointmentId String?      @unique @map("appointment_id") @db.Uuid
+  appointment   Appointment? @relation("Pss10ForAppointment", fields: [appointmentId], references: [id], onDelete: SetNull)
+  studentId     String       @map("student_id") @db.Uuid
+  student       Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  // Dictionary: array of 10 Likert scores (0–4 each). Legacy stored the same
+  // as `answers Int[]`; both kept and synced (itemScores = answers as JSON).
+  itemScores    Json?        @map("item_scores") @db.JsonB
+  answers       Int[]        @default([])
+  // Sum, range 0–40 (computed in `pss10-scoring`, not DB-generated, to stay
+  // compatible with the existing NOT NULL column).
+  totalScore    Int          @map("total_score")
+  // Dictionary `stress_level` == legacy `band`: same enum, both kept/synced.
+  stressLevel   StressLevel? @map("stress_level")
+  band          StressLevel?
+  // Dictionary `submitted_at` == legacy `created_at`: both kept/synced.
+  submittedAt   DateTime?    @map("submitted_at") @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  gatedAppointments Appointment[] @relation("AppointmentGatingPss10")
+
+  @@index([studentId])
+  @@index([band])
+  @@index([stressLevel])
+  @@map("pss10_assessments")
+}
+
+/// Dictionary §3 `session_notes` — confidential; RLS restricts to owning
+/// counselor + guidance_head (break-glass only). `notes` is encrypted at
+/// rest by the app layer before write (see dictionary §9 / RA 10173).
+model SessionNote {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  appointmentId    String      @map("appointment_id") @db.Uuid
+  appointment      Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  counselorId      String      @map("counselor_id") @db.Uuid
+  counselor        Counselor   @relation(fields: [counselorId], references: [id], onDelete: Cascade)
+  // Dictionary `notes` == legacy `content`: both kept/synced during migration.
+  notes            String?     @db.Text
+  content          String?     @db.Text
+  followUpRequired Boolean     @default(false) @map("follow_up_required")
+  followUpDate     DateTime?   @map("follow_up_date") @db.Date
+  // Legacy (00009).
+  isPrivate        Boolean     @default(true) @map("is_private")
+  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([appointmentId])
+  @@index([counselorId])
+  @@map("session_notes")
+}
+
+/// Dictionary §3 `feedback` — one per completed appointment.
+model Feedback {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  appointmentId String      @unique @map("appointment_id") @db.Uuid
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  studentId     String      @map("student_id") @db.Uuid
+  student       Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  rating        Int
+  // Dictionary `comments` == legacy `comment`: both kept/synced.
+  comments      String?     @db.Text
+  comment       String?     @db.Text
+  // Dictionary `submitted_at` == legacy `created_at`: both kept/synced.
+  submittedAt   DateTime?   @map("submitted_at") @db.Timestamptz(6)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([studentId])
+  @@index([rating])
+  @@map("feedback")
+}
+
+// ── Devices & push (§3.5) ──────────────────────────────────────────────
+
+/// Dictionary §3.5 `device_tokens` — one row per logged-in device.
+/// The notification service fans a single `notifications` insert out into one
+/// push send per active row here, keeping `notifications` platform-agnostic.
+model DeviceToken {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId    String         @map("profile_id") @db.Uuid
+  owner        Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  platform     DevicePlatform
+  // Expo push token (or FCM/APNs token if bypassing Expo).
+  pushToken    String         @map("push_token") @db.Text
+  deviceLabel  String?        @map("device_label") @db.Text
+  // Updated on each app open — prune stale tokens by this.
+  lastActiveAt DateTime       @default(now()) @map("last_active_at") @db.Timestamptz(6)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([profileId])
+  @@index([lastActiveAt])
+  @@map("device_tokens")
+}
+
+// ── Communication (§4) ────────────────────────────────────────────────
+
+/// Dictionary §4 `chat_threads` — threads can exist outside an appointment.
+model ChatThread {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId     String           @map("student_id") @db.Uuid
+  student       Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  counselorId   String?          @map("counselor_id") @db.Uuid
+  counselor     Counselor?       @relation(fields: [counselorId], references: [id], onDelete: SetNull)
+  appointmentId String?          @map("appointment_id") @db.Uuid
+  appointment   Appointment?     @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  // Dictionary: mirrors appointment setting.
+  isAnonymous   Boolean          @default(false) @map("is_anonymous")
+  // Legacy (00011).
+  status        ChatThreadStatus @default(open)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  messages ChatMessage[]
+
+  @@index([studentId])
+  @@index([counselorId])
+  @@index([status])
+  @@map("chat_threads")
+}
+
+/// Dictionary §4 `chat_messages` — `sent_at` powers Realtime subscription.
+/// Idempotency: clients generate the PK (`id`, UUID v4, one per message) and
+/// reuse it across retries — the PK UNIQUE turns a re-send into a conflict
+/// the service resolves by returning the existing row (see `sendMessage`).
+model ChatMessage {
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  threadId        String     @map("thread_id") @db.Uuid
+  thread          ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  // Dictionary `sender_id` == legacy `sender_profile_id` (→ profiles.id).
+  senderProfileId String     @map("sender_profile_id") @db.Uuid
+  sender          Profile    @relation("MessageSender", fields: [senderProfileId], references: [id], onDelete: Cascade)
+  body            String     @db.Text
+  // Dictionary `sent_at` == legacy `created_at`: both kept/synced.
+  sentAt          DateTime?  @map("sent_at") @db.Timestamptz(6)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  readAt          DateTime?  @map("read_at") @db.Timestamptz(6)
+
+  @@index([threadId])
+  @@index([senderProfileId])
+  @@map("chat_messages")
+}
+
+/// Dictionary §4 `notifications` — platform-agnostic; see `device_tokens`.
+/// Legacy `profile_id` == dictionary `recipient_id` (same column).
+model Notification {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  profileId String           @map("profile_id") @db.Uuid
+  recipient Profile          @relation("NotificationRecipient", fields: [profileId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  // Dictionary payload (e.g. `{appointment_id, new_status}`); legacy used
+  // title/body/link — both kept so push fan-out + in-app lists work.
+  payload   Json?            @db.JsonB
+  title     String?          @db.Text
+  body      String?          @db.Text
+  link      String?          @db.Text
+  // Idempotency (00021): per-event key (e.g. `appt:<id>:<status>`). Replays
+  // reuse the key and collapse via UNIQUE (profile_id, dedupe_key); NULL keys
+  // never conflict so keyless legacy writes are unaffected.
+  dedupeKey String?          @map("dedupe_key") @db.Text
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  deliveries NotificationDelivery[]
+
+  @@unique([profileId, dedupeKey], map: "notifications_dedupe_unique")
+  @@index([profileId])
+  @@index([profileId, isRead])
+  @@map("notifications")
+}
+
+/// Idempotency ledger (00021) for the push fan-out: at most one send per
+/// device per event. The worker inserts a row per (notification, push_token)
+/// before/with each send and skips tokens that already have one — Expo/FCM
+/// delivery is at-least-once, so this table (not the provider) is the
+/// exactly-once boundary. Service-role only (no client RLS policies).
+model NotificationDelivery {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  notificationId   String       @map("notification_id") @db.Uuid
+  notification     Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  pushToken        String       @map("push_token") @db.Text
+  // queued → sent | failed | skipped (worker-internal; kept free-text so new
+  // provider outcomes don't need a schema change).
+  status           String       @default("queued") @db.Text
+  providerResponse Json?        @map("provider_response") @db.JsonB
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([notificationId, pushToken])
+  @@index([notificationId])
+  @@map("notification_deliveries")
+}
+
+/// Dictionary §4 `announcements`. Legacy `author_profile_id` ==
+/// dictionary `posted_by` (same column).
+model Announcement {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  authorProfileId String    @map("author_profile_id") @db.Uuid
+  author          Profile   @relation(fields: [authorProfileId], references: [id], onDelete: Restrict)
+  title           String    @db.Text
+  body            String    @db.Text
+  // Dictionary: optional event date. Legacy: audience roles (empty = everyone).
+  eventDate       DateTime? @map("event_date") @db.Timestamptz(6)
+  audience        String[]  @default([])
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([authorProfileId])
+  @@index([publishedAt])
+  @@map("announcements")
+}
+
+// ── Faculty referral (§5) ─────────────────────────────────────────────
+
+/// Dictionary §5 `referrals` (superset with legacy 00015 triage fields).
+/// Faculty has no other FK to the student — this row is the entry point.
+model Referral {
+  id                   String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId            String                  @map("student_id") @db.Uuid
+  student              Student                 @relation("ReferralStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  // Dictionary `faculty_id` → faculty_members maps to the legacy
+  // `referring_faculty_id` column (same person; `.id` is the FK everywhere —
+  // dictionary text says `profile_id` but `profile_id` is UNIQUE on the same
+  // row, so no second column is needed).
+  referringFacultyId   String?                 @map("referring_faculty_id") @db.Uuid
+  referringFaculty     FacultyMember?          @relation("ReferralFaculty", fields: [referringFacultyId], references: [id], onDelete: SetNull)
+  referringPersonnelId String?                 @map("referring_personnel_id") @db.Uuid
+  referringPersonnel   GuidancePersonnel?      @relation("ReferralPersonnel", fields: [referringPersonnelId], references: [id], onDelete: SetNull)
+  // Dictionary.
+  reasonCategory       ReferralReasonCategory? @map("reason_category")
+  description          String?                 @db.Text
+  // Legacy `reason` free text — new writes set both (`reason` = description).
+  reason               String                  @default("") @db.Text
+  priority             ReferralPriority        @default(medium)
+  status               ReferralStatus          @default(pending)
+  assignedCounselorId  String?                 @map("assigned_counselor_id") @db.Uuid
+  assignedCounselor    Counselor?              @relation("ReferralAssignee", fields: [assignedCounselorId], references: [id], onDelete: SetNull)
+  // Dictionary `submitted_at` == legacy `created_at`: both kept/synced.
+  submittedAt          DateTime?               @map("submitted_at") @db.Timestamptz(6)
+  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  actions             ReferralAction[]
+  sourcedAppointments Appointment[]    @relation("AppointmentSourceReferral")
+
+  @@index([studentId])
+  @@index([status])
+  @@index([priority])
+  @@index([assignedCounselorId])
+  @@map("referrals")
+}
+
+/// Dictionary §5 `referral_actions`. Legacy `actor_profile_id` ==
+/// dictionary `handled_by` (same column).
+model ReferralAction {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  referralId     String    @map("referral_id") @db.Uuid
+  referral       Referral  @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  actorProfileId String    @map("actor_profile_id") @db.Uuid
+  actor          Profile   @relation("ReferralActor", fields: [actorProfileId], references: [id], onDelete: Restrict)
+  // Dictionary `action_taken` == legacy `action`: both kept/synced.
+  actionTaken    String?   @map("action_taken") @db.Text
+  action         String    @default("") @db.Text
+  note           String?   @db.Text
+  // Dictionary `action_date` == legacy `created_at`: both kept/synced.
+  actionDate     DateTime? @map("action_date") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([referralId])
+  @@index([actorProfileId])
+  @@map("referral_actions")
+}
+
+// ── Security: break-glass & audit (§6) ────────────────────────────────
+
+/// Dictionary §6 `break_glass_logs` — every insert MUST carry a justification
+/// (CHECK ≥ 20 chars, see 00017) and fires `trg_break_glass_audit` → audit_logs.
+model BreakGlassLog {
+  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Legacy `accessor_profile_id` (→ profiles.id, supports
+  // counselor/head/admin per the RLS policies) is the enforcement column.
+  // Dictionary `counselor_id` (→ counselors.id, nullable) is a denormalized
+  // convenience for per-counselor break-glass reporting — new writes set both
+  // (counselor resolved from accessor).
+  accessorProfileId String       @map("accessor_profile_id") @db.Uuid
+  accessor          Profile      @relation("BreakGlassAccessor", fields: [accessorProfileId], references: [id], onDelete: Restrict)
+  counselorId       String?      @map("counselor_id") @db.Uuid
+  studentId         String       @map("student_id") @db.Uuid
+  student           Student      @relation("BreakGlassStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  appointmentId     String?      @map("appointment_id") @db.Uuid
+  appointment       Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  justification     String       @db.Text
+  // Dictionary `approved_by` (guidance-head co-sign) + legacy
+  // `reviewed_by/at` — both kept.
+  approvedBy        String?      @map("approved_by") @db.Uuid
+  approver          Profile?     @relation("BreakGlassApprover", fields: [approvedBy], references: [id], onDelete: SetNull)
+  reviewedBy        String?      @map("reviewed_by") @db.Uuid
+  reviewer          Profile?     @relation("BreakGlassReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt        DateTime?    @map("reviewed_at") @db.Timestamptz(6)
+  accessedAt        DateTime     @default(now()) @map("accessed_at") @db.Timestamptz(6)
+
+  @@index([accessorProfileId])
+  @@index([studentId])
+  @@index([appointmentId])
+  @@map("break_glass_logs")
+}
+
+/// Dictionary §6 `audit_logs` — append-only trail (no UPDATE/DELETE for
+/// client roles). Legacy `entity/entity_id` == dictionary
+/// `target_table/target_id` — both kept/synced. `platform` (§3.5) records
+/// which client (web/mobile) originated the action.
+model AuditLog {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Dictionary `actor_id` == legacy `actor_profile_id` (same column).
+  actorProfileId String?        @map("actor_profile_id") @db.Uuid
+  actor          Profile?       @relation(fields: [actorProfileId], references: [id], onDelete: SetNull)
+  action         String         @db.Text
+  entity         String         @default("") @db.Text
+  targetTable    String?        @map("target_table") @db.Text
+  entityId       String?        @map("entity_id") @db.Uuid
+  targetId       String?        @map("target_id") @db.Uuid
+  metadata       Json?          @db.JsonB
+  platform       AuditPlatform?
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([actorProfileId])
+  @@index([entity, entityId])
+  @@index([targetTable, targetId])
+  @@map("audit_logs")
+}
+
+// ── Analytics (§7) ────────────────────────────────────────────────────
+
+/// Dictionary §7 `analytics_daily_summary` — rebuilt nightly from
+/// appointments + pss10_assessments (+ referrals/chat), never written by the
+/// app. Charts query this view, never the raw transactional tables.
+/// Managed in SQL (`00019` + `00020` redefine the VIEW); Prisma maps it as a
+/// read-only view (no create/update/delete through this client).
+view AnalyticsDailySummary {
+  // Dictionary `summary_date` == legacy `day`.
+  summaryDate            DateTime  @map("summary_date") @db.Date
+  day                    DateTime? @map("day") @db.Date
+  totalAppointments      Int       @map("total_appointments")
+  completedAppointments  Int?      @map("completed_appointments")
+  // Dictionary `avg_pss10_score` == legacy `avg_pss10`.
+  avgPss10Score          Float?    @map("avg_pss10_score")
+  avgPss10               Float?    @map("avg_pss10")
+  highStressCount        Int       @map("high_stress_count")
+  // Dictionary: mode of concern_type for the day.
+  topConcernType         String?   @map("top_concern_type") @db.Text
+  // Dictionary: per-counselor workload breakdown (NULL = whole-service row).
+  counselorId            String?   @map("counselor_id") @db.Uuid
+  // Dictionary: time from pending → accepted (minutes).
+  avgResponseTimeMinutes Float?    @map("avg_response_time_minutes")
+  totalReferrals         Int?      @map("total_referrals")
+
+  @@map("analytics_daily_summary")
+}

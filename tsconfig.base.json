@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "incremental": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "baseUrl": ".",
+    "paths": {
+      "@dorsu/shared-types": ["./packages/shared-types/src"],
+      "@dorsu/shared-schemas": ["./packages/shared-schemas/src"],
+      "@dorsu/shared-services": ["./packages/shared-services/src"],
+      "@dorsu/supabase-client": ["./packages/supabase-client/src"],
+      "@dorsu/db": ["./packages/db/src"],
+      "@dorsu/ui-tokens": ["./packages/ui-tokens/src"]
+    }
+  }
+}

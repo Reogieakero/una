@@ -1,0 +1,26 @@
+-- Seed for local `supabase db reset`. UUIDs are stable so apps can hardcode demo ids.
+-- NOTE: profiles rows require matching auth.users; create those users first via
+-- `supabase auth` / dashboard, then replace the ids below with the real ones.
+-- Org note: the Guidance Head doubles as system admin — one `guidance_head`
+-- account (head@dorsu.edu.ph) covers the whole (admin) group, since every
+-- admin layout guard allows ["guidance_head", "admin"]. No separate `admin`
+-- login is needed.
+-- This file only seeds lookup-safe demo data that has no FK to auth.
+
+-- Demo counselors need profiles first; example placeholder (commented):
+-- insert into public.profiles (id, email, role, full_name)
+-- values
+--   ('11111111-1111-1111-1111-111111111111', 'counselor@dorsu.edu.ph', 'counselor', 'Demo Counselor'),
+--   ('22222222-2222-2222-2222-222222222222', 'head@dorsu.edu.ph', 'guidance_head', 'Guidance Head')
+-- on conflict (id) do nothing;
+
+-- Announcements visible without auth dependencies once an author exists.
+-- Kept empty by default; uncomment after creating the author profile above:
+-- insert into public.announcements (author_profile_id, title, body, audience, published_at)
+-- values (
+--   '22222222-2222-2222-2222-222222222222',
+--   'Welcome to Chekie',
+--   'Booking opens Monday–Friday. Complete a PSS-10 check-in before requesting a slot.',
+--   null,
+--   now()
+-- );

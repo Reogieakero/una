@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "Chekie Student",
+    "slug": "dorsu-chekie-student",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "dorsu-mental",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": true, "bundleIdentifier": "edu.ph.dorsu.chekie" },
+    "android": { "package": "edu.ph.dorsu.chekie", "adaptiveIcon": { "backgroundColor": "#EFF6FF" } },
+    "plugins": ["expo-router", "expo-secure-store", ["expo-notifications", { "icon": "./assets/icon.png" }]],
+    "experiments": { "typedRoutes": true }
+  }
+}

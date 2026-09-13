@@ -5,3 +5,28 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+
+.vercel
+.turbo/
+
+# env (per-app .env.local files, never commit secrets)
+.env
+.env.local
+.env*.local
+apps/*/.env*
+
+# Expo / EAS
+.expo/
+apps/mobile/.expo/
+apps/mobile/dist/
+apps/mobile/*.jks
+apps/mobile/*.p8
+apps/mobile/*.p12
+
+# Supabase CLI
+supabase/.branches/
+supabase/.temp/
+supabase/config.toml.bak
+
+# pnpm
+.pnpm-store/
