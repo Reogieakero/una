@@ -11,6 +11,7 @@ import {
   Inbox,
   Megaphone,
   MessagesSquare,
+  Star,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { listNotifications, markNotificationRead } from "@dorsu/shared-services";
@@ -263,7 +264,12 @@ export default function NotificationsPage() {
         )}
         <ul className="divide-y divide-ink/10">
           {visible.map((n) => {
-            const meta = TYPE_META[n.type] ?? { label: n.type, icon: Bell, tone: "info" as const };
+            // Feedback arrives as type "system" (the enum has no feedback
+            // value) — present it neutrally, never with the red System badge.
+            const meta =
+              n.link === "/feedback"
+                ? { label: "Feedback", icon: Star, tone: "info" as const }
+                : (TYPE_META[n.type] ?? { label: n.type, icon: Bell, tone: "info" as const });
             const Icon = meta.icon;
             return (
               <li

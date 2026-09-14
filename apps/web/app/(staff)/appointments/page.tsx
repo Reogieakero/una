@@ -42,9 +42,10 @@ type CounselorOpt = { id: string; name: string };
 
 const STATUSES = ["pending", "assigned", "confirmed", "completed", "cancelled", "rejected", "no_show"] as const;
 
-function statusTone(s: string): "info" | "success" | "warning" | "danger" {
+function statusTone(s: string): "info" | "success" | "warning" | "danger" | "muted" {
   if (s === "completed") return "success";
-  if (s === "cancelled" || s === "rejected" || s === "no_show") return "danger";
+  if (s === "cancelled") return "muted";
+  if (s === "rejected" || s === "no_show") return "danger";
   if (s === "assigned" || s === "confirmed") return "info";
   return "warning";
 }
@@ -264,7 +265,7 @@ export default function AppointmentsPage() {
       assigned: mine.filter((a) => a.status === "assigned").length,
       confirmed: mine.filter((a) => a.status === "confirmed").length,
       completed: mine.filter((a) => a.status === "completed").length,
-      unassigned: mine.filter((a) => !a.counselor_id).length,
+      unassigned: mine.filter((a) => !a.counselor_id && !["completed", "cancelled", "rejected", "no_show"].includes(a.status)).length,
     };
   }, [rows, role, counselorId]);
 

@@ -72,7 +72,7 @@ export function Badge({
   tone = "info",
   children,
 }: {
-  tone?: "info" | "success" | "warning" | "danger";
+  tone?: "info" | "success" | "warning" | "danger" | "muted";
   children: React.ReactNode;
 }) {
   const tones: Record<string, string> = {
@@ -80,6 +80,7 @@ export function Badge({
     success: "bg-green-100 text-green-800",
     warning: "bg-yellow-100 text-yellow-700",
     danger: "bg-red-100 text-red-700",
+    muted: "bg-ink/10 text-ink-muted",
   };
   return (
     <span className={cn("inline-flex rounded-full px-3 py-1 text-xs font-bold", tones[tone])}>

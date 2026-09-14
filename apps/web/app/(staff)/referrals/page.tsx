@@ -89,7 +89,7 @@ function timeAgo(iso: string): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return days === 1 ? "yesterday" : `${days} ago`;
+  return days === 1 ? "yesterday" : `${days}d ago`;
 }
 
 /** Compact age ("45m", "3h", "2d") for escalation chips. */

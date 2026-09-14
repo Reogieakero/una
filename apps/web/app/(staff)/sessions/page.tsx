@@ -456,7 +456,8 @@ export default function SessionCalendarPage() {
                 <span aria-hidden>·</span>
                 <Badge tone={
                   selected.status === "completed" ? "success"
-                    : selected.status === "cancelled" || selected.status === "rejected" || selected.status === "no_show" ? "danger"
+                    : selected.status === "rejected" || selected.status === "no_show" ? "danger"
+                      : selected.status === "cancelled" ? "muted"
                       : selected.status === "assigned" || selected.status === "confirmed" ? "info" : "warning"
                 }>
                   {statusLabel(selected.status)}
