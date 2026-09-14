@@ -39,7 +39,10 @@ import { cn } from "@/lib/utils";
 type PageDoc = {
   href: string;
   label: string;
-  icon: ComponentType<{ className?: string }>;
+  // Loose on purpose: the monorepo graph can hold two copies of React's
+  // types (root Next.js marker + app), and a strict component type turns
+  // that duplication into a false LucideIcon mismatch on clean installs.
+  icon: ComponentType<any>;
   purpose: string;
   displayed: string[];
   actions: string[];
