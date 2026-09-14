@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -23,6 +23,7 @@ import {
   UserPlus,
   Settings,
   Video,
+  type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/primitives";
@@ -39,10 +40,9 @@ import { cn } from "@/lib/utils";
 type PageDoc = {
   href: string;
   label: string;
-  // Loose on purpose: the monorepo graph can hold two copies of React's
-  // types (root Next.js marker + app), and a strict component type turns
-  // that duplication into a false LucideIcon mismatch on clean installs.
-  icon: ComponentType<any>;
+  // Same type universe as the values (lucide-react's own LucideIcon), so
+  // pnpm's duplicated React-types copies can never false-mismatch this.
+  icon: LucideIcon;
   purpose: string;
   displayed: string[];
   actions: string[];
