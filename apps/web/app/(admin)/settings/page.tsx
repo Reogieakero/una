@@ -156,7 +156,7 @@ export default function SettingsPage() {
           ...((myActions ?? []) as { id: string; action: string; created_at: string }[]).map((a) => ({
             id: `a-${a.id}`,
             at: a.created_at,
-            text: `Triaged a referral → ${a.action.replace("_", " ")}`,
+            text: `Triaged a referral → ${a.action.replace(/_/g, " ")}`,
             tone: "info" as const,
           })),
           ...((myPosts ?? []) as { id: string; title: string; created_at: string }[]).map((a) => ({

@@ -526,7 +526,7 @@ async function CounselorReferralsPanel({ counselorId }: { counselorId: string | 
             <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">{r.reason}</p>
           </div>
           <span className="shrink-0 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold capitalize text-blue-800">
-            {r.status.replace("_", " ")}
+            {r.status.replace(/_/g, " ")}
           </span>
         </li>
       ))}

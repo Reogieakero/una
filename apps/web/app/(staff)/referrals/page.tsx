@@ -9,8 +9,11 @@ import { createReferralSchema, type CreateReferralInput } from "@dorsu/shared-sc
 import { createClient } from "@/lib/supabase/client";
 import {
   assignReferral,
+  confirmReferralWithSession,
   createReferral,
+  isMeetUrl,
   listReferrals,
+  REFERRAL_SCHEDULE_NOTE_PREFIX,
   rejectReferral,
   triageReferral,
 } from "@dorsu/shared-services";
@@ -120,16 +123,15 @@ function defaultScheduleInput(): string {
 }
 
 /**
- * Schedule persistence — referrals has no scheduled_at column, so the
- * counselor-set session time is stored as a structured trail note
- * ("Session scheduled for <ISO>") on the confirm action. Same schedule
- * discipline as appointment confirm, different storage.
+ * Schedule display — the counselor-set session time is stored as a
+ * structured trail note (REFERRAL_SCHEDULE_NOTE_PREFIX + ISO) on the
+ * confirm action, and parsed back here. Confirming also mints the real
+ * session row (see confirmReferralWithSession), so the note and the
+ * calendar always agree.
  */
-const SCHEDULE_NOTE_PREFIX = "Session scheduled for ";
-
 function parseScheduleNote(note: string | null): string | null {
-  if (!note || !note.startsWith(SCHEDULE_NOTE_PREFIX)) return null;
-  const candidate = note.slice(SCHEDULE_NOTE_PREFIX.length).trim().split(" ")[0];
+  if (!note || !note.startsWith(REFERRAL_SCHEDULE_NOTE_PREFIX)) return null;
+  const candidate = note.slice(REFERRAL_SCHEDULE_NOTE_PREFIX.length).trim().split(" ")[0];
   const d = new Date(candidate);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
@@ -140,7 +142,7 @@ const HEAD_LEGEND: { icon: typeof Check; label: string; desc: string; variant: "
 ];
 
 const COUNSELOR_LEGEND: { icon: typeof Check; label: string; desc: string; variant: "accent" | "outline" }[] = [
-  { icon: Check, label: "Confirm", desc: "Assigned → confirmed + set schedule", variant: "accent" },
+  { icon: Check, label: "Confirm", desc: "Assigned → confirmed + creates session", variant: "accent" },
   { icon: CheckCheck, label: "Resolve", desc: "Confirmed → resolved (needs session)", variant: "accent" },
   { icon: AlertTriangle, label: "Escalate", desc: "Flag as urgent", variant: "outline" },
 ];
@@ -178,7 +180,7 @@ function IconAction({
 type TriageKind = "confirmed" | "resolved" | "escalated" | "rejected";
 
 const TRIAGE_COPY: Record<TriageKind, { title: string; body: string; ok: string }> = {
-  confirmed: { title: "Confirm and schedule this session?", body: "Set the final session date and time. The student will be notified with this schedule.", ok: "Confirm session" },
+  confirmed: { title: "Confirm and schedule this session?", body: "Set the final session date and time plus how you'll meet. Confirming creates the session itself — the student is notified with the schedule.", ok: "Confirm session" },
   resolved: { title: "Resolve this referral?", body: "Closes the loop — the student needs a confirmed session with a schedule first. Resolve stays blocked until then.", ok: "Resolve" },
   escalated: { title: "Escalate this referral?", body: "Flags it as needing urgent attention from leadership.", ok: "Escalate" },
   rejected: { title: "Reject this referral?", body: "The referral ends as Rejected and leaves the queue. This can't be undone.", ok: "Reject referral" },
@@ -264,6 +266,9 @@ export default function ReferralsPage() {
   const [escalateError, setEscalateError] = useState<string | null>(null);
   const [scheduleInput, setScheduleInput] = useState("");
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [sessionMode, setSessionMode] = useState<"in_person" | "online">("in_person");
+  const [meetInput, setMeetInput] = useState("");
+  const [meetError, setMeetError] = useState<string | null>(null);
   const [studentPick, setStudentPick] = useState("");
   const [studentProfiles, setStudentProfiles] = useState<Map<string, string>>(new Map());
   // Students with a confirmed/completed scheduled session — only their
@@ -457,33 +462,39 @@ export default function ReferralsPage() {
     setConfirming({ ref, to });
   };
 
-  const act = async (ref: Referral, to: TriageKind, note?: string, scheduledIso?: string) => {
+  const act = async (
+    ref: Referral,
+    to: TriageKind,
+    note?: string,
+    opts?: { scheduledIso?: string; mode?: "in_person" | "online"; meetingUrl?: string | null }
+  ) => {
     if (!me) return;
     setBusyId(ref.id);
     try {
       const db = createClient();
-      // Counselor sets the final session time on confirm — same discipline
-      // as appointment confirm. The schedule is stored as a structured
-      // trail note (referrals has no scheduled_at column) and the student
-      // is notified with that time.
-      if (to === "confirmed" && scheduledIso) {
-        await triageReferral(db, {
+      // Counselor confirm mints the session itself (assigned/escalated →
+      // confirmed + a confirmed appointments row via source_referral_id),
+      // so the board, the calendar, and the resolve gate always agree.
+      // The schedule note keeps the human-readable trail alongside it.
+      if (to === "confirmed" && opts?.scheduledIso) {
+        await confirmReferralWithSession(db, {
           referralId: ref.id,
           actorProfileId: me,
-          status: to,
-          actionNote: `${SCHEDULE_NOTE_PREFIX}${scheduledIso}`,
+          scheduledAt: new Date(opts.scheduledIso),
+          mode: opts.mode ?? "in_person",
+          meetingUrl: opts.meetingUrl ?? null,
         });
       } else if (to === "rejected") await rejectReferral(db, ref.id, me);
       else await triageReferral(db, { referralId: ref.id, actorProfileId: me, status: to, actionNote: note });
       const alias = aliases.get(ref.student_id) ?? "Student";
-      const when = scheduledIso ? formatWhen(scheduledIso) : null;
+      const when = opts?.scheduledIso ? formatWhen(opts.scheduledIso) : null;
       const officeBody = `"${shortReason(ref.reason)}" — ${alias} · now ${statusLabel(to).toLowerCase()}${when ? ` · session ${when}` : ""}.`;
       if (to === "confirmed" && when) {
         // Student + referrer + heads hear the counselor-set schedule.
         await notifyStaff([studentProfiles.get(ref.student_id)], {
           type: "appointment",
           title: "Session confirmed",
-          body: `Your session is scheduled on ${when}. See you then!`,
+          body: `Your session is scheduled on ${when}${opts?.mode === "online" && opts?.meetingUrl ? `. Join here: ${opts.meetingUrl}` : ""}. See you then!`,
           link: "/appointments",
         });
       }
@@ -516,7 +527,7 @@ export default function ReferralsPage() {
       await reload();
     } catch (e) {
       toast.error(
-        e instanceof Error && /confirmed session|can't (move|assign|unassign|reject|confirm|resolve|escalate|acknowledge|start)/i.test(e.message)
+        e instanceof Error && /confirmed session|sessions must be|valid session|meet link|only the (assigned|handling)|unknown session|can't (move|assign|unassign|reject|confirm|resolve|escalate|acknowledge|start)/i.test(e.message)
           ? e.message
           : "Couldn't move that referral — please reload and try again."
       );
@@ -532,8 +543,10 @@ export default function ReferralsPage() {
       return;
     }
     // Counselor schedules the final session time on confirm — same gate
-    // as the appointment page.
+    // as the appointment page, plus the mode (Meet link required online).
+    // Confirming mints the session row itself.
     let scheduledIso: string | undefined;
+    let meetingUrl: string | null = null;
     if (confirming.to === "confirmed") {
       if (!scheduleInput) {
         setScheduleError("Set the session date and time.");
@@ -545,6 +558,18 @@ export default function ReferralsPage() {
         return;
       }
       scheduledIso = scheduledAt.toISOString();
+      if (sessionMode === "online") {
+        const link = meetInput.trim();
+        if (!link) {
+          setMeetError("Paste the Google Meet link for this online session.");
+          return;
+        }
+        if (!isMeetUrl(link)) {
+          setMeetError("That doesn't look like a Google Meet link — paste a meet.google.com link.");
+          return;
+        }
+        meetingUrl = link;
+      }
     }
     if (confirming.to === "escalated" && escalateNote.trim().length < 10) {
       setEscalateError("Say why this is urgent and what was already tried (at least 10 characters).");
@@ -557,7 +582,10 @@ export default function ReferralsPage() {
     setEscalateError(null);
     setScheduleInput("");
     setScheduleError(null);
-    void act(ref, to, note, scheduledIso);
+    setSessionMode("in_person");
+    setMeetInput("");
+    setMeetError(null);
+    void act(ref, to, note, { scheduledIso, mode: sessionMode, meetingUrl });
   };
 
   // Counselor-set session time per referral, parsed from confirm notes.
@@ -624,6 +652,9 @@ export default function ReferralsPage() {
       const existing = sessionSchedule.get(confirming.ref.id);
       setScheduleInput(existing ? toLocalInputValue(existing) : defaultScheduleInput());
       setScheduleError(null);
+      setSessionMode("in_person");
+      setMeetInput("");
+      setMeetError(null);
     }
     if (!confirming) return;
     if (confirming.to !== "escalated") setEscalateError(null);
@@ -634,6 +665,9 @@ export default function ReferralsPage() {
         setEscalateError(null);
         setScheduleInput("");
         setScheduleError(null);
+        setSessionMode("in_person");
+        setMeetInput("");
+        setMeetError(null);
       }
     };
     document.addEventListener("keydown", onKey);
@@ -701,7 +735,7 @@ export default function ReferralsPage() {
           {role === "faculty"
             ? "Flag a student for counseling follow-up — the office triages from here."
             : isCounselor
-              ? "Your assigned queue — confirm assigned referrals and set the session schedule (student notified), then resolve once it's confirmed. Cancels and reschedules come from the student."
+              ? "Your assigned queue — confirm assigned referrals: setting the schedule creates the session itself (student notified), then resolve once it's confirmed. Cancels and reschedules come from the student."
               : "Office-wide referral board — assign a counselor (pending → assigned) or reject the request. Confirm / resolve / escalate belong to the counselor."}
         </p>
       </div>
@@ -1204,7 +1238,7 @@ export default function ReferralsPage() {
           aria-labelledby="ref-confirm-title"
           aria-describedby="ref-confirm-desc"
         >
-          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => { setConfirming(null); setEscalateNote(""); setEscalateError(null); setScheduleInput(""); setScheduleError(null); }} />
+          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => { setConfirming(null); setEscalateNote(""); setEscalateError(null); setScheduleInput(""); setScheduleError(null); setSessionMode("in_person"); setMeetInput(""); setMeetError(null); }} />
           <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-6 shadow-card sm:max-w-md">
             <h2 id="ref-confirm-title" className="font-display text-lg font-bold text-ink">
               {TRIAGE_COPY[confirming.to].title}
@@ -1232,8 +1266,54 @@ export default function ReferralsPage() {
                   <p className="mt-1.5 text-xs font-semibold text-red-600">{scheduleError}</p>
                 ) : (
                   <p className="mt-1.5 text-[11px] font-medium text-ink-faint">
-                    This becomes the final schedule — the student is notified with this time.
+                    Confirming creates the session itself — the student is notified with this time.
                   </p>
+                )}
+              </div>
+            )}
+            {confirming.to === "confirmed" && (
+              <div className="mt-3 grid gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-ink-muted" htmlFor="ref-session-mode">
+                    Session mode
+                  </label>
+                  <Dropdown
+                    menuKey="ref-confirm-mode"
+                    openMenuKey={openMenuKey}
+                    onOpenChange={setOpenMenuKey}
+                    value={sessionMode}
+                    onChange={(v) => setSessionMode(v as "in_person" | "online")}
+                    ariaLabel="Session mode"
+                    options={[
+                      { value: "in_person", label: "In person" },
+                      { value: "online", label: "Online" },
+                    ]}
+                  />
+                </div>
+                {sessionMode === "online" && (
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-ink-muted" htmlFor="ref-meet-link">
+                      Google Meet link
+                    </label>
+                    <Input
+                      id="ref-meet-link"
+                      type="url"
+                      inputMode="url"
+                      placeholder="https://meet.google.com/abc-defg-hij"
+                      value={meetInput}
+                      onChange={(e) => {
+                        setMeetInput(e.target.value);
+                        setMeetError(null);
+                      }}
+                    />
+                    {meetError ? (
+                      <p className="mt-1.5 text-xs font-semibold text-red-600">{meetError}</p>
+                    ) : (
+                      <p className="mt-1.5 text-[11px] font-medium text-ink-faint">
+                        Paste the Google Meet for this session — the student joins with this link.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -1256,7 +1336,7 @@ export default function ReferralsPage() {
               </div>
             )}
             <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => { setConfirming(null); setEscalateNote(""); setEscalateError(null); setScheduleInput(""); setScheduleError(null); }} autoFocus>
+              <Button size="sm" variant="outline" onClick={() => { setConfirming(null); setEscalateNote(""); setEscalateError(null); setScheduleInput(""); setScheduleError(null); setSessionMode("in_person"); setMeetInput(""); setMeetError(null); }} autoFocus>
                 Back
               </Button>
               <Button

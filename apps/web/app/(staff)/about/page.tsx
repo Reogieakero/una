@@ -149,8 +149,8 @@ const COUNSELOR_PAGES: PageDoc[] = [
       "Board columns: Referred, Session (the schedule you set on confirm), Student, Referred by, Counselor, Priority, Status, Reason (eye icon opens the full reason + audit trail in a modal), Actions.",
     ],
     actions: [
-      "Confirm an assigned referral → set the session date/time (the student is notified with it).",
-      "Resolve a confirmed referral — blocked until the student holds a confirmed session.",
+      "Confirm an assigned referral → pick the date/time and the mode (Meet link required when online). Confirming creates the confirmed session itself — it lands on the calendar and board, and the student is notified with the schedule.",
+      "Resolve a confirmed referral — now unblocked immediately, since confirming minted its session.",
       "Escalate with a required note (why it's urgent, what was tried). Pending rows wait on the head.",
     ],
     handoff: "Resolved is terminal and forever attributed to you — the head cannot resolve on your behalf.",
@@ -449,7 +449,7 @@ const REFERRAL_FLOW = [
 const SPLIT_ROWS: { move: string; admin: boolean; counselor: boolean; note: string }[] = [
   { move: "Assign counselor", admin: true, counselor: false, note: "Pending → assigned (clearing returns to pending)." },
   { move: "Reject request", admin: true, counselor: false, note: "Pending / assigned → rejected. Terminal." },
-  { move: "Confirm + schedule", admin: false, counselor: true, note: "Assigned → confirmed. Sets the final time; Meet link required when online." },
+  { move: "Confirm + schedule", admin: false, counselor: true, note: "Assigned → confirmed. Mints the session row itself (Meet link required when online)." },
   { move: "Complete / No-show", admin: false, counselor: true, note: "Confirmed → completed / no_show. Terminal." },
   { move: "Resolve referral", admin: false, counselor: true, note: "Confirmed → resolved. Blocked until a confirmed session exists." },
   { move: "Escalate referral", admin: false, counselor: true, note: "Flags urgency; requires a written reason." },

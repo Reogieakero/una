@@ -427,7 +427,7 @@ export default function SecurityPage() {
         </div>
         <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
           {roleCounts.size > 0 && (
-            <>Current accounts — {[...roleCounts.entries()].map(([r, n]) => `${n} ${r.replace("_", " ")}`).join(" · ")} · </>
+            <>Current accounts — {[...roleCounts.entries()].map(([r, n]) => `${n} ${r.replace(/_/g, " ")}`).join(" · ")} · </>
           )}
           {deactivated} deactivated. Role changes happen only through staff provisioning.
         </p>

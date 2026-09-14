@@ -1,5 +1,6 @@
 import type { DbClient } from "../platform";
 import { createReferralSchema, updateReferralSchema } from "@dorsu/shared-schemas";
+import { isMeetUrl } from "../appointments/mutations";
 
 /**
  * Referral lifecycle (role-separated, mirrors appointments in
@@ -233,4 +234,128 @@ export async function rejectReferral(db: DbClient, referralId: string, actorProf
 /** Counselor confirms an assigned referral (assignment gate — no skipping pending). */
 export async function confirmReferral(db: DbClient, referralId: string, actorProfileId: string) {
   return triageReferral(db, { referralId, actorProfileId, status: "confirmed" });
+}
+
+/**
+ * Structured trail note carrying the counselor-set session time. Referrals
+ * has no scheduled_at column, so the confirm action stores
+ * "Session scheduled for <ISO>" — boards parse it back (same schedule
+ * discipline as appointment confirm, different storage).
+ */
+export const REFERRAL_SCHEDULE_NOTE_PREFIX = "Session scheduled for ";
+
+/**
+ * Counselor confirms a referral AND mints its session in one move.
+ *
+ * assigned/escalated → confirmed, plus an appointments row (status
+ * confirmed) linked via source_referral_id so the session lands on the
+ * calendar/board and unblocks resolve. Re-confirming refreshes the same
+ * row instead of minting duplicates (matched on source_referral_id while
+ * still active); terminal sessions are left alone and a fresh row is cut.
+ *
+ * Guards (UI or not): the actor must be the assigned counselor; the slot
+ * must be in the future; online sessions require a Google Meet link. The
+ * student self-booking PSS-10 gate does not apply — this is counselor
+ * judgment, and the insert runs under the counselor insert RLS policy
+ * (00036), which only permits rows assigned to the caller.
+ */
+export async function confirmReferralWithSession(
+  db: DbClient,
+  input: {
+    referralId: string;
+    actorProfileId: string;
+    scheduledAt: Date;
+    mode: "in_person" | "online";
+    meetingUrl?: string | null;
+  },
+) {
+  if (input.mode !== "in_person" && input.mode !== "online") {
+    throw new Error("Unknown session mode.");
+  }
+  if (!(input.scheduledAt instanceof Date) || Number.isNaN(input.scheduledAt.getTime())) {
+    throw new Error("Choose a valid session date and time");
+  }
+  if (input.scheduledAt.getTime() <= Date.now()) {
+    throw new Error("Sessions must be scheduled in the future.");
+  }
+  const link = (input.meetingUrl ?? "").trim();
+  if (input.mode === "online") {
+    if (!link) {
+      throw new Error("Add the Google Meet link for this online session.");
+    }
+    if (!isMeetUrl(link)) {
+      throw new Error("That doesn't look like a Google Meet link — paste a meet.google.com link.");
+    }
+  } else if (link && !/^https:\/\//i.test(link)) {
+    throw new Error("Meeting links must start with https://");
+  }
+
+  const { data: mine } = await db
+    .from("counselors")
+    .select("id")
+    .eq("profile_id", input.actorProfileId)
+    .maybeSingle();
+  const myCounselorId = (mine as { id: string } | null)?.id ?? null;
+
+  const { data: ref, error: refErr } = await db
+    .from("referrals")
+    .select("id, status, student_id, reason, assigned_counselor_id")
+    .eq("id", input.referralId)
+    .single();
+  if (refErr || !ref) throw refErr ?? new Error("Referral not found.");
+  const referral = ref as {
+    id: string;
+    status: string;
+    student_id: string;
+    reason: string;
+    assigned_counselor_id: string | null;
+  };
+  if (referral.status !== "assigned" && referral.status !== "escalated") {
+    throw new Error(`Can't confirm a referral from ${referral.status} — only assigned referrals can be confirmed.`);
+  }
+  if (!myCounselorId || referral.assigned_counselor_id !== myCounselorId) {
+    throw new Error("Can't confirm a referral — only the assigned counselor can confirm it.");
+  }
+
+  const iso = input.scheduledAt.toISOString();
+  const nowIso = new Date().toISOString();
+  const sessionPatch = {
+    counselor_id: myCounselorId,
+    scheduled_at: iso,
+    requested_datetime: iso,
+    mode: input.mode,
+    status: "confirmed",
+    confirmed_datetime: nowIso,
+    meeting_url: input.mode === "online" ? link : link || null,
+  };
+  const { data: existing } = await db
+    .from("appointments")
+    .select("id, status")
+    .eq("source_referral_id", input.referralId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const active = (existing as { id: string; status: string } | null)?.status ?? null;
+  if (existing && ["pending", "assigned", "confirmed"].includes(active ?? "")) {
+    const { error: upErr } = await db
+      .from("appointments")
+      .update(sessionPatch)
+      .eq("id", (existing as { id: string }).id);
+    if (upErr) throw upErr;
+  } else {
+    const { error: insErr } = await db.from("appointments").insert({
+      student_id: referral.student_id,
+      concern: referral.reason,
+      source_referral_id: input.referralId,
+      ...sessionPatch,
+    });
+    if (insErr) throw insErr;
+  }
+
+  return triageReferral(db, {
+    referralId: input.referralId,
+    actorProfileId: input.actorProfileId,
+    status: "confirmed",
+    actionNote: `${REFERRAL_SCHEDULE_NOTE_PREFIX}${iso}`,
+  });
 }

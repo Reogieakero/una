@@ -17,7 +17,15 @@ import { AuthDivider, GoogleButton } from "@/components/auth/GoogleButton";
 /** Staff/student login — schema from shared-schemas, session via Supabase Auth. */
 export default function LoginPage() {
   return (
-    <Suspense>
+    <Suspense
+      fallback={
+        <div className="animate-pulse space-y-4" aria-hidden>
+          <div className="h-10 rounded-2xl bg-ink/10" />
+          <div className="h-10 rounded-2xl bg-ink/10" />
+          <div className="h-12 rounded-full bg-ink/10" />
+        </div>
+      }
+    >
       <LoginForm />
     </Suspense>
   );
