@@ -7,8 +7,8 @@ import type { getCurrentProfile } from "@/lib/supabase/server";
 
 type Profile = Awaited<ReturnType<typeof getCurrentProfile>>;
 
-/** Routes that need every pixel (e.g. chat) render without the sidebar. */
-const FULL_WIDTH_ROUTES = ["/chat"];
+/** Routes that need every pixel (e.g. chat, the full-width handbook) render without the sidebar. */
+const FULL_WIDTH_ROUTES = ["/chat", "/about"];
 
 /**
  * Shell body — sidebar + content grid, except on full-width routes where

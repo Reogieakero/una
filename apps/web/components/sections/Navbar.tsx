@@ -46,9 +46,9 @@ export function Navbar() {
           </div>
 
           <div className="hidden shrink-0 items-center gap-2 lg:flex">
-            <a href="#roles">
+            <a href="/login">
               <Button variant="secondary" size="sm">
-                Explore the System
+                Login
               </Button>
             </a>
             <a href="#cta">
@@ -86,9 +86,9 @@ export function Navbar() {
                 </a>
               ))}
               <div className="mt-2 grid grid-cols-2 gap-2 p-1">
-                <a href="#roles" onClick={() => setOpen(false)}>
+                <a href="/login" onClick={() => setOpen(false)}>
                   <Button variant="secondary" size="sm" className="w-full">
-                    Explore
+                    Login
                   </Button>
                 </a>
                 <a href="#cta" onClick={() => setOpen(false)}>

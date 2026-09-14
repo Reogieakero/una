@@ -112,7 +112,7 @@ export default function SettingsPage() {
         ] = await Promise.all([
           supabase.from("counselors").select("id, profile_id, specialization, is_available").limit(50),
           supabase.from("appointments").select("id, counselor_id, scheduled_at, status").limit(500),
-          supabase.from("referrals").select("id", { count: "exact", head: true }).in("status", ["pending", "acknowledged", "in_progress", "escalated"]),
+          supabase.from("referrals").select("id", { count: "exact", head: true }).in("status", ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"]),
           supabase.from("announcements").select("id, title, created_at, published_at, author_profile_id").order("created_at", { ascending: false }).limit(5),
           supabase.from("referral_actions").select("id, action, created_at").eq("actor_profile_id", user.id).order("created_at", { ascending: false }).limit(8),
           supabase.from("announcements").select("id, title, created_at").eq("author_profile_id", user.id).order("created_at", { ascending: false }).limit(5),

@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { breakGlassSchema, type BreakGlassInput } from "@dorsu/shared-schemas";
-import { actionPolicy, breakGlassAccess, type AppAction } from "@dorsu/shared-services";
+import { actionPolicy, type AppAction } from "@dorsu/shared-services";
 import { createClient } from "@/lib/supabase/client";
 import { Badge, Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
@@ -147,7 +147,13 @@ export default function SecurityPage() {
     if (!me) return;
     setBusyId("__new__");
     try {
-      await breakGlassAccess(createClient(), { accessorProfileId: me, studentId: v.studentId, justification: v.justification });
+      const res = await fetch("/api/staff/security/log-break-glass", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId: v.studentId, justification: v.justification }),
+      });
+      const json = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) throw new Error(json?.error ?? "Couldn't log that access.");
       reset();
       setStudentPick("");
       await reload();

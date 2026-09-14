@@ -422,7 +422,11 @@ export default function ChatPage() {
       const cname = (t.counselor_id && counselorNames.get(t.counselor_id)) || "";
       const preview = previews.get(t.id)?.body ?? "";
       if (q && !`${alias} ${cname} ${preview}`.toLowerCase().includes(q)) continue;
-      out.push({ kind: "thread", key: `t-${t.id}`, at: t.updated_at, thread: t });
+      // Order by the latest message when known — thread.updated_at can lag
+      // rows written before the bump trigger (00032) existed.
+      const previewAt = previews.get(t.id)?.created_at;
+      const at = previewAt && previewAt > t.updated_at ? previewAt : t.updated_at;
+      out.push({ kind: "thread", key: `t-${t.id}`, at, thread: t });
     }
     for (const g of dmGroups) {
       const name = staffNames.get(g.peer) ?? "Staff";
@@ -652,7 +656,7 @@ export default function ChatPage() {
                         <span className="min-w-0 flex-1 leading-snug">
                           <span className="flex items-baseline justify-between gap-2">
                             <span className="truncate text-sm font-bold text-ink">{alias}</span>
-                            <span className="shrink-0 text-[11px] font-medium text-ink-faint">{timeAgo(t.updated_at)}</span>
+                            <span className="shrink-0 text-[11px] font-medium text-ink-faint">{timeAgo(c.at)}</span>
                           </span>
                           <span className="mt-0.5 flex items-center gap-1.5">
                             {flag && (

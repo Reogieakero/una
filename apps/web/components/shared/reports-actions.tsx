@@ -35,10 +35,13 @@ const APPT_STATUS: Record<string, string> = {
 
 const REF_STATUS: Record<string, string> = {
   pending: "Pending",
+  assigned: "Assigned",
   acknowledged: "Acknowledged",
   in_progress: "In progress",
+  confirmed: "Confirmed",
   resolved: "Resolved",
   escalated: "Escalated",
+  rejected: "Rejected",
 };
 
 const PRIORITY: Record<string, string> = {
@@ -92,9 +95,9 @@ function pillStyle(kind: "appt" | "ref" | "priority" | "band", raw: string) {
   }
   if (kind === "ref") {
     if (v === "resolved") return { bg: "FFDCFCE7", fg: "FF166534" };
-    if (v === "escalated") return { bg: "FFFEE2E2", fg: "FF991B1B" };
+    if (v === "escalated" || v === "rejected") return { bg: "FFFEE2E2", fg: "FF991B1B" };
     if (v === "pending") return { bg: "FFFEF3C7", fg: "FF92400E" };
-    return { bg: "FFDBEAFE", fg: "FF1E40AF" };
+    return { bg: "FFDBEAFE", fg: "FF1E40AF" }; // assigned / acknowledged / in_progress / confirmed
   }
   if (kind === "priority") {
     if (v === "urgent") return { bg: "FFFEE2E2", fg: "FF991B1B" };
@@ -251,7 +254,7 @@ function aliasOrMasked(alias: string | null | undefined, id: string | null | und
 
 /* ── Data fetch ── */
 
-async function fetchReportData() {
+async function fetchReportData(scope?: { counselorId?: string | null }) {
   const supabase = createClient();
   const [
     officeRes,
@@ -278,7 +281,7 @@ async function fetchReportData() {
       .select("appointment_id,student_id,rating,comment,created_at")
       .order("created_at", { ascending: false })
       .limit(2000),
-    supabase.from("pss10_assessments").select("band,total_score,created_at").order("created_at", { ascending: false }).limit(1000),
+    supabase.from("pss10_assessments").select("id,student_id,band,total_score,created_at").order("created_at", { ascending: false }).limit(1000),
     supabase.from("counselors").select("id,profile_id,specialization,is_available"),
     supabase.from("announcements").select("id,title,published_at,created_at").order("created_at", { ascending: false }).limit(200),
   ]);
@@ -287,10 +290,24 @@ async function fetchReportData() {
   if (refsRes.error) throw new Error("Couldn't load referrals for export.");
   if (feedRes.error) throw new Error("Couldn't load feedback for export.");
 
-  const appointments = (apptsRes.data ?? []) as any[];
-  const referrals = (refsRes.data ?? []) as any[];
-  const feedback = (feedRes.data ?? []) as any[];
-  const pss = ((pssRes.data ?? []) as any[]) ?? [];
+  // Counselor scope — personal workbook: only my sessions, my referrals,
+  // feedback on my sessions, and screenings of students I've seen.
+  // (RLS already narrows appointments, but explicit filtering keeps the
+  // export correct even where role policies allow wider reads.)
+  let appointments = (apptsRes.data ?? []) as any[];
+  let referrals = (refsRes.data ?? []) as any[];
+  let feedback = (feedRes.data ?? []) as any[];
+  let pss = ((pssRes.data ?? []) as any[]) ?? [];
+  if (scope?.counselorId) {
+    const mine = scope.counselorId;
+    appointments = appointments.filter((a) => a.counselor_id === mine);
+    const myApptIds = new Set(appointments.map((a) => a.id));
+    const myStudentIds = new Set(appointments.map((a) => a.student_id).filter(Boolean));
+    referrals = referrals.filter((r) => r.assigned_counselor_id === mine);
+    feedback = feedback.filter((f) => myApptIds.has(f.appointment_id));
+    pss = pss.filter((p) => myStudentIds.has(p.student_id));
+  }
+
   const counselors = ((counselorsRes.data ?? []) as any[]) ?? [];
   const announcements = ((annRes.data ?? []) as any[]) ?? [];
 
@@ -322,13 +339,15 @@ async function fetchReportData() {
   const office = (officeRes.data as { value?: { name?: string; location?: string; contact?: string } } | null)?.value;
 
   return { appointments, referrals, feedback, pss, counselors, announcements, counselorName, counselorSpec, counselorAvail, aliasByStudent, office };
+
+  return { appointments, referrals, feedback, pss, counselors, announcements, counselorName, counselorSpec, counselorAvail, aliasByStudent, office };
 }
 
 type ReportBundle = Awaited<ReturnType<typeof fetchReportData>>;
 
 /* ── Workbook builder ── */
 
-async function buildWorkbook(bundle: ReportBundle) {
+async function buildWorkbook(bundle: ReportBundle, opts?: { personal?: boolean }) {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
   const stamp = new Date();
@@ -356,7 +375,7 @@ async function buildWorkbook(bundle: ReportBundle) {
   const completed = appointments.filter((a) => a.status === "completed").length;
   const missed = appointments.filter((a) => a.status === "cancelled" || a.status === "rejected" || a.status === "no_show").length;
   const avgRating = feedback.length ? feedback.reduce((a, f) => a + (f.rating ?? 0), 0) / feedback.length : 0;
-  const openRefs = referrals.filter((r) => ["pending", "acknowledged", "in_progress", "escalated"].includes(r.status)).length;
+  const openRefs = referrals.filter((r) => ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"].includes(r.status)).length;
   const resolvedRefs = referrals.filter((r) => r.status === "resolved").length;
   const highStress = pss.filter((p) => p.band === "high").length;
 
@@ -376,12 +395,14 @@ async function buildWorkbook(bundle: ReportBundle) {
     ws.getRow(1).height = 18;
 
     ws.mergeCells("A2:C2");
-    ws.getCell("A2").value = "Consolidated Transactions Report";
+    ws.getCell("A2").value = opts?.personal ? "My Transactions Report" : "Consolidated Transactions Report";
     ws.getCell("A2").font = { name: "Calibri", size: 22, bold: true, color: { argb: NAVY } };
     ws.getRow(2).height = 32;
 
     ws.mergeCells("A3:C3");
-    ws.getCell("A3").value = "One workbook  •  every admin transaction  •  meeting-ready";
+    ws.getCell("A3").value = opts?.personal
+      ? "One workbook  •  my sessions, referrals & outcomes  •  meeting-ready"
+      : "One workbook  •  every admin transaction  •  meeting-ready";
     ws.getCell("A3").font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF334155" } };
     ws.getRow(3).height = 18;
 
@@ -680,7 +701,7 @@ async function buildWorkbook(bundle: ReportBundle) {
         pillCell(ws.getRow(rr).getCell(4), PRIORITY[x.priority] ?? titleCase(x.priority), pillStyle("priority", x.priority));
       }
     }
-    const unassigned = referrals.filter((x) => !x.assigned_counselor_id && x.status !== "resolved").length;
+    const unassigned = referrals.filter((x) => !x.assigned_counselor_id && !["resolved", "rejected"].includes(x.status)).length;
     styleTotalRow(ws, r, nCols);
     ws.getCell(r, 1).value = "TOTAL";
     ws.getCell(r, 2).value = `${referrals.length} referrals  •  ${openRefs} open  •  ${unassigned} unassigned`;
@@ -890,8 +911,11 @@ async function buildWorkbook(bundle: ReportBundle) {
         completed: byCounselor.get(c.id)?.completed ?? 0,
       }))
       .sort((a, b) => b.total - a.total);
+    // Personal workbook: only my row (other counselors had no rows in the
+    // already-filtered appointments, so they'd all show zero).
+    const teamRows = opts?.personal ? ranked.filter((c) => c.total > 0) : ranked;
     let r = 6;
-    if (!ranked.length) {
+    if (!teamRows.length) {
       ws.mergeCells(`A${r}:${colLetter(nCols)}${r}`);
       ws.getCell(`A${r}`).value = "No counselors yet — add the team and workload will rank here.";
       ws.getCell(`A${r}`).font = { name: "Calibri", size: 10, italic: true, color: { argb: MUTED } };
@@ -899,7 +923,7 @@ async function buildWorkbook(bundle: ReportBundle) {
       ws.getRow(r).height = 22;
       r += 1;
     } else {
-      ranked.forEach((c, idx) => {
+      teamRows.forEach((c, idx) => {
         ws.getRow(r).height = 22;
         const cells: (string | number)[] = [
           idx + 1,
@@ -929,7 +953,7 @@ async function buildWorkbook(bundle: ReportBundle) {
     }
     styleDataRows(ws, 6, r - 1, nCols);
     for (let rr = 6; rr < r; rr++) {
-      const c = ranked[rr - 6];
+      const c = teamRows[rr - 6];
       if (c) {
         const st = ws.getRow(rr).getCell(4);
         st.fill = { type: "pattern", pattern: "solid", fgColor: { argb: c.avail ? "FFDCFCE7" : "FFFEF3C7" } };
@@ -939,7 +963,9 @@ async function buildWorkbook(bundle: ReportBundle) {
     }
     styleTotalRow(ws, r, nCols);
     ws.getCell(r, 1).value = "TOTAL";
-    ws.getCell(r, 2).value = `${counselors.length} counselors${unassignedSessions ? `  •  ${unassignedSessions} unassigned session${unassignedSessions === 1 ? "" : "s"}` : ""}`;
+    ws.getCell(r, 2).value = opts?.personal
+      ? `My sessions${unassignedSessions ? `  •  ${unassignedSessions} unassigned` : ""}`
+      : `${counselors.length} counselors${unassignedSessions ? `  •  ${unassignedSessions} unassigned session${unassignedSessions === 1 ? "" : "s"}` : ""}`;
     ws.mergeCells(`B${r}:D${r}`);
     ws.getCell(r, 2).alignment = { vertical: "middle", horizontal: "left" };
     ws.getCell(r, 5).value = totalAppts;
@@ -1050,9 +1076,10 @@ async function buildWorkbook(bundle: ReportBundle) {
 
 /* ── Buttons ── */
 
-/** Export the whole office as one styled multi-sheet Excel workbook (replaces the old flat CSV). */
-export function ExportReportsButton() {
+/** Export office (or personal, when counselorId is set) as one styled multi-sheet Excel workbook. */
+export function ExportReportsButton({ counselorId }: { counselorId?: string | null } = {}) {
   const [busy, setBusy] = useState(false);
+  const personal = !!counselorId;
 
   return (
     <button
@@ -1061,20 +1088,20 @@ export function ExportReportsButton() {
       onClick={async () => {
         setBusy(true);
         try {
-          const bundle = await fetchReportData();
-          const { buffer, fileDay } = await buildWorkbook(bundle);
+          const bundle = await fetchReportData(personal ? { counselorId } : undefined);
+          const { buffer, fileDay } = await buildWorkbook(bundle, { personal });
           const blob = new Blob([buffer as unknown as BlobPart], {
             type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           });
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
-          a.download = `DOrSU-Guidance-Report-${fileDay}.xlsx`;
+          a.download = personal ? `DOrSU-My-Report-${fileDay}.xlsx` : `DOrSU-Guidance-Report-${fileDay}.xlsx`;
           document.body.appendChild(a);
           a.click();
           a.remove();
           setTimeout(() => URL.revokeObjectURL(url), 4000);
-          toast.success("Workbook downloaded — 8 sheets, print-ready.");
+          toast.success(personal ? "Your workbook downloaded — 8 sheets, your cases only." : "Workbook downloaded — 8 sheets, print-ready.");
         } catch (e) {
           toast.error(e instanceof Error ? e.message : "Couldn't build the workbook — please try again.");
         } finally {

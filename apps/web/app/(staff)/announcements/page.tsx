@@ -84,6 +84,7 @@ export default function AnnouncementsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Announcement | null>(null);
   const [tab, setTab] = useState("feed");
+  const [role, setRole] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { register, handleSubmit, formState, reset } = useForm<AnnouncementInput>({
@@ -94,10 +95,12 @@ export default function AnnouncementsPage() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      const { data: me } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
-      if ((me as { full_name: string | null } | null)?.full_name) {
-        setMyName((me as { full_name: string }).full_name);
+      const { data: me } = await supabase.from("profiles").select("full_name, role").eq("id", user.id).single();
+      const typed = me as { full_name: string | null; role: string | null } | null;
+      if (typed?.full_name) {
+        setMyName(typed.full_name);
       }
+      setRole(typed?.role ?? null);
     }
     const { data, error } = await supabase
       .from("announcements")
@@ -136,6 +139,19 @@ export default function AnnouncementsPage() {
   }, [imagePreview]);
 
   const now = Date.now();
+
+  // Publishing is head-only (rbac + RLS). Other staff get a read-only feed
+  // of published posts aimed at them (or everyone). Drafts never reach them
+  // — RLS already excludes drafts, this also drops other roles' targeting.
+  const isHead = role === "guidance_head";
+  const audienceKey = role === "faculty" ? "faculty" : "counselor";
+  const visibleRows = isHead
+    ? rows
+    : rows.filter(
+        (a) =>
+          statusOf(a, now) === "published" &&
+          (!a.audience || !a.audience.length || a.audience.includes(audienceKey))
+      );
 
   const stats = useMemo(() => {
     const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -331,9 +347,12 @@ export default function AnnouncementsPage() {
           <div>
             <h1 className="font-display text-2xl font-bold">Announcements</h1>
             <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-              The office newsfeed — post updates with photos, or check how posting is doing.
+              {isHead
+                ? "The office newsfeed — post updates with photos, or check how posting is doing."
+                : "Updates from the guidance office — news meant for you."}
             </p>
           </div>
+          {isHead && (
           <div
             role="tablist"
             aria-label="Announcements views"
@@ -362,12 +381,14 @@ export default function AnnouncementsPage() {
               );
             })}
           </div>
+          )}
         </div>
 
         {/* ── Newsfeed ── */}
         <TabsContent value="feed">
           <div className="mx-auto max-w-2xl space-y-4">
-            {/* Composer */}
+            {/* Composer (head only — publishing is head-only per rbac + RLS) */}
+            {isHead && (
             <Card>
               <div className="flex items-center gap-3">
                 <span
@@ -456,6 +477,7 @@ export default function AnnouncementsPage() {
                 </div>
               </form>
             </Card>
+            )}
 
             {/* Feed */}
             {loading &&
@@ -469,7 +491,7 @@ export default function AnnouncementsPage() {
                 </div>
               ))}
             {!loading &&
-              rows.map((a) => {
+              visibleRows.map((a) => {
                 const st = statusOf(a, now);
                 const name = authors.get(a.author_profile_id) ?? "Staff";
                 return (
@@ -500,6 +522,7 @@ export default function AnnouncementsPage() {
                         className="mt-3 max-h-96 w-full rounded-2xl border border-ink/10 object-cover"
                       />
                     )}
+                    {isHead && (
                     <div className="mt-3 flex flex-wrap gap-1.5 border-t border-ink/10 pt-3">
                       {st !== "published" && (
                         <Button size="sm" variant="accent" disabled={busyId === `pub-${a.id}`} onClick={() => void setPublished(a, new Date().toISOString(), `pub-${a.id}`)}>
@@ -515,11 +538,12 @@ export default function AnnouncementsPage() {
                         Delete
                       </Button>
                     </div>
+                    )}
                   </article>
                 );
               })}
-            {!loading && !rows.length && (
-              <Card><p className="text-center text-sm text-ink-muted">Nothing posted yet — write the first update above.</p></Card>
+            {!loading && !visibleRows.length && (
+              <Card><p className="text-center text-sm text-ink-muted">{isHead ? "Nothing posted yet — write the first update above." : "No announcements for you yet."}</p></Card>
             )}
           </div>
         </TabsContent>

@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { BarChart3, PieChart as PieChartIcon, CalendarDays, ClipboardList, Inbox, Megaphone, MessagesSquare, Users } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { BarChart3, PieChart as PieChartIcon, CalendarDays, CalendarCheck, Inbox, MessagesSquare, Clock } from "lucide-react";
+import { createClient, getCurrentProfile } from "@/lib/supabase/server";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -13,14 +14,17 @@ import {
 import { ReferralStatusChart, SessionsWeekChart } from "@/components/shared/dashboard-charts";
 import { cn } from "@/lib/utils";
 
-const OPEN_REFERRALS = ["pending", "acknowledged", "in_progress", "escalated"] as const;
+const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"] as const;
 
 const STATUS_META: Record<string, { label: string; color: string; tone: string }> = {
   pending: { label: "Pending", color: "#F59E0B", tone: "bg-amber-100 text-amber-800" },
+  assigned: { label: "Assigned", color: "#6366F1", tone: "bg-indigo-100 text-indigo-800" },
   acknowledged: { label: "Acknowledged", color: "#3B82F6", tone: "bg-blue-100 text-blue-800" },
   in_progress: { label: "In progress", color: "#2563EB", tone: "bg-blue-100 text-blue-800" },
+  confirmed: { label: "Confirmed", color: "#3B82F6", tone: "bg-blue-100 text-blue-800" },
   resolved: { label: "Resolved", color: "#22C55E", tone: "bg-green-100 text-green-800" },
   escalated: { label: "Escalated", color: "#EF4444", tone: "bg-red-100 text-red-800" },
+  rejected: { label: "Rejected", color: "#EF4444", tone: "bg-red-100 text-red-800" },
 };
 
 const APPT_TONE: Record<string, string> = {
@@ -33,13 +37,22 @@ const APPT_TONE: Record<string, string> = {
   no_show: "bg-red-100 text-red-800",
 };
 
-const QUICK_LINKS = [
+const HEAD_QUICK_LINKS = [
   { href: "/appointments", label: "Appointments", hint: "See what's booked", icon: CalendarDays, chip: "bg-blue-50 text-primary-700" },
   { href: "/referrals", label: "Referrals", hint: "Check the inbox", icon: Inbox, chip: "bg-amber-50 text-amber-700" },
-  { href: "/users", label: "Users", hint: "Manage accounts", icon: Users, chip: "bg-green-50 text-green-800" },
+  { href: "/users", label: "Users", hint: "Manage accounts", icon: BarChart3, chip: "bg-green-50 text-green-800" },
   { href: "/chat", label: "Chat", hint: "Message students", icon: MessagesSquare, chip: "bg-blue-50 text-primary-700" },
-  { href: "/announcements", label: "Announcements", hint: "Post an update", icon: Megaphone, chip: "bg-amber-50 text-amber-700" },
-  { href: "/reports", label: "Reports", hint: "Review reports", icon: ClipboardList, chip: "bg-green-50 text-green-800" },
+  { href: "/announcements", label: "Announcements", hint: "Post an update", icon: Inbox, chip: "bg-amber-50 text-amber-700" },
+  { href: "/reports", label: "Reports", hint: "Review reports", icon: BarChart3, chip: "bg-green-50 text-green-800" },
+] as const;
+
+const COUNSELOR_QUICK_LINKS = [
+  { href: "/appointments", label: "My appointments", hint: "Confirm & complete", icon: CalendarCheck, chip: "bg-blue-50 text-primary-700" },
+  { href: "/referrals", label: "Referrals inbox", hint: "Triage your queue", icon: Inbox, chip: "bg-amber-50 text-amber-700" },
+  { href: "/chat", label: "Chat", hint: "Message students", icon: MessagesSquare, chip: "bg-blue-50 text-primary-700" },
+  { href: "/availability", label: "Availability", hint: "Manage open slots", icon: Clock, chip: "bg-green-50 text-green-800" },
+  { href: "/reports", label: "Reports", hint: "Review my work", icon: BarChart3, chip: "bg-green-50 text-green-800" },
+  { href: "/sessions", label: "Today's sessions", hint: "Month, week, day calendar", icon: CalendarDays, chip: "bg-blue-50 text-primary-700" },
 ] as const;
 
 function startOfTodayUTC(): Date {
@@ -102,9 +115,15 @@ async function aliasMap(ids: string[]): Promise<Map<string, string>> {
   return new Map((data ?? []).map((s) => [s.id, s.anonymous_alias ?? "Student"]));
 }
 
-/* ── Streaming sections (each suspends on its own → own skeleton) ── */
+async function getCounselorId(profileId: string): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("counselors").select("id").eq("profile_id", profileId).maybeSingle();
+  return (data as { id: string } | null)?.id ?? null;
+}
 
-async function KpiCards() {
+/* ── Head (guidance_head) sections — office-wide overview ── */
+
+async function HeadKpiCards() {
   const supabase = await createClient();
   const today = startOfTodayUTC();
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
@@ -137,7 +156,7 @@ async function KpiCards() {
   );
 }
 
-async function ReferralsPanel() {
+async function HeadReferralsPanel() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("referrals")
@@ -173,7 +192,7 @@ async function ReferralsPanel() {
   );
 }
 
-async function SessionsPanel() {
+async function HeadSessionsPanel() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("appointments")
@@ -215,7 +234,7 @@ async function SessionsPanel() {
   );
 }
 
-async function UnassignedPanel() {
+async function HeadUnassignedPanel() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("referrals")
@@ -263,7 +282,7 @@ async function AnnouncementsPanel() {
   const rows = data ?? [];
   if (!rows.length) {
     return (
-      <EmptyState icon={Megaphone} title="No announcements yet" hint="News and updates you post will show up here." />
+      <EmptyState icon={Inbox} title="No announcements yet" hint="News and updates you post will show up here." />
     );
   }
   return (
@@ -280,7 +299,7 @@ async function AnnouncementsPanel() {
   );
 }
 
-async function WeekChart() {
+async function HeadWeekChart() {
   const supabase = await createClient();
   const today = startOfTodayUTC();
   const weekAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
@@ -307,7 +326,7 @@ async function WeekChart() {
   return <SessionsWeekChart data={buckets} />;
 }
 
-async function StatusChart() {
+async function HeadStatusChart() {
   const supabase = await createClient();
   const { data, error } = await supabase.from("referrals").select("status").limit(1000);
   if (error) return <p className="mt-3 text-sm text-ink-muted">Couldn&apos;t load chart data right now.</p>;
@@ -328,9 +347,209 @@ async function StatusChart() {
   return <ReferralStatusChart data={slices} />;
 }
 
+/* ── Counselor sections — personal queue only ── */
+
+async function CounselorKpiCards({ counselorId, profileId }: { counselorId: string | null; profileId: string }) {
+  const supabase = await createClient();
+  const today = startOfTodayUTC();
+  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+  if (!counselorId) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-card md:col-span-3">
+        <p className="text-sm font-bold text-amber-800">Counselor record not linked yet</p>
+        <p className="mt-1 text-[13px] text-amber-700">
+          Your login works, but no counselor row is linked to your account. Ask the guidance head to finish setup.
+        </p>
+      </div>
+    );
+  }
+  const [todayRes, confirmRes, referralsRes, chatsRes] = await Promise.all([
+    supabase
+      .from("appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("counselor_id", counselorId)
+      .gte("scheduled_at", today.toISOString())
+      .lt("scheduled_at", tomorrow.toISOString())
+      .in("status", ["assigned", "confirmed"]),
+    supabase
+      .from("appointments")
+      .select("id", { count: "exact", head: true })
+      .eq("counselor_id", counselorId)
+      .eq("status", "assigned"),
+    supabase
+      .from("referrals")
+      .select("id", { count: "exact", head: true })
+      .eq("assigned_counselor_id", counselorId)
+      .in("status", [...OPEN_REFERRALS]),
+    supabase
+      .from("chat_threads")
+      .select("id", { count: "exact", head: true })
+      .eq("counselor_id", counselorId)
+      .eq("status", "open"),
+  ]);
+  void profileId;
+  const stats = [
+    { label: "My sessions today", value: todayRes.error ? null : (todayRes.count ?? 0) },
+    { label: "Awaiting confirmation", value: confirmRes.error ? null : (confirmRes.count ?? 0) },
+    { label: "My open referrals", value: referralsRes.error ? null : (referralsRes.count ?? 0) },
+    { label: "My open chats", value: chatsRes.error ? null : (chatsRes.count ?? 0) },
+  ];
+  return (
+    <>
+      {stats.map((s) => (
+        <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
+          <p className="text-[13px] font-medium text-ink-muted">{s.label}</p>
+          <p className="mt-1 font-display text-3xl font-bold text-ink">{s.value ?? "–"}</p>
+        </div>
+      ))}
+    </>
+  );
+}
+
+async function CounselorTodayPanel({ counselorId }: { counselorId: string | null }) {
+  if (!counselorId) return <p className="mt-3 text-sm text-ink-muted">No counselor record linked.</p>;
+  const supabase = await createClient();
+  const today = startOfTodayUTC();
+  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("id, scheduled_at, status, concern, student_id")
+    .eq("counselor_id", counselorId)
+    .gte("scheduled_at", today.toISOString())
+    .lt("scheduled_at", tomorrow.toISOString())
+    .order("scheduled_at", { ascending: true })
+    .limit(5);
+  if (error) return <p className="mt-3 text-sm text-ink-muted">Couldn&apos;t load today&apos;s sessions.</p>;
+  const rows = data ?? [];
+  if (!rows.length) {
+    return (
+      <EmptyState icon={CalendarDays} title="Nothing today" hint="No sessions on your calendar today — check upcoming below." />
+    );
+  }
+  const aliases = await aliasMap(rows.map((r) => r.student_id));
+  return (
+    <ul className="mt-3 divide-y divide-ink/10">
+      {rows.map((a) => (
+        <li key={a.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-ink">
+              {formatWhen(a.scheduled_at)} · {aliases.get(a.student_id) ?? "Student"}
+            </p>
+            <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">{a.concern}</p>
+          </div>
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize",
+              APPT_TONE[a.status] ?? "bg-ink/10 text-ink-muted"
+            )}
+          >
+            {a.status}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+async function CounselorActionPanel({ counselorId }: { counselorId: string | null }) {
+  if (!counselorId) return <p className="mt-3 text-sm text-ink-muted">No counselor record linked.</p>;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("id, scheduled_at, status, concern, student_id")
+    .eq("counselor_id", counselorId)
+    .in("status", ["assigned", "confirmed"])
+    .gte("scheduled_at", new Date().toISOString())
+    .order("scheduled_at", { ascending: true })
+    .limit(5);
+  if (error) return <p className="mt-3 text-sm text-ink-muted">Couldn&apos;t load your action queue.</p>;
+  const rows = data ?? [];
+  if (!rows.length) {
+    return (
+      <EmptyState icon={CalendarCheck} title="Queue clear" hint="Nothing needs confirm / complete right now." />
+    );
+  }
+  const aliases = await aliasMap(rows.map((r) => r.student_id));
+  return (
+    <ul className="mt-3 divide-y divide-ink/10">
+      {rows.map((a) => (
+        <li key={a.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-ink">
+              {formatWhen(a.scheduled_at)} · {aliases.get(a.student_id) ?? "Student"}
+            </p>
+            <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">
+              {a.status === "assigned" ? "Needs confirmation" : "Confirmed — mark complete after the session"}
+            </p>
+          </div>
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize",
+              APPT_TONE[a.status] ?? "bg-ink/10 text-ink-muted"
+            )}
+          >
+            {a.status}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+async function CounselorReferralsPanel({ counselorId }: { counselorId: string | null }) {
+  if (!counselorId) return <p className="mt-3 text-sm text-ink-muted">No counselor record linked.</p>;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("referrals")
+    .select("id, reason, priority, status, student_id, created_at")
+    .eq("assigned_counselor_id", counselorId)
+    .in("status", [...OPEN_REFERRALS])
+    .order("created_at", { ascending: false })
+    .limit(5);
+  if (error) return <p className="mt-3 text-sm text-ink-muted">Couldn&apos;t load your referrals.</p>;
+  const rows = data ?? [];
+  if (!rows.length) {
+    return (
+      <EmptyState icon={Inbox} title="No referrals assigned" hint="Referrals assigned to you will show up here." />
+    );
+  }
+  const aliases = await aliasMap(rows.map((r) => r.student_id));
+  return (
+    <ul className="mt-3 divide-y divide-ink/10">
+      {rows.map((r) => (
+        <li key={r.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold text-ink">
+              {aliases.get(r.student_id) ?? "Student"}
+              <span className="ml-2 text-[11px] font-medium text-ink-faint">{timeAgo(r.created_at)}</span>
+            </p>
+            <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">{r.reason}</p>
+          </div>
+          <span className="shrink-0 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold capitalize text-blue-800">
+            {r.status.replace("_", " ")}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /* ── Skeletons (exact card geometry, shown per-section while streaming) ── */
 
 function KpiSkeleton() {
+  return (
+    <>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-5 shadow-card">
+          <div className="h-3.5 w-2/3 rounded-full bg-ink/10" />
+          <div className="mt-3 h-8 w-1/3 rounded-lg bg-ink/10" />
+        </div>
+      ))}
+    </>
+  );
+}
+
+function HeadKpiSkeleton() {
   return (
     <>
       {[0, 1, 2].map((i) => (
@@ -387,36 +606,110 @@ function PanelShell({
   );
 }
 
-/** Head dashboard — shell renders instantly, every block streams with its skeleton. */
-export default function DashboardPage() {
+function BreadcrumbHeader({ current }: { current: string }) {
+  return (
+    <Breadcrumb>
+      <BreadcrumbList>
+        <BreadcrumbItem>
+          <BreadcrumbLink href="/">Home</BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator />
+        <BreadcrumbItem>
+          <BreadcrumbPage>{current}</BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
+}
+
+/** Counselor home — personal queue, never office-wide. */
+async function CounselorHome({ profileId, name }: { profileId: string; name: string | null }) {
+  const counselorId = await getCounselorId(profileId);
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Dashboard</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <BreadcrumbHeader current="Dashboard" />
+      <div>
+        <h1 className="font-display text-2xl font-bold">Welcome back{name ? `, ${name.split(" ")[0]}` : ""}</h1>
+        <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
+          Your day at a glance — today&apos;s sessions, what needs confirmation, and referrals assigned to you.
+        </p>
+      </div>
 
-      <h1 className="sr-only">Dashboard</h1>
-
-      {/* KPI cards — 1 column on phones, 3 across on desktop */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Suspense fallback={<KpiSkeleton />}>
-          <KpiCards />
+          <CounselorKpiCards counselorId={counselorId} profileId={profileId} />
         </Suspense>
       </div>
 
-      {/* Quick links (static — renders immediately) */}
       <section aria-label="Quick links">
         <h2 className="font-display text-base font-bold text-ink">Quick links</h2>
         <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-3">
-          {QUICK_LINKS.map((q) => (
+          {COUNSELOR_QUICK_LINKS.map((q) => (
+            <Link
+              key={`${q.href}-${q.label}`}
+              href={q.href}
+              className="group flex items-center gap-3 rounded-lg border border-ink/10 bg-white p-4 shadow-card transition hover:border-primary-300 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            >
+              <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full", q.chip)}>
+                <q.icon className="h-5 w-5" aria-hidden />
+              </span>
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate text-sm font-bold text-ink group-hover:text-primary-700">
+                  {q.label}
+                </span>
+                <span className="block truncate text-xs font-medium text-ink-muted">{q.hint}</span>
+              </span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <PanelShell title="Today's sessions" viewAllHref="/appointments">
+          <Suspense fallback={<ListSkeleton />}>
+            <CounselorTodayPanel counselorId={counselorId} />
+          </Suspense>
+        </PanelShell>
+        <PanelShell title="Needs your action" viewAllHref="/appointments">
+          <Suspense fallback={<ListSkeleton />}>
+            <CounselorActionPanel counselorId={counselorId} />
+          </Suspense>
+        </PanelShell>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <PanelShell title="My referrals" viewAllHref="/referrals">
+          <Suspense fallback={<ListSkeleton />}>
+            <CounselorReferralsPanel counselorId={counselorId} />
+          </Suspense>
+        </PanelShell>
+        <PanelShell title="Latest announcements" viewAllHref="/announcements">
+          <Suspense fallback={<ListSkeleton />}>
+            <AnnouncementsPanel />
+          </Suspense>
+        </PanelShell>
+      </div>
+    </div>
+  );
+}
+
+/** Head home — office-wide overview (moved from (admin)/dashboard). */
+function HeadHome() {
+  return (
+    <div className="space-y-4">
+      <BreadcrumbHeader current="Dashboard" />
+      <h1 className="sr-only">Dashboard</h1>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Suspense fallback={<HeadKpiSkeleton />}>
+          <HeadKpiCards />
+        </Suspense>
+      </div>
+
+      <section aria-label="Quick links">
+        <h2 className="font-display text-base font-bold text-ink">Quick links</h2>
+        <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-3">
+          {HEAD_QUICK_LINKS.map((q) => (
             <Link
               key={q.href}
               href={q.href}
@@ -436,25 +729,23 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Latest lists */}
       <div className="grid gap-4 xl:grid-cols-2">
         <PanelShell title="Referrals waiting" viewAllHref="/referrals">
           <Suspense fallback={<ListSkeleton />}>
-            <ReferralsPanel />
+            <HeadReferralsPanel />
           </Suspense>
         </PanelShell>
         <PanelShell title="Upcoming sessions" viewAllHref="/appointments">
           <Suspense fallback={<ListSkeleton />}>
-            <SessionsPanel />
+            <HeadSessionsPanel />
           </Suspense>
         </PanelShell>
       </div>
 
-      {/* Needs attention + announcements */}
       <div className="grid gap-4 xl:grid-cols-2">
         <PanelShell title="Needs a counselor" viewAllHref="/referrals">
           <Suspense fallback={<ListSkeleton />}>
-            <UnassignedPanel />
+            <HeadUnassignedPanel />
           </Suspense>
         </PanelShell>
         <PanelShell title="Latest announcements" viewAllHref="/announcements">
@@ -464,19 +755,35 @@ export default function DashboardPage() {
         </PanelShell>
       </div>
 
-      {/* Charts */}
       <div className="grid gap-4 xl:grid-cols-2">
         <PanelShell title="Sessions — last 7 days">
           <Suspense fallback={<ChartSkeleton />}>
-            <WeekChart />
+            <HeadWeekChart />
           </Suspense>
         </PanelShell>
         <PanelShell title="Referrals by status">
           <Suspense fallback={<ChartSkeleton />}>
-            <StatusChart />
+            <HeadStatusChart />
           </Suspense>
         </PanelShell>
       </div>
     </div>
   );
+}
+
+/**
+ * Shared /dashboard — one URL, role-aware.
+ * Lives in (staff) so both counselor + guidance_head layouts can reach it.
+ * Faculty is redirected to their home (/referrals).
+ */
+export default async function DashboardPage() {
+  const profile = await getCurrentProfile();
+  if (!profile) redirect("/login");
+  if ((profile as { is_active?: boolean | null }).is_active === false) redirect("/login?deactivated=1");
+  if (profile.role === "faculty") redirect("/referrals");
+  if (profile.role === "counselor") {
+    return <CounselorHome profileId={profile.id} name={profile.full_name} />;
+  }
+  if (profile.role === "guidance_head") return <HeadHome />;
+  redirect("/");
 }

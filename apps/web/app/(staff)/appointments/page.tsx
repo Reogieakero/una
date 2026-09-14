@@ -2,18 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, CheckCheck, UserX, X } from "lucide-react";
+import { Check, CheckCheck, UserX, Video, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   assignAppointment,
   completeAppointment,
   confirmAppointment,
+  isMeetUrl,
   listCounselorAppointments,
   listOfficeAppointments,
   markAppointmentNoShow,
   rejectAppointment,
 } from "@dorsu/shared-services";
 import { Badge, Button, Card, Input } from "@/components/ui/primitives";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { Dropdown } from "@/components/shared/dropdown";
 import { notifyStaff } from "@/lib/notify";
 import {
@@ -33,6 +35,7 @@ type Appt = {
   mode: string;
   status: string;
   concern: string;
+  meeting_url: string | null;
 };
 
 type CounselorOpt = { id: string; name: string };
@@ -63,13 +66,22 @@ function statusLabel(s: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/** ISO → picker value (local tz), minutes snapped to the quarter hour. */
+function toLocalInputValue(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setMinutes(Math.round(d.getMinutes() / 15) * 15, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 const HEAD_LEGEND: { icon: typeof Check; label: string; desc: string; variant: "accent" | "outline" }[] = [
   { icon: Check, label: "Assign", desc: "Pending → assigned", variant: "accent" },
   { icon: X, label: "Reject", desc: "Pending / assigned → rejected", variant: "outline" },
 ];
 
 const COUNSELOR_LEGEND: { icon: typeof Check; label: string; desc: string; variant: "accent" | "outline" }[] = [
-  { icon: Check, label: "Confirm", desc: "Assigned → confirmed", variant: "accent" },
+  { icon: Check, label: "Confirm", desc: "Assigned → confirmed + set schedule (+ Meet link when online)", variant: "accent" },
   { icon: CheckCheck, label: "Complete", desc: "Confirmed → completed", variant: "accent" },
   { icon: UserX, label: "No-show", desc: "Confirmed, student didn't arrive", variant: "outline" },
 ];
@@ -79,7 +91,7 @@ type ActionKind = "confirm" | "complete" | "no-show" | "reject";
 const ACTION_DEFS: Record<
   ActionKind,
   {
-    fn: (db: ReturnType<typeof createClient>, apptId: string) => Promise<unknown>;
+    fn: (db: ReturnType<typeof createClient>, apptId: string, scheduledAt?: Date, meetingUrl?: string | null) => Promise<unknown>;
     fail: string;
     doneTitle: string;
     doneBody: (when: string) => string;
@@ -89,7 +101,7 @@ const ACTION_DEFS: Record<
     fn: confirmAppointment,
     fail: "confirm this session",
     doneTitle: "Session confirmed",
-    doneBody: (when) => `Your session on ${when} is confirmed. See you then!`,
+    doneBody: (when) => `Your session is scheduled on ${when}. See you then!`,
   },
   complete: {
     fn: completeAppointment,
@@ -112,7 +124,7 @@ const ACTION_DEFS: Record<
 };
 
 const CONFIRM_COPY: Record<ActionKind, { title: string; body: string; ok: string }> = {
-  confirm: { title: "Confirm this session?", body: "This moves the session from Assigned to Confirmed.", ok: "Confirm session" },
+  confirm: { title: "Confirm and schedule this session?", body: "Set the final session date and time. The student will be notified with this schedule.", ok: "Confirm session" },
   complete: { title: "Mark this session complete?", body: "The session was held and is now done. This can't be undone.", ok: "Mark complete" },
   reject: { title: "Reject this session?", body: "The request ends as Rejected and leaves the counselor queue. This can't be undone.", ok: "Reject session" },
   "no-show": { title: "Mark as no-show?", body: "The session was confirmed but the student didn't arrive.", ok: "Mark no-show" },
@@ -150,7 +162,8 @@ function IconAction({  label,
  * Shared /appointments — one URL, strict role-aware UI.
  * Admin (guidance_head): assign counselor (pending → assigned) + reject.
  *   Never confirm / complete / no-show — those belong to the counselor.
- * Counselor: confirm assigned → confirmed, then complete / no-show.
+ * Counselor: confirm assigned → confirmed (sets final session time/date,
+ *   student notified), then complete / no-show.
  *   Never assign / reject / cancel.
  * Student: cancel + reschedule from the mobile app (never complete).
  */
@@ -165,6 +178,10 @@ export default function AppointmentsPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{ appt: Appt; kind: ActionKind } | null>(null);
+  const [scheduleInput, setScheduleInput] = useState("");
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [meetingInput, setMeetingInput] = useState("");
+  const [meetingError, setMeetingError] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [modeFilter, setModeFilter] = useState<string>("all");
@@ -269,17 +286,23 @@ export default function AppointmentsPage() {
 
   const act = async (
     id: string,
-    fn: (db: ReturnType<typeof createClient>, apptId: string) => Promise<unknown>,
+    fn: (db: ReturnType<typeof createClient>, apptId: string, scheduledAt?: Date, meetingUrl?: string | null) => Promise<unknown>,
     label: string,
+    scheduledAt?: Date,
+    meetingUrl?: string | null,
     notify?: { title: string; body: string }
   ): Promise<boolean> => {
     setBusyId(id);
     try {
-      await fn(createClient(), id);
+      await fn(createClient(), id, scheduledAt, meetingUrl);
       if (role) await reload(role, counselorId);
       return true;
-    } catch {
-      toast.error(`Couldn't ${label} — the session may have changed status. Reload and try again.`);
+    } catch (e) {
+      toast.error(
+        e instanceof Error && /future|valid session|meet link|database update|migration|meeting_url|only assigned|not found/i.test(e.message)
+          ? e.message
+          : `Couldn't ${label} — the session may have changed status. Reload and try again.`
+      );
       return false;
     } finally {
       setBusyId(null);
@@ -308,10 +331,22 @@ export default function AppointmentsPage() {
   };
 
   // Confirm dialog: Escape closes, background stays put while open.
+  // Prefill the counselor schedule picker with the requested slot, and the
+  // Meet link input with any previously saved link (online sessions).
   useEffect(() => {
+    if (confirming?.kind === "confirm") {
+      setScheduleInput(toLocalInputValue(confirming.appt.scheduled_at));
+      setScheduleError(null);
+      setMeetingInput(confirming.appt.meeting_url ?? "");
+      setMeetingError(null);
+    }
     if (!confirming) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setConfirming(null);
+      if (e.key === "Escape") {
+        setConfirming(null);
+        setMeetingInput("");
+        setMeetingError(null);
+      }
     };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -322,15 +357,57 @@ export default function AppointmentsPage() {
     };
   }, [confirming]);
 
+  const closeConfirming = () => {
+    setConfirming(null);
+    setMeetingInput("");
+    setMeetingError(null);
+  };
+
   const runConfirming = async () => {
     if (!confirming) return;
     const { appt, kind } = confirming;
-    setConfirming(null);
     const def = ACTION_DEFS[kind];
-    const when = formatWhen(appt.scheduled_at);
-    if (await act(appt.id, def.fn, def.fail)) {
-      void notifyStudent(appt, def.doneTitle, def.doneBody(when));
-      void notifyHeadsAppt(appt, kind);
+    // Counselor schedules the final session time on confirm.
+    let scheduledAt: Date | undefined;
+    let when = formatWhen(appt.scheduled_at);
+    // Online sessions additionally need their Google Meet link.
+    let meetingUrl: string | null = null;
+    if (kind === "confirm") {
+      if (!scheduleInput) {
+        setScheduleError("Set the session date and time.");
+        return;
+      }
+      scheduledAt = new Date(scheduleInput);
+      if (Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() <= Date.now()) {
+        setScheduleError("Sessions must be scheduled in the future.");
+        return;
+      }
+      when = formatWhen(scheduledAt.toISOString());
+      if (appt.mode === "online") {
+        const link = meetingInput.trim();
+        if (!link) {
+          setMeetingError("Paste the Google Meet link for this online session.");
+          return;
+        }
+        if (!isMeetUrl(link)) {
+          setMeetingError("That doesn't look like a Google Meet link — paste a meet.google.com link.");
+          return;
+        }
+        meetingUrl = link;
+      }
+    }
+    setConfirming(null);
+    setMeetingInput("");
+    setMeetingError(null);
+    if (await act(appt.id, def.fn, def.fail, scheduledAt, meetingUrl)) {
+      // Student + heads are notified with the counselor-set schedule (and
+      // the Meet link for online sessions).
+      const studentBody =
+        kind === "confirm" && meetingUrl
+          ? `${def.doneBody(when)} Join here: ${meetingUrl}`
+          : def.doneBody(when);
+      void notifyStudent(appt, def.doneTitle, studentBody);
+      void notifyHeadsAppt({ ...appt, scheduled_at: scheduledAt?.toISOString() ?? appt.scheduled_at }, kind);
     }
   };
 
@@ -372,7 +449,7 @@ export default function AppointmentsPage() {
         </h1>
         <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
           {role === "counselor"
-            ? "Your assigned queue — confirm assigned bookings, then mark confirmed ones complete or no-show. Cancels and reschedules come from the student."
+            ? "Your assigned queue — confirm assigned bookings and set the session schedule (student notified), then mark confirmed ones complete or no-show. Cancels and reschedules come from the student."
             : "Office-wide session board — assign a counselor (pending → assigned) or reject the request. Confirm / complete / no-show belong to the counselor; cancel / reschedule belong to the student."}
         </p>
       </div>
@@ -531,7 +608,21 @@ export default function AppointmentsPage() {
                     <span className="whitespace-nowrap">{counselorName(a.counselor_id)}</span>
                   )}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3">{a.mode === "online" ? "Online" : "In person"}</td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  {a.mode === "online" ? "Online" : "In person"}
+                  {a.mode === "online" && a.meeting_url && (
+                    <a
+                      href={a.meeting_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800 transition-colors hover:bg-blue-200"
+                      aria-label={`Join the Google Meet for the session on ${formatWhen(a.scheduled_at)}`}
+                    >
+                      <Video className="h-3 w-3" aria-hidden />
+                      Join Meet
+                    </a>
+                  )}
+                </td>
                 <td className="whitespace-nowrap px-4 py-3">
                   <Badge tone={statusTone(a.status)}>{statusLabel(a.status)}</Badge>
                 </td>
@@ -591,8 +682,8 @@ export default function AppointmentsPage() {
           aria-labelledby="appt-confirm-title"
           aria-describedby="appt-confirm-desc"
         >
-          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => setConfirming(null)} />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-card">
+          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={closeConfirming} />
+          <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-6 shadow-card sm:max-w-md">
             <h2 id="appt-confirm-title" className="font-display text-lg font-bold text-ink">
               {CONFIRM_COPY[confirming.kind].title}
             </h2>
@@ -600,10 +691,57 @@ export default function AppointmentsPage() {
               {CONFIRM_COPY[confirming.kind].body}
             </p>
             <p className="mt-3 truncate rounded-xl bg-cream px-3 py-2 text-[13px] font-semibold text-ink-soft">
-              {aliases.get(confirming.appt.student_id) ?? "Student"} · {formatWhen(confirming.appt.scheduled_at)}
+              {aliases.get(confirming.appt.student_id) ?? "Student"} · requested {formatWhen(confirming.appt.scheduled_at)}
             </p>
+            {confirming.kind === "confirm" && (
+              <div className="mt-3">
+                <span className="mb-1.5 block text-xs font-bold text-ink-muted">
+                  Session date and time
+                </span>
+                <DateTimePicker
+                  id="confirm-schedule"
+                  value={scheduleInput}
+                  onChange={(v) => {
+                    setScheduleInput(v);
+                    setScheduleError(null);
+                  }}
+                />
+                {scheduleError ? (
+                  <p className="mt-1.5 text-xs font-semibold text-red-600">{scheduleError}</p>
+                ) : (
+                  <p className="mt-1.5 text-[11px] font-medium text-ink-faint">
+                    This becomes the final schedule — the student is notified with this time.
+                  </p>
+                )}
+              </div>
+            )}
+            {confirming.kind === "confirm" && confirming.appt.mode === "online" && (
+              <div className="mt-3">
+                <label className="mb-1.5 block text-xs font-bold text-ink-muted" htmlFor="confirm-meet-link">
+                  Google Meet link
+                </label>
+                <Input
+                  id="confirm-meet-link"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://meet.google.com/abc-defg-hij"
+                  value={meetingInput}
+                  onChange={(e) => {
+                    setMeetingInput(e.target.value);
+                    setMeetingError(null);
+                  }}
+                />
+                {meetingError ? (
+                  <p className="mt-1.5 text-xs font-semibold text-red-600">{meetingError}</p>
+                ) : (
+                  <p className="mt-1.5 text-[11px] font-medium text-ink-faint">
+                    Paste the Google Meet for this session — the student joins with this link.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => setConfirming(null)} autoFocus>
+              <Button size="sm" variant="outline" onClick={closeConfirming} autoFocus>
                 Back
               </Button>
               <Button

@@ -33,10 +33,13 @@ export type AppointmentMode = "in_person" | "online";
 
 export type ReferralStatus =
   | "pending"
+  | "assigned"
   | "acknowledged"
   | "in_progress"
+  | "confirmed"
   | "resolved"
-  | "escalated";
+  | "escalated"
+  | "rejected";
 
 export type ReferralPriority = "low" | "medium" | "high" | "urgent";
 
@@ -118,6 +121,8 @@ export type AppointmentRow = {
   mode: AppointmentMode;
   status: AppointmentStatus;
   concern: string;
+  /** Google Meet link for online sessions (set on counselor confirm). */
+  meeting_url: string | null;
   is_anonymous: boolean;
   pss10_id: string | null;
   created_at: string;

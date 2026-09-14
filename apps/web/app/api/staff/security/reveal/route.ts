@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { isStudentOnCounselorCaseload } from "@dorsu/shared-services";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 /**
  * POST /api/staff/security/reveal — resolve a student's real identity under
  * an active break-glass grant. The caller must hold an unexpired grant row
- * for that student (logged with justification); the head holds the same
- * requirement so every reveal is attributable. Each successful reveal writes
- * its own audit_logs row — grant + views are independently traceable.
+ * for that student (logged with justification); counselors additionally need
+ * the grant reviewed by the head first, so no counselor reveal happens
+ * without head oversight. The head holds the same grant requirement (but no
+ * review gate — they are the reviewer) so every reveal is attributable. Each
+ * successful reveal writes its own audit_logs row — grant + views are
+ * independently traceable.
  */
 const payloadSchema = z.object({
   studentId: z.string().uuid("Unknown student."),
@@ -35,11 +39,12 @@ export async function POST(request: Request) {
   if (!callerProfile || !["counselor", "guidance_head"].includes((callerProfile as { role: string }).role)) {
     return NextResponse.json({ error: "Only counselors and the guidance head may reveal identities." }, { status: 403 });
   }
+  const callerRole = (callerProfile as { role: string }).role;
 
   const admin = createAdminClient();
   const { data: grant } = await admin
     .from("break_glass_logs")
-    .select("id, expires_at")
+    .select("id, expires_at, reviewed_at")
     .eq("accessor_profile_id", caller.id)
     .eq("student_id", parsed.data.studentId)
     .gt("expires_at", new Date().toISOString())
@@ -51,6 +56,29 @@ export async function POST(request: Request) {
       { error: "No active emergency grant for this student — log emergency access first." },
       { status: 403 }
     );
+  }
+  // Counselor gate — the head must review the log before a counselor reveal.
+  // (Head callers skip this: they are the reviewers.)
+  if (callerRole !== "guidance_head" && !(grant as { reviewed_at: string | null }).reviewed_at) {
+    return NextResponse.json(
+      { error: "Waiting for head review — the guidance head must review this access before the identity can be revealed." },
+      { status: 403 }
+    );
+  }
+  // Counselor caseload rule — reveal inherits the Step 1 scope so a grant
+  // logged before enforcement (or via another path) cannot leak an
+  // off-caseload identity: referred students / assigned appointments only.
+  if (callerRole === "counselor") {
+    const onCaseload = await isStudentOnCounselorCaseload(admin, {
+      counselorProfileId: caller.id,
+      studentId: parsed.data.studentId,
+    });
+    if (!onCaseload) {
+      return NextResponse.json(
+        { error: "Only students from your assigned appointments and referrals are eligible for emergency access." },
+        { status: 403 }
+      );
+    }
   }
 
   const { data: student } = await admin

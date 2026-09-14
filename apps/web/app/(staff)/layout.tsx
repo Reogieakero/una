@@ -3,7 +3,7 @@ import { StaffShell } from "@/components/shared/staff-shell";
 import { STAFF_NAV_GROUPS } from "@/components/shared/staff-nav";
 
 /**
- * Shared staff routes (/appointments, /availability, /chat, /emergency,
+ * Shared staff routes (/appointments, /sessions, /availability, /chat, /emergency,
  * /referrals, /reports, /notifications, /students) live here ONCE.
  * Next.js cannot define the same URL in multiple route groups, so role
  * differences are handled inside the page (via rbac.ts), not via duplicate

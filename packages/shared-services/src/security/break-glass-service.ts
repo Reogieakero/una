@@ -24,6 +24,44 @@ export async function breakGlassAccess(
   return data;
 }
 
+/**
+ * Counselor caseload rule — Step 1 "Log emergency access" may only target
+ * students on the counselor's caseload: an assigned appointment
+ * (`appointments.counselor_id`) OR an assigned referral
+ * (`referrals.assigned_counselor_id`). The head keeps the full directory.
+ * Call with a privileged (service-role) client from API routes — RLS would
+ * otherwise hide other students' rows from the caller.
+ */
+export async function isStudentOnCounselorCaseload(
+  db: DbClient,
+  input: { counselorProfileId: string; studentId: string },
+): Promise<boolean> {
+  const { data: counselor } = await db
+    .from("counselors")
+    .select("id")
+    .eq("profile_id", input.counselorProfileId)
+    .maybeSingle();
+  const counselorId = (counselor as { id: string } | null)?.id ?? null;
+  if (!counselorId) return false;
+  const [{ data: appt }, { data: ref }] = await Promise.all([
+    db
+      .from("appointments")
+      .select("id")
+      .eq("counselor_id", counselorId)
+      .eq("student_id", input.studentId)
+      .limit(1)
+      .maybeSingle(),
+    db
+      .from("referrals")
+      .select("id")
+      .eq("assigned_counselor_id", counselorId)
+      .eq("student_id", input.studentId)
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  return !!(appt ?? ref);
+}
+
 /** Leadership reviews a break-glass event (marks reviewer + timestamp). */
 export async function reviewBreakGlass(
   db: DbClient,

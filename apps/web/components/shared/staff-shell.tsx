@@ -32,7 +32,7 @@ export function StaffShell({
   // and kill pending state mid-transition.
   return (
     <div className="min-h-screen">
-      <StaffNav title={title} groups={resolved} />
+      <StaffNav title={title} groups={resolved} role={profile?.role ?? null} />
       <main className="w-full px-4 py-6">
         <StaffShellBody profile={profile ?? null}>{children}</StaffShellBody>
       </main>

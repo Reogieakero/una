@@ -19,34 +19,42 @@ import { createClient } from "@/lib/supabase/client";
 import { useRoutePending } from "./route-pending";
 import { cn } from "@/lib/utils";
 
-export type StaffNavLink = { href: string; label: string; desc?: string };
+export type StaffNavLink = { href: string; label: string; desc?: string; roles?: string[] };
 export type StaffNavGroup = { label: string; inline?: boolean; links: StaffNavLink[] };
 
 /**
  * The single staff menu — shared by the admin, counselor, and staff shells
  * so the navigation never changes when moving between pages. Guards still
  * enforce who may open each page.
+ *
+ * `roles` allowlist (when set) hides the link from other roles. Only use it
+ * for links whose page hard-blocks the excluded role — never show a link
+ * that just bounces to "/" (e.g. counselor must not see /users, which lives
+ * in the head-only (admin) group). Links without `roles` stay visible to all
+ * shell roles; their pages handle roles internally.
  */
 export const STAFF_NAV_GROUPS: StaffNavGroup[] = [
   {
     label: "Overview",
     links: [
-      { href: "/dashboard", label: "Dashboard", desc: "Office overview" },
-      { href: "/reports", label: "Reports", desc: "Session and referral reports" },
+      { href: "/dashboard", label: "Dashboard", desc: "Office overview", roles: ["counselor", "guidance_head"] },
+      { href: "/reports", label: "Reports", desc: "Session and referral reports", roles: ["counselor", "guidance_head"] },
+      { href: "/about", label: "About", desc: "How each page works", roles: ["counselor", "guidance_head"] },
     ],
   },
   {
     label: "Sessions",
     links: [
-      { href: "/appointments", label: "Appointments", desc: "Upcoming sessions" },
-      { href: "/availability", label: "Availability", desc: "Counselor open slots" },
+      { href: "/sessions", label: "Session calendar", desc: "Month, week, day schedule", roles: ["counselor", "guidance_head"] },
+      { href: "/appointments", label: "Appointments", desc: "Upcoming sessions", roles: ["counselor", "guidance_head"] },
+      { href: "/availability", label: "Availability", desc: "Counselor open slots", roles: ["counselor", "guidance_head"] },
       { href: "/chat", label: "Chat", desc: "Message students" },
     ],
   },
   {
     label: "People",
     links: [
-      { href: "/users", label: "Users", desc: "Manage accounts" },
+      { href: "/users", label: "Users", desc: "Manage accounts", roles: ["guidance_head"] },
       { href: "/students", label: "Students", desc: "Student directory" },
       { href: "/referrals", label: "Referrals", desc: "Student referrals inbox" },
     ],
@@ -55,12 +63,12 @@ export const STAFF_NAV_GROUPS: StaffNavGroup[] = [
     label: "Manage",
     links: [
       { href: "/emergency", label: "Emergency access", desc: "Reveal identity in a crisis" },
-      { href: "/users", label: "Users", desc: "Manage accounts" },
-      { href: "/users/new", label: "Add staff", desc: "Create counselor or faculty accounts" },
+      { href: "/users", label: "Users", desc: "Manage accounts", roles: ["guidance_head"] },
+      { href: "/users/new", label: "Add staff", desc: "Create counselor or faculty accounts", roles: ["guidance_head"] },
       { href: "/announcements", label: "Announcements", desc: "News and updates" },
-      { href: "/feedback", label: "Feedback", desc: "Student feedback" },
-      { href: "/security", label: "Security", desc: "Access and safety logs" },
-      { href: "/settings", label: "Settings", desc: "Workspace preferences" },
+      { href: "/feedback", label: "Feedback", desc: "Student feedback", roles: ["counselor", "guidance_head"] },
+      { href: "/security", label: "Security", desc: "Access and safety logs", roles: ["guidance_head"] },
+      { href: "/settings", label: "Settings", desc: "Workspace preferences", roles: ["guidance_head"] },
     ],
   },
 ];
@@ -82,10 +90,90 @@ function PendingSpinner() {
   return <Spinner size="xs" />;
 }
 
-/** Top navigation-menu bar shared by the staff shells (16px side gutters). */
-export function StaffNav({ title, groups }: { title: string; groups: StaffNavGroup[] }) {
+/** Unread count badge — same red pill language as the notification bell. */
+function CountBadge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <span
+      aria-hidden
+      className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white"
+    >
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
+
+/**
+ * Per-link unread counts from the notifications inbox, grouped by the
+ * notification `link` (every transaction fan-out already carries one:
+ * /appointments, /referrals, /chat, /announcements, /security, /feedback).
+ * Same realtime pipe as the bell and chat messages — inserts AND read
+ * receipts stream in, so badges rise and clear live.
+ */
+function useNavCounts() {
+  const [counts, setCounts] = useState<Map<string, number>>(new Map());
   const pathname = usePathname();
-  const flat = groups.flatMap((g) => g.links);
+
+  useEffect(() => {
+    let alive = true;
+    const supabase = createClient();
+    let ch: ReturnType<typeof supabase.channel> | null = null;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !alive) return;
+      const refresh = async () => {
+        const { data } = await supabase
+          .from("notifications")
+          .select("link")
+          .eq("profile_id", user.id)
+          .eq("is_read", false)
+          .limit(200);
+        if (!alive) return;
+        const m = new Map<string, number>();
+        for (const n of ((data ?? []) as { link: string | null }[])) {
+          if (!n.link) continue;
+          const key = n.link.split("?")[0];
+          m.set(key, (m.get(key) ?? 0) + 1);
+        }
+        setCounts(m);
+      };
+      await refresh();
+      ch = supabase
+        .channel(`nav-counts-${user.id}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "notifications", filter: `profile_id=eq.${user.id}` },
+          () => {
+            refresh().catch(() => {});
+          }
+        )
+        .subscribe();
+    })().catch(() => {});
+    return () => {
+      alive = false;
+      if (ch) supabase.removeChannel(ch);
+    };
+    // Re-runs on navigation too — same staleness guard as the bell.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  return counts;
+}
+
+/** Top navigation-menu bar shared by the staff shells (16px side gutters). */
+export function StaffNav({ title, groups, role }: { title: string; groups: StaffNavGroup[]; role?: string | null }) {
+  const pathname = usePathname();
+  // Role filter — links with a `roles` allowlist are hidden from other roles
+  // so nobody is shown a page their guard would bounce. Empty groups drop out.
+  const visible = groups
+    .map((g) => ({
+      ...g,
+      links: g.links.filter((l) => !l.roles || (role != null && l.roles.includes(role))),
+    }))
+    .filter((g) => g.links.length > 0);
+  const flat = visible.flatMap((g) => g.links);
+  const counts = useNavCounts();
+  const groupCount = (hrefs: string[]) => hrefs.reduce((n, h) => n + (counts.get(h) ?? 0), 0);
   return (
     <header className="sticky top-0 z-40 border-b border-ink/10 bg-white/90 backdrop-blur">
       <div className="w-full px-4">
@@ -104,16 +192,19 @@ export function StaffNav({ title, groups }: { title: string; groups: StaffNavGro
           <div className="hidden min-w-0 flex-1 justify-center md:flex">
           <NavigationMenu>
             <NavigationMenuList>
-              {groups.map((g) =>
+              {visible.map((g) =>
                 g.inline || g.links.length === 1 ? (
                   g.links.map((l) => (
                     <NavigationMenuItem key={l.href} value={l.href}>
-                      <DesktopNavLink href={l.href} label={l.label} active={pathname === l.href} />
+                      <DesktopNavLink href={l.href} label={l.label} active={pathname === l.href} count={counts.get(l.href) ?? 0} />
                     </NavigationMenuItem>
                   ))
                 ) : (
                   <NavigationMenuItem key={g.label} value={g.label}>
-                    <NavigationMenuTrigger>{g.label}</NavigationMenuTrigger>
+                    <NavigationMenuTrigger>
+                      {g.label}
+                      <CountBadge count={groupCount(g.links.map((l) => l.href))} />
+                    </NavigationMenuTrigger>
                     <NavigationMenuContent>
                       <ul className="space-y-0.5">
                         {g.links.map((l) => (
@@ -123,6 +214,7 @@ export function StaffNav({ title, groups }: { title: string; groups: StaffNavGro
                               title={l.label}
                               desc={l.desc}
                               active={pathname === l.href}
+                              count={counts.get(l.href) ?? 0}
                             />
                           </li>
                         ))}
@@ -144,7 +236,7 @@ export function StaffNav({ title, groups }: { title: string; groups: StaffNavGro
         {/* Mobile: scrollable flat links (dropdowns stay desktop-only) */}
         <nav aria-label="Section" className="no-scrollbar flex gap-1 overflow-x-auto pb-3 md:hidden">
           {flat.map((l) => (
-            <MobileNavLink key={l.href} href={l.href} label={l.label} active={pathname === l.href} />
+            <MobileNavLink key={l.href} href={l.href} label={l.label} active={pathname === l.href} count={counts.get(l.href) ?? 0} />
           ))}
         </nav>
       </div>
@@ -152,16 +244,22 @@ export function StaffNav({ title, groups }: { title: string; groups: StaffNavGro
   );
 }
 
-function DesktopNavLink({ href, label, active }: { href: string; label: string; active: boolean }) {
+function DesktopNavLink({ href, label, active, count }: { href: string; label: string; active: boolean; count: number }) {
   const { pending, start } = useNavPending(href);
   return (
-    <NavigationMenuLink href={href} active={active} onNavigate={start}>
+    <NavigationMenuLink
+      href={href}
+      active={active}
+      onNavigate={start}
+      ariaLabel={count ? `${label}, ${count} new` : undefined}
+    >
       <span className={cn("inline-flex items-center gap-1.5", pending && "opacity-70")}>
         {/* Fixed-size slot: the spinner must never widen the link mid-transition. */}
         <span aria-hidden className="inline-flex h-3.5 w-3.5 items-center justify-center">
           {pending && <PendingSpinner />}
         </span>
         {label}
+        <CountBadge count={count} />
       </span>
     </NavigationMenuLink>
   );
@@ -172,11 +270,13 @@ function DropdownNavLink({
   title,
   desc,
   active,
+  count,
 }: {
   href: string;
   title: string;
   desc?: string;
   active?: boolean;
+  count: number;
 }) {
   const { pending, start } = useNavPending(href);
   return (
@@ -186,17 +286,19 @@ function DropdownNavLink({
       desc={pending ? "Loading…" : desc}
       active={active}
       onNavigate={start}
+      badge={<CountBadge count={count} />}
     />
   );
 }
 
-function MobileNavLink({ href, label, active }: { href: string; label: string; active: boolean }) {
+function MobileNavLink({ href, label, active, count }: { href: string; label: string; active: boolean; count: number }) {
   const { pending, start } = useNavPending(href);
   return (
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
       aria-disabled={pending || undefined}
+      aria-label={count ? `${label}, ${count} new` : undefined}
       onClick={start}
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-bold",
@@ -211,6 +313,7 @@ function MobileNavLink({ href, label, active }: { href: string; label: string; a
         {pending && <PendingSpinner />}
       </span>
       {label}
+      <CountBadge count={count} />
     </Link>
   );
 }

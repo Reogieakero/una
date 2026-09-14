@@ -9,6 +9,7 @@ export type AppRoute =
   | "/login"
   | "/register"
   | "/reset-password"
+  | "/dashboard"
   | "/appointments"
   | "/appointments/new"
   | "/chat"
@@ -16,6 +17,7 @@ export type AppRoute =
   | "/notifications"
   | "/settings"
   | "/availability"
+  | "/sessions"
   | "/students"
   | "/reports"
   | "/users"
@@ -23,6 +25,7 @@ export type AppRoute =
   | "/security"
   | "/announcements"
   | "/referrals"
+  | "/about"
   | "/feedback";
 
 export type AppAction =
@@ -38,7 +41,11 @@ export type AppAction =
   | "feedback.submit"
   | "chat.send"
   | "referral.create"
-  | "referral.triage"
+  | "referral.assign"
+  | "referral.reject"
+  | "referral.confirm"
+  | "referral.resolve"
+  | "referral.escalate"
   | "availability.manage"
   | "session-note.write"
   | "announcement.publish"
@@ -51,6 +58,7 @@ export const routePolicy: Record<AppRoute, UserRole[]> = {
   "/login": ["student", "counselor", "guidance_head", "faculty"],
   "/register": ["student", "counselor", "guidance_head", "faculty"],
   "/reset-password": ["student", "counselor", "guidance_head", "faculty"],
+  "/dashboard": ["counselor", "guidance_head"],
   "/appointments": ["student", "counselor", "guidance_head"],
   "/appointments/new": ["student"],
   "/chat": ["student", "counselor", "guidance_head"],
@@ -58,6 +66,7 @@ export const routePolicy: Record<AppRoute, UserRole[]> = {
   "/notifications": ["student", "counselor", "guidance_head", "faculty"],
   "/settings": ["student", "counselor", "guidance_head", "faculty"],
   "/availability": ["counselor", "guidance_head"],
+  "/sessions": ["counselor", "guidance_head"],
   "/students": ["counselor", "guidance_head"],
   "/reports": ["counselor", "guidance_head"],
   "/users": ["guidance_head"],
@@ -65,6 +74,7 @@ export const routePolicy: Record<AppRoute, UserRole[]> = {
   "/security": ["guidance_head"],
   "/announcements": ["counselor", "guidance_head", "faculty", "student"],
   "/referrals": ["counselor", "guidance_head", "faculty"],
+  "/about": ["counselor", "guidance_head"],
   "/feedback": ["student", "counselor", "guidance_head"],
 };
 
@@ -82,8 +92,12 @@ export const actionPolicy: Record<AppAction, UserRole[]> = {
   "feedback.submit": ["student"],
   "chat.send": ["student", "counselor", "guidance_head"],
   "referral.create": ["faculty", "guidance_head"],
-  "referral.triage": ["counselor", "guidance_head"],
-  "availability.manage": ["counselor", "guidance_head"],
+  "referral.assign": ["guidance_head"],
+  "referral.reject": ["guidance_head"],
+  "referral.confirm": ["counselor"],
+  "referral.resolve": ["counselor"],
+  "referral.escalate": ["counselor"],
+  "availability.manage": ["counselor"],
   "session-note.write": ["counselor", "guidance_head"],
   "announcement.publish": ["guidance_head"],
   "user.manage": ["guidance_head"],
@@ -109,7 +123,7 @@ export function homeRouteFor(role: UserRole): string {
     case "student":
       return "/appointments";
     case "counselor":
-      return "/appointments";
+      return "/dashboard";
     case "faculty":
       return "/referrals";
     case "guidance_head":

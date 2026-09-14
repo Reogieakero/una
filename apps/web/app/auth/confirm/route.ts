@@ -20,7 +20,7 @@ import { resolveSupabaseEnv } from "@dorsu/supabase-client";
 function homeForRole(role: string | null | undefined): string {
   switch (role) {
     case "counselor":
-      return "/appointments";
+      return "/dashboard";
     case "faculty":
       return "/referrals";
     case "guidance_head":

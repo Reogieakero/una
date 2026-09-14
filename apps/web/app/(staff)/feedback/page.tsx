@@ -53,22 +53,76 @@ export default function FeedbackAdminPage() {
   const [loading, setLoading] = useState(true);
   const [sentimentFilter, setSentimentFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const [role, setRole] = useState<string | null>(null);
+  const [counselorId, setCounselorId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const supabase = createClient();
-        const [{ data: fb }, { count }] = await Promise.all([
-          supabase
-            .from("feedback")
-            .select("id, appointment_id, student_id, rating, comment, created_at")
-            .order("created_at", { ascending: false })
-            .limit(500),
-          supabase.from("appointments").select("id", { count: "exact", head: true }).eq("status", "completed"),
-        ]);
-        const list = ((fb ?? []) as Feedback[]);
+        const { data: { user } } = await supabase.auth.getUser();
+        let r: string | null = null;
+        let cid: string | null = null;
+        if (user) {
+          const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+          r = (profile as { role: string } | null)?.role ?? null;
+          setRole(r);
+          if (r === "counselor") {
+            const { data: c } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
+            cid = (c as { id: string } | null)?.id ?? null;
+            setCounselorId(cid);
+          }
+        }
+        // Faculty can't open feedback (rbac) — blocked card below covers it.
+        if (r === "faculty") {
+          setLoading(false);
+          return;
+        }
+        // Counselor without a linked record has no sessions to report on.
+        if (r === "counselor" && !cid) {
+          setRows([]);
+          setLoading(false);
+          return;
+        }
+        let list: Feedback[] = [];
+        let count = 0;
+        if (r === "counselor" && cid) {
+          // Counselor scope — feedback on my sessions only.
+          const { data: myAppts } = await supabase.from("appointments").select("id").eq("counselor_id", cid).limit(2000);
+          const ids = ((myAppts ?? []) as { id: string }[]).map((a) => a.id);
+          const mine: Feedback[] = [];
+          for (let i = 0; i < ids.length; i += 200) {
+            const chunk = ids.slice(i, i + 200);
+            const { data: fb } = await supabase
+              .from("feedback")
+              .select("id, appointment_id, student_id, rating, comment, created_at")
+              .in("appointment_id", chunk)
+              .limit(500);
+            mine.push(...((fb ?? []) as Feedback[]));
+            if (mine.length >= 500) break;
+          }
+          mine.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+          list = mine.slice(0, 500);
+          const { count: c } = await supabase
+            .from("appointments")
+            .select("id", { count: "exact", head: true })
+            .eq("counselor_id", cid)
+            .eq("status", "completed");
+          count = c ?? 0;
+        } else {
+          const [{ data: fb }, { count: c }] = await Promise.all([
+            supabase
+              .from("feedback")
+              .select("id, appointment_id, student_id, rating, comment, created_at")
+              .order("created_at", { ascending: false })
+              .limit(500),
+            supabase.from("appointments").select("id", { count: "exact", head: true }).eq("status", "completed"),
+          ]);
+          list = ((fb ?? []) as Feedback[]);
+          count = c ?? 0;
+        }
         setRows(list);
-        setCompletedTotal(count ?? 0);
+        setCompletedTotal(count);
 
         const studentIds = [...new Set(list.map((f) => f.student_id))];
         const apptIds = [...new Set(list.map((f) => f.appointment_id))];
@@ -207,6 +261,7 @@ export default function FeedbackAdminPage() {
   }, [rows, sentimentFilter, query, aliases, contexts]);
 
   const sentiment = sentimentOf(analysis.avg);
+  const isCounselor = role === "counselor";
   const statCards = [
     { label: "Responses", value: analysis.n ? String(analysis.n) : "0" },
     { label: "Avg. rating", value: analysis.avg === null ? "—" : `${analysis.avg.toFixed(1)} / 5` },
@@ -223,6 +278,15 @@ export default function FeedbackAdminPage() {
     </span>
   );
 
+  if (!loading && role === "faculty") {
+    return (
+      <div className="space-y-4">
+        <h1 className="font-display text-2xl font-bold">Feedback</h1>
+        <Card><p className="text-sm text-ink-muted">Your role can&apos;t open feedback. Counselors and the guidance head work from here.</p></Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <Breadcrumb>
@@ -238,11 +302,22 @@ export default function FeedbackAdminPage() {
       </Breadcrumb>
 
       <div>
-        <h1 className="font-display text-2xl font-bold">Feedback</h1>
+        <h1 className="font-display text-2xl font-bold">{isCounselor ? "My feedback" : "Feedback"}</h1>
         <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-          What students think after sessions — ratings, trends, themes, and who needs a follow-up.
+          {isCounselor
+            ? "What your students think after your sessions — your ratings, trends, and who needs a follow-up."
+            : "What students think after sessions — ratings, trends, themes, and who needs a follow-up."}
         </p>
       </div>
+
+      {isCounselor && !counselorId && !loading && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-card">
+          <p className="text-sm font-bold text-amber-800">Counselor record not linked yet</p>
+          <p className="mt-1 text-[13px] text-amber-700">
+            Your login works, but no counselor row is linked to your account. Ask the guidance head to finish setup.
+          </p>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -326,13 +401,26 @@ export default function FeedbackAdminPage() {
           )}
         </section>
         <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-          <h2 className="font-display text-base font-bold text-ink">Counselor comparison</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">Average rating per counselor, by their sessions.</p>
+          <h2 className="font-display text-base font-bold text-ink">{isCounselor ? "My coverage" : "Counselor comparison"}</h2>
+          <p className="mt-0.5 text-[13px] text-ink-muted">{isCounselor ? "How many of my completed sessions got rated." : "Average rating per counselor, by their sessions."}</p>
           {loading ? (
             <div className="animate-pulse space-y-3 pt-3" aria-hidden>
               <div className="h-10 rounded-xl bg-ink/10" />
               <div className="h-10 rounded-xl bg-ink/10" />
             </div>
+          ) : isCounselor ? (
+            <ul className="mt-3 space-y-3">
+              {[
+                { label: "My sessions rated", value: `${analysis.n} responses` },
+                { label: "My completed sessions", value: String(completedTotal) },
+                { label: "Coverage", value: completedTotal ? `${Math.round((analysis.n / completedTotal) * 100)}%` : "—" },
+              ].map((r) => (
+                <li key={r.label} className="flex items-center justify-between gap-3 rounded-xl bg-cream px-4 py-3">
+                  <span className="text-sm font-semibold text-ink-soft">{r.label}</span>
+                  <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[13px] font-bold text-amber-800">{r.value}</span>
+                </li>
+              ))}
+            </ul>
           ) : analysis.leaderboard.length ? (
             <ul className="mt-3 divide-y divide-ink/10">
               {analysis.leaderboard.map((c, i) => (
@@ -399,7 +487,7 @@ export default function FeedbackAdminPage() {
                     </p>
                     <p className="mt-1 text-xs font-medium text-ink-muted">
                       {aliases.get(f.student_id) ?? "Student"}
-                      {ctx ? ` · ${ctx.counselor} · ${ctx.concern.slice(0, 48)}` : ""}
+                      {ctx ? (isCounselor ? ` · ${ctx.concern.slice(0, 48)}` : ` · ${ctx.counselor} · ${ctx.concern.slice(0, 48)}`) : ""}
                     </p>
                   </li>
                 );
@@ -435,7 +523,7 @@ export default function FeedbackAdminPage() {
             ))}
           </div>
           <Input
-            placeholder="Search comments, students, counselors…"
+            placeholder={isCounselor ? "Search comments, students…" : "Search comments, students, counselors…"}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -462,7 +550,7 @@ export default function FeedbackAdminPage() {
                   )}
                   {ctx && (
                     <p className="mt-1 truncate text-xs font-medium text-ink-muted">
-                      {ctx.counselor} · {ctx.concern}
+                      {isCounselor ? ctx.concern : `${ctx.counselor} · ${ctx.concern}`}
                     </p>
                   )}
                 </li>

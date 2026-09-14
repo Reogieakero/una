@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { breakGlassSchema, type BreakGlassInput } from "@dorsu/shared-schemas";
-import { breakGlassAccess } from "@dorsu/shared-services";
 import { createClient } from "@/lib/supabase/client";
 import { Badge, Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
@@ -30,7 +29,7 @@ type Identity = {
   alias: string | null;
 };
 
-type Grant = { studentId: string; alias: string; expiresAt: string };
+type Grant = { studentId: string; alias: string; expiresAt: string; logId: string; reviewed: boolean };
 
 function fmtLeft(ms: number): string {
   if (ms <= 0) return "00:00";
@@ -57,6 +56,7 @@ export default function EmergencyPage() {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [busy, setBusy] = useState(false);
   const [revealing, setRevealing] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const { register, handleSubmit, formState, reset, setValue } = useForm<BreakGlassInput>({
@@ -76,25 +76,60 @@ export default function EmergencyPage() {
         const nm = (profile as { full_name: string | null } | null)?.full_name;
         if (nm) setMyName(nm);
         if (!r || !["counselor", "guidance_head"].includes(r)) return;
-        const [{ data: directory }, { data: heads }, { data: mine }] = await Promise.all([
-          supabase.from("students").select("id, anonymous_alias, student_no").order("created_at", { ascending: false }).limit(200),
+        // Counselor scope — step 1 may only target students on their caseload:
+        // referrals assigned to them or appointments assigned to them.
+        // The head keeps the full directory.
+        let directory: { id: string; anonymous_alias: string | null; student_no: string }[] = [];
+        if (r === "counselor") {
+          const { data: c } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
+          const cid = (c as { id: string } | null)?.id ?? null;
+          if (cid) {
+            const [{ data: apptRows }, { data: refRows }] = await Promise.all([
+              supabase.from("appointments").select("student_id").eq("counselor_id", cid).limit(1000),
+              supabase.from("referrals").select("student_id").eq("assigned_counselor_id", cid).limit(1000),
+            ]);
+            const ids = [
+              ...new Set([
+                ...(((apptRows ?? []) as { student_id: string }[]).map((a) => a.student_id)),
+                ...(((refRows ?? []) as { student_id: string }[]).map((x) => x.student_id)),
+              ]),
+            ];
+            for (let i = 0; i < ids.length; i += 200) {
+              const chunk = ids.slice(i, i + 200);
+              if (!chunk.length) break;
+              const { data } = await supabase
+                .from("students")
+                .select("id, anonymous_alias, student_no")
+                .in("id", chunk);
+              directory.push(...((data ?? []) as typeof directory));
+            }
+          }
+        } else {
+          const { data } = await supabase
+            .from("students")
+            .select("id, anonymous_alias, student_no")
+            .order("created_at", { ascending: false })
+            .limit(200);
+          directory = ((data ?? []) as typeof directory);
+        }
+        const [{ data: heads }, { data: mine }] = await Promise.all([
           supabase.from("profiles").select("id").eq("role", "guidance_head").eq("is_active", true),
           supabase
             .from("break_glass_logs")
-            .select("student_id, expires_at")
+            .select("id, student_id, expires_at, reviewed_at")
             .eq("accessor_profile_id", user.id)
             .gt("expires_at", new Date().toISOString())
             .order("accessed_at", { ascending: false })
             .limit(1)
             .maybeSingle(),
         ]);
-        const dir = ((directory ?? []) as { id: string; anonymous_alias: string | null; student_no: string }[]);
+        const dir = directory;
         setStudents(dir.map((s) => ({ id: s.id, alias: s.anonymous_alias ?? "Student", label: `${s.anonymous_alias ?? "Student"} · ${s.student_no}` })));
         setHeadIds(((heads ?? []) as { id: string }[]).map((h) => h.id));
-        const g = mine as { student_id: string; expires_at: string } | null;
+        const g = mine as { id: string; student_id: string; expires_at: string; reviewed_at: string | null } | null;
         if (g) {
           const alias = dir.find((s) => s.id === g.student_id)?.anonymous_alias ?? "Student";
-          setGrant({ studentId: g.student_id, alias, expiresAt: g.expires_at });
+          setGrant({ studentId: g.student_id, alias, expiresAt: g.expires_at, logId: g.id, reviewed: !!g.reviewed_at });
           setStudentPick(g.student_id);
         }
       } catch {
@@ -127,17 +162,30 @@ export default function EmergencyPage() {
     if (!me) return;
     setBusy(true);
     try {
-      const row = (await breakGlassAccess(createClient(), {
-        accessorProfileId: me,
-        studentId: v.studentId,
-        justification: v.justification,
-      })) as { student_id: string; expires_at: string };
+      // Server-enforced caseload scope: counselors may only log access for
+      // referred students / assigned appointments (see log-break-glass route).
+      const res = await fetch("/api/staff/security/log-break-glass", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId: v.studentId, justification: v.justification }),
+      });
+      const json = (await res.json().catch(() => null)) as {
+        error?: string;
+        log?: { id: string; student_id: string; expires_at: string };
+      } | null;
+      if (!res.ok) throw new Error(json?.error ?? "Couldn't log that access.");
+      const row = json?.log as { id: string; student_id: string; expires_at: string };
       const alias = students.find((s) => s.id === v.studentId)?.alias ?? "Student";
-      setGrant({ studentId: row.student_id, alias, expiresAt: row.expires_at });
+      // A fresh log is unreviewed — counselors wait for head review before reveal.
+      setGrant({ studentId: row.student_id, alias, expiresAt: row.expires_at, logId: row.id, reviewed: false });
       setIdentity(null);
       reset();
       setStudentPick(v.studentId);
-      toast.success("Emergency access logged — 30-minute grant open.");
+      toast.success(
+        role === "counselor"
+          ? "Emergency access logged — waiting for head review before the identity can be revealed."
+          : "Emergency access logged — 30-minute grant open."
+      );
       await notifyStaff(headIds.filter((id) => id !== me), {
         type: "system",
         title: "Emergency access logged",
@@ -161,7 +209,12 @@ export default function EmergencyPage() {
         body: JSON.stringify({ studentId: grant.studentId }),
       });
       const json = (await res.json().catch(() => null)) as { error?: string; identity?: Identity } | null;
-      if (!res.ok) throw new Error(json?.error ?? "Couldn't reveal that identity.");
+      if (!res.ok) {
+        // Counselor hitting the review gate (e.g. grant reviewed state changed
+        // mid-session) — re-check so the UI reflects the current status.
+        if (res.status === 403 && role === "counselor") void checkReview();
+        throw new Error(json?.error ?? "Couldn't reveal that identity.");
+      }
       setIdentity(json?.identity ?? null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't reveal that identity.");
@@ -169,6 +222,48 @@ export default function EmergencyPage() {
       setRevealing(false);
     }
   };
+
+  // Re-read the grant's review flag (counselors can read their own log rows).
+  const checkReview = async () => {
+    if (!grant || !me) return false;
+    setChecking(true);
+    try {
+      const { data } = await createClient()
+        .from("break_glass_logs")
+        .select("id, expires_at, reviewed_at")
+        .eq("accessor_profile_id", me)
+        .eq("student_id", grant.studentId)
+        .gt("expires_at", new Date().toISOString())
+        .order("accessed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const g = data as { id: string; expires_at: string; reviewed_at: string | null } | null;
+      if (!g) return false; // expired/closed — the expiry effect resets the UI
+      if (g.reviewed_at) {
+        setGrant((prev) => (prev ? { ...prev, logId: g.id, reviewed: true, expiresAt: g.expires_at } : prev));
+        toast.success("Head review complete — you may now reveal the identity.");
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  // Counselors see no Reveal button until the head reviews the log.
+  const needsReview = role === "counselor" && !!grant && !grant.reviewed && !identity;
+
+  // While waiting, poll so Reveal appears on its own once reviewed.
+  useEffect(() => {
+    if (!needsReview) return;
+    const t = setInterval(() => {
+      void checkReview();
+    }, 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsReview, grant?.studentId]);
 
   if (!loading && (!role || !["counselor", "guidance_head"].includes(role))) {
     return (
@@ -239,6 +334,13 @@ export default function EmergencyPage() {
                 options={students.map((s) => ({ value: s.id, label: s.label }))}
               />
               <FieldError message={formState.errors.studentId?.message} />
+              {role === "counselor" && (
+                <p className="mt-1 text-[11px] font-medium text-ink-faint">
+                  {students.length
+                    ? "Only students from your assigned appointments and referrals appear here."
+                    : "No students on your caseload yet — emergency access unlocks once you have an assigned appointment or referral."}
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold text-ink-muted">Emergency justification (min 20 chars)</label>
@@ -262,6 +364,18 @@ export default function EmergencyPage() {
             </Badge>
           </div>
           {!identity ? (
+            needsReview ? (
+              <div className="mt-3 space-y-3">
+                <div className="rounded-xl bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-800 ring-1 ring-amber-200">
+                  <span className="font-bold">Waiting for head review.</span> Your access is logged
+                  and the guidance head has been notified. The Reveal button appears here once they
+                  review it — this page checks automatically.
+                </div>
+                <Button size="sm" variant="outline" disabled={checking} onClick={() => void checkReview()}>
+                  {checking ? "Checking…" : "Check review status"}
+                </Button>
+              </div>
+            ) : (
             <div className="mt-3">
               <p className="text-[13px] leading-relaxed text-ink-muted">
                 Resolving the real identity writes a second audit row tied to you. Only proceed
@@ -271,6 +385,7 @@ export default function EmergencyPage() {
                 {revealing ? "Resolving…" : "Reveal identity"}
               </Button>
             </div>
+            )
           ) : (
             <div className="mt-3 space-y-3">
               <div className="rounded-xl bg-red-50 px-4 py-2.5 text-[13px] font-semibold text-red-800 ring-1 ring-red-200">

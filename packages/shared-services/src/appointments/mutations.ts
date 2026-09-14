@@ -94,16 +94,84 @@ export async function rejectAppointment(db: DbClient, appointmentId: string) {
   return data;
 }
 
-/** Counselor confirms an assigned appointment (assignment gate — no skipping pending). */
-export async function confirmAppointment(db: DbClient, appointmentId: string) {
+/** Counselor confirms an assigned appointment (assignment gate — no skipping pending).
+ * The counselor sets the final session time/date on confirm; the student is
+ * notified with that scheduled slot (see /appointments page runConfirming).
+ * Online sessions additionally require a Google Meet link, stored on the
+ * row so the board + calendar can offer a Join button.
+ * scheduledAt is required for new calls but optional for backward compat —
+ * omitting it keeps the student's requested time.
+ */
+
+/** Google Meet links live at meet.google.com/<code>. */
+const MEET_URL_RE = /^https:\/\/meet\.google\.com\/[A-Za-z0-9-]+(?:\?.*)?\/?$/;
+
+/** Loose check shared by callers that collect the link client-side. */
+export function isMeetUrl(url: string): boolean {
+  return MEET_URL_RE.test(url.trim());
+}
+
+export async function confirmAppointment(
+  db: DbClient,
+  appointmentId: string,
+  scheduledAt?: Date,
+  meetingUrl?: string | null,
+) {
+  const { data: current, error: curErr } = await db
+    .from("appointments")
+    .select("mode, status")
+    .eq("id", appointmentId)
+    .single();
+  if (curErr || !current) throw curErr ?? new Error("Session not found.");
+  const cur = current as { mode: string; status: string };
+  if (cur.status !== "assigned") {
+    throw new Error("Only assigned sessions can be confirmed.");
+  }
+  let patch: Record<string, string> = { status: "confirmed", confirmed_datetime: new Date().toISOString() };
+  if (scheduledAt !== undefined) {
+    if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
+      throw new Error("Choose a valid session date and time");
+    }
+    if (scheduledAt.getTime() <= Date.now()) {
+      throw new Error("Confirmed sessions must be scheduled in the future");
+    }
+    patch.scheduled_at = scheduledAt.toISOString();
+  }
+  const link = (meetingUrl ?? "").trim();
+  if (cur.mode === "online") {
+    if (!link) {
+      throw new Error("Add the Google Meet link for this online session.");
+    }
+    if (!isMeetUrl(link)) {
+      throw new Error("That doesn't look like a Google Meet link — paste a meet.google.com link.");
+    }
+    patch.meeting_url = link;
+  } else if (link) {
+    if (!/^https:\/\//i.test(link)) {
+      throw new Error("Meeting links must start with https://");
+    }
+    patch.meeting_url = link;
+  }
   const { data, error } = await db
     .from("appointments")
-    .update({ status: "confirmed" })
+    .update(patch)
     .eq("id", appointmentId)
     .eq("status", "assigned")
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    // The Meet link column ships in migration 00034 — if the database was
+    // never updated, online confirms fail here (not on the status gate).
+    // Say so plainly instead of a generic "changed status" message.
+    const code = (error as { code?: string })?.code ?? "";
+    const msg = (error as { message?: string })?.message ?? "";
+    if (/meeting_url/i.test(msg) || code === "PGRST204" || code === "42703") {
+      throw new Error(
+        "This online session needs the latest database update (appointments.meeting_url is missing). Apply migration 00034, then confirm again."
+      );
+    }
+    throw error;
+  }
   return data;
 }
 

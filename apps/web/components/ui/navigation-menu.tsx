@@ -126,17 +126,20 @@ export function NavigationMenuLink({
   className,
   children,
   onNavigate,
+  ariaLabel,
 }: {
   href: string;
   active?: boolean;
   className?: string;
   children: ReactNode;
   onNavigate?: () => void;
+  ariaLabel?: string;
 }) {
   return (
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
+      aria-label={ariaLabel}
       onClick={onNavigate}
       className={cn(
         "inline-flex items-center rounded-full px-4 py-2 text-sm font-bold transition-colors",
@@ -158,12 +161,14 @@ export function NavigationMenuDropdownLink({
   active,
   title,
   desc,
+  badge,
   onNavigate,
 }: {
   href: string;
   active?: boolean;
   title: string;
   desc?: string;
+  badge?: ReactNode;
   onNavigate?: () => void;
 }) {
   return (
@@ -177,8 +182,9 @@ export function NavigationMenuDropdownLink({
         active ? "bg-blue-50" : "hover:bg-cream"
       )}
     >
-      <span className={cn("block text-sm font-bold", active ? "text-primary-700" : "text-ink")}>
-        {title}
+      <span className={cn("flex items-center gap-2 text-sm font-bold", active ? "text-primary-700" : "text-ink")}>
+        <span className="min-w-0 flex-1">{title}</span>
+        {badge}
       </span>
       {desc && <span className="mt-0.5 block text-xs font-medium text-ink-muted">{desc}</span>}
     </Link>

@@ -4,10 +4,13 @@ import { z } from "zod";
 export const referralPrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 export const referralStatusSchema = z.enum([
   "pending",
+  "assigned",
   "acknowledged",
   "in_progress",
+  "confirmed",
   "resolved",
   "escalated",
+  "rejected",
 ]);
 
 export const createReferralSchema = z.object({

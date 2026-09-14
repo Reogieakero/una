@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { motion, useReducedMotion } from "framer-motion";
-import { ArrowDown, CalendarCheck, EyeOff, ShieldCheck } from "lucide-react";
+import { CalendarCheck, EyeOff, LogIn, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -95,10 +95,10 @@ export function Hero() {
                 Book a Session
               </Button>
             </a>
-            <a href="#solution">
+            <a href="/login">
               <Button variant="secondary" size="lg">
-                Explore the System
-                <ArrowDown className="h-4 w-4" aria-hidden />
+                <LogIn className="h-4 w-4" aria-hidden />
+                Login
               </Button>
             </a>
           </motion.div>

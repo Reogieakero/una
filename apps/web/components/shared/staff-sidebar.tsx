@@ -69,7 +69,7 @@ async function fetchSidebarData(userId: string): Promise<SidebarData> {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
-  const [sessions, referrals, alerts, threadRes, officeRes] = await Promise.all([
+  const [sessions, referrals, alerts, threadRes, dmRes, officeRes] = await Promise.all([
     supabase
       .from("appointments")
       .select("id", { count: "exact", head: true })
@@ -78,7 +78,7 @@ async function fetchSidebarData(userId: string): Promise<SidebarData> {
     supabase
       .from("referrals")
       .select("id", { count: "exact", head: true })
-      .in("status", ["pending", "acknowledged", "in_progress", "escalated"]),
+      .in("status", ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"]),
     supabase
       .from("notifications")
       .select("id", { count: "exact", head: true })
@@ -90,11 +90,21 @@ async function fetchSidebarData(userId: string): Promise<SidebarData> {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    // Staff DMs live outside threads (head ↔ counselor) — the latest
+    // conversation is whichever of the two arrived last.
+    supabase
+      .from("staff_messages")
+      .select("body, created_at, sender_profile_id, recipient_profile_id")
+      .or(`sender_profile_id.eq.${userId},recipient_profile_id.eq.${userId}`)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     supabase.from("workspace_settings").select("value").eq("key", "office").maybeSingle(),
   ]);
 
   let latestChat: LatestChat = null;
   const thread = threadRes.error ? null : threadRes.data;
+  const dm = dmRes.error ? null : dmRes.data;
   if (thread) {
     const [{ data: student }, { data: lastMessage }] = await Promise.all([
       supabase.from("students").select("profile_id, anonymous_alias").eq("id", thread.student_id).maybeSingle(),
@@ -114,6 +124,22 @@ async function fetchSidebarData(userId: string): Promise<SidebarData> {
       at: lastMessage?.created_at ?? thread.updated_at,
       status: thread.status,
     };
+  }
+  if (dm) {
+    const dmAt = (dm as { created_at: string }).created_at;
+    if (!latestChat || dmAt > latestChat.at) {
+      const d = dm as { body: string; sender_profile_id: string; recipient_profile_id: string };
+      const peerId = d.sender_profile_id === userId ? d.recipient_profile_id : d.sender_profile_id;
+      const { data: peer } = await supabase.from("profiles").select("full_name").eq("id", peerId).maybeSingle();
+      const peerName = (peer as { full_name: string | null } | null)?.full_name ?? "Staff";
+      latestChat = {
+        who: peerName,
+        sender: d.sender_profile_id === userId ? "You" : peerName,
+        body: d.body,
+        at: dmAt,
+        status: "",
+      };
+    }
   }
 
   return {

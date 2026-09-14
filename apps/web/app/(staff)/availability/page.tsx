@@ -147,7 +147,8 @@ export default function AvailabilityPage() {
   }, []);
 
   const isOffice = role === "guidance_head";
-  const canManage = isOffice || role === "counselor";
+  // Slot management is counselor-only — the head view is strictly read-only.
+  const canManage = role === "counselor";
   const managed = counselors.find((c) => c.id === (role === "counselor" ? ownId : managedId));
   const managedSlots = useMemo(() => slots.filter((s) => s.counselor_id === managed?.id), [slots, managed]);
 
@@ -271,7 +272,7 @@ export default function AvailabilityPage() {
         <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
           {role === "counselor"
             ? "Your weekly slots — students book against these, so keep them current."
-            : "Office coverage at a glance — spot gap days, toggle who's bookable, and manage any counselor's weekly slots."}
+            : "Office coverage at a glance — spot gap days and see each counselor's load. Slots are managed by each counselor."}
         </p>
       </div>
 
@@ -332,13 +333,13 @@ export default function AvailabilityPage() {
         )}
       </section>
 
-      {/* Counselor roster (office view) */}
+      {/* Counselor roster (office view — read-only) */}
       {isOffice && (
         <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
           <h2 className="font-display text-base font-bold text-ink">Counselors</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">Toggle who is bookable and compare load per counselor.</p>
+          <p className="mt-0.5 text-[13px] text-ink-muted">The team roster and current load per counselor.</p>
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
+            <table className="w-full min-w-[600px] text-left text-sm">
               <thead>
                 <tr className="border-b border-ink/10 text-xs uppercase text-ink-muted">
                   <th className="px-4 py-3">Counselor</th>
@@ -346,7 +347,6 @@ export default function AvailabilityPage() {
                   <th className="px-4 py-3 text-center">Slots</th>
                   <th className="px-4 py-3 text-center">Weekly hrs</th>
                   <th className="px-4 py-3">Upcoming</th>
-                  <th className="px-4 py-3">Bookable</th>
                 </tr>
               </thead>
               <tbody>
@@ -362,21 +362,6 @@ export default function AvailabilityPage() {
                     <td className="px-4 py-3 text-center">{slots.filter((s) => s.counselor_id === c.id).length}</td>
                     <td className="px-4 py-3 text-center">{fmtHours(hoursBy.get(c.id) ?? 0)}</td>
                     <td className="px-4 py-3">{upcomingBy.get(c.id) ?? 0} sessions</td>
-                    <td className="px-4 py-3">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() =>
-                          mutate(c.available ? "mark unavailable" : "mark available", async () => {
-                            const { error } = await createClient().from("counselors").update({ is_available: !c.available }).eq("id", c.id);
-                            if (error) throw error;
-                          })
-                        }
-                      >
-                        {c.available ? "Set unavailable" : "Set available"}
-                      </Button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -388,7 +373,7 @@ export default function AvailabilityPage() {
         </section>
       )}
 
-      {/* Slot manager */}
+      {/* Slot manager — counselor only (head never sees this section) */}
       {canManage && (
         <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
           <div className="flex flex-wrap items-end justify-between gap-3">

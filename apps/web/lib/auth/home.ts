@@ -8,7 +8,7 @@ import type { UserRole } from "@dorsu/shared-types";
 export function homeForRole(role: UserRole | string | null | undefined): string {
   switch (role) {
     case "counselor":
-      return "/appointments";
+      return "/dashboard";
     case "faculty":
       return "/referrals";
     case "guidance_head":

@@ -29,7 +29,7 @@ type ApptLite = { student_id: string; scheduled_at: string; status: string };
 type RefLite = { student_id: string; status: string; priority: string };
 type ScreenLite = { student_id: string; band: string; created_at: string };
 
-const OPEN_REFERRALS = ["pending", "acknowledged", "in_progress", "escalated"];
+const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"];
 const URGENT_PRIORITIES = ["urgent", "high"];
 
 const STRESS_META: Record<string, { label: string; color: string }> = {
@@ -60,6 +60,7 @@ function shortDate(iso: string): string {
  */
 export default function StudentsPage() {
   const [role, setRole] = useState<string | null>(null);
+  const [counselorId, setCounselorId] = useState<string | null>(null);
   const [rows, setRows] = useState<Student[]>([]);
   const [appts, setAppts] = useState<ApptLite[]>([]);
   const [refs, setRefs] = useState<RefLite[]>([]);
@@ -81,6 +82,57 @@ export default function StudentsPage() {
         const r = (profile as { role: string } | null)?.role ?? null;
         setRole(r);
         if (!r || !["counselor", "guidance_head"].includes(r)) return;
+        if (r === "counselor") {
+          // Counselor scope — only students on my caseload: my sessions,
+          // referrals assigned to me, and my chat threads.
+          const { data: c } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
+          const cid = (c as { id: string } | null)?.id ?? null;
+          setCounselorId(cid);
+          if (!cid) {
+            setRows([]);
+            return;
+          }
+          const [{ data: apptRows }, { data: refRows }, { data: threadRows }] = await Promise.all([
+            supabase.from("appointments").select("student_id, scheduled_at, status").eq("counselor_id", cid).limit(1000),
+            supabase.from("referrals").select("student_id, status, priority").eq("assigned_counselor_id", cid).limit(1000),
+            supabase.from("chat_threads").select("student_id").eq("counselor_id", cid).limit(500),
+          ]);
+          const myIds = [
+            ...new Set([
+              ...(((apptRows ?? []) as { student_id: string }[]).map((a) => a.student_id)),
+              ...(((refRows ?? []) as { student_id: string }[]).map((x) => x.student_id)),
+              ...(((threadRows ?? []) as { student_id: string }[]).map((t) => t.student_id)),
+            ]),
+          ];
+          const studentList: Student[] = [];
+          for (let i = 0; i < myIds.length; i += 200) {
+            const chunk = myIds.slice(i, i + 200);
+            if (!chunk.length) break;
+            const { data } = await supabase
+              .from("students")
+              .select("id, student_no, program, year_level, college, anonymous_alias, created_at")
+              .in("id", chunk);
+            studentList.push(...((data ?? []) as Student[]));
+          }
+          studentList.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+          const screenList: ScreenLite[] = [];
+          for (let i = 0; i < myIds.length; i += 200) {
+            const chunk = myIds.slice(i, i + 200);
+            if (!chunk.length) break;
+            const { data } = await supabase
+              .from("pss10_assessments")
+              .select("student_id, band, created_at")
+              .in("student_id", chunk)
+              .order("created_at", { ascending: false })
+              .limit(1000);
+            screenList.push(...((data ?? []) as ScreenLite[]));
+          }
+          setRows(studentList.slice(0, 300));
+          setAppts(((apptRows ?? []) as ApptLite[]));
+          setRefs(((refRows ?? []) as RefLite[]));
+          setScreens(screenList);
+          return;
+        }
         const [{ data: studentRows }, { data: apptRows }, { data: refRows }, { data: screenRows }] = await Promise.all([
           supabase
             .from("students")
@@ -276,12 +328,22 @@ export default function StudentsPage() {
       </Breadcrumb>
 
       <div>
-        <h1 className="font-display text-2xl font-bold">Students</h1>
+        <h1 className="font-display text-2xl font-bold">{role === "counselor" ? "My students" : "Students"}</h1>
         <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-          Privacy-safe directory — aliases only, with each student&apos;s session load,
-          open referrals, and latest screening band.
+          {role === "counselor"
+            ? "Your caseload — students from your sessions, assigned referrals, and chats. Aliases only, with each student's load with you."
+            : "Privacy-safe directory — aliases only, with each student's session load, open referrals, and latest screening band."}
         </p>
       </div>
+
+      {role === "counselor" && !counselorId && !loading && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-card">
+          <p className="text-sm font-bold text-amber-800">Counselor record not linked yet</p>
+          <p className="mt-1 text-[13px] text-amber-700">
+            Your login works, but no counselor row is linked to your account. Ask the guidance head to finish setup.
+          </p>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">

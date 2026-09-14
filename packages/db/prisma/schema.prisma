@@ -113,17 +113,22 @@ enum ReferralReasonCategory {
 }
 
 /// Dictionary §5 (submitted/under_review/action_taken/closed) superset with
-/// legacy (pending/acknowledged/in_progress/resolved/escalated).
+/// legacy (pending/acknowledged/in_progress/resolved/escalated) plus the
+/// role-separated stages (assigned/confirmed/rejected, see 00033) mirroring
+/// the appointment lifecycle.
 enum ReferralStatus {
   submitted
   under_review
   action_taken
   closed
   pending
+  assigned
   acknowledged
   in_progress
+  confirmed
   resolved
   escalated
+  rejected
 }
 
 enum ReferralPriority {
@@ -342,6 +347,8 @@ model Appointment {
   requestedDatetime DateTime?         @map("requested_datetime") @db.Timestamptz(6)
   confirmedDatetime DateTime?         @map("confirmed_datetime") @db.Timestamptz(6)
   scheduledAt       DateTime?         @map("scheduled_at") @db.Timestamptz(6)
+  // Google Meet link for online sessions — set by the counselor on confirm.
+  meetingUrl        String?           @map("meeting_url") @db.Text
   isAnonymous       Boolean           @default(false) @map("is_anonymous")
   // Legacy back-reference (00008): the PSS-10 that gated this booking.
   // Dictionary models the link from the other side
