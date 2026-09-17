@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ImagePlus, X } from "lucide-react";
+import { ImagePlus, X, BarChart3, Check, ChevronDown } from "lucide-react";
 import { announcementSchema, type AnnouncementInput } from "@dorsu/shared-schemas";
 import { createClient } from "@/lib/supabase/client";
+import { useAnnouncementsBoard } from "@/lib/hooks/use-announcements-board";
+import { cn } from "@/lib/utils";
 import { Badge, Button, Card, FieldError, Input, Textarea } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -30,6 +32,9 @@ type Announcement = {
   published_at: string | null;
   created_at: string;
 };
+
+const EMPTY_ROWS: Announcement[] = [];
+const EMPTY_AUTHORS = new Map<string, string>();
 
 const AUDIENCES = [
   { value: "student", label: "Students" },
@@ -71,66 +76,172 @@ function initials(name: string): string {
   return name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("") || "?";
 }
 
+/**
+ * Hover/click floating filter menu — the same behavior as the Stats menu
+ * on /appointments: opens on hover or click, closes on mouse leave (short
+ * grace), outside click, Escape, or pick.
+ */
+function HoverMenu({
+  buttonLabel,
+  ariaLabel,
+  options,
+  value,
+  onPick,
+  align = "left",
+}: {
+  buttonLabel: React.ReactNode;
+  ariaLabel: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onPick: (v: string) => void;
+  /** Menu edge — "right" keeps right-side menus inside the page width. */
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openMenu = () => {
+    if (timer.current) clearTimeout(timer.current);
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setOpen(false), 150);
+  };
+  const toggle = () => {
+    if (timer.current) clearTimeout(timer.current);
+    setOpen((v) => !v);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [open ]);
+
+  return (
+    <div ref={ref} className="relative shrink-0" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
+      <button
+        type="button"
+        onClick={toggle}
+        onFocus={openMenu}
+        onBlur={scheduleClose}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+      >
+        <span className="max-w-44 truncate">{buttonLabel}</span>
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          aria-label={ariaLabel}
+          className={cn(
+            "menu-scroll absolute top-full z-20 mt-2 max-h-60 w-56 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-card",
+            align === "right" ? "right-0" : "left-0"
+          )}
+        >
+          {options.map((o) => {
+            const active = o.value === value;
+            return (
+              <li key={o.value} role="option" aria-selected={active}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onPick(o.value);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream",
+                    active ? "font-bold text-primary-700" : "font-medium text-ink-soft hover:text-ink"
+                  )}
+                >
+                  <span className="truncate">{o.label}</span>
+                  {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** Head-only announcements — Facebook-style newsfeed plus an insights tab. */
 export default function AnnouncementsPage() {
-  const [rows, setRows] = useState<Announcement[]>([]);
-  const [authors, setAuthors] = useState<Map<string, string>>(new Map());
-  const [myName, setMyName] = useState("Guidance");
+  const { data: board, isLoading, isError, refetch } = useAnnouncementsBoard();
+  const rows = board?.rows ?? EMPTY_ROWS;
+  const authors = board?.authors ?? EMPTY_AUTHORS;
+  const myName = board?.myName ?? "Guidance";
+  const role = board?.role ?? null;
+  const loading = isLoading && !board;
   const [audience, setAudience] = useState<("student" | "counselor" | "faculty")[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Announcement | null>(null);
   const [tab, setTab] = useState("feed");
-  const [role, setRole] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { register, handleSubmit, formState, reset } = useForm<AnnouncementInput>({
     resolver: zodResolver(announcementSchema),
   });
 
-  const reload = async () => {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: me } = await supabase.from("profiles").select("full_name, role").eq("id", user.id).single();
-      const typed = me as { full_name: string | null; role: string | null } | null;
-      if (typed?.full_name) {
-        setMyName(typed.full_name);
-      }
-      setRole(typed?.role ?? null);
-    }
-    const { data, error } = await supabase
-      .from("announcements")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
-    if (error) throw error;
-    const list = ((data ?? []) as Announcement[]);
-    setRows(list);
-    const authorIds = [...new Set(list.map((a) => a.author_profile_id))];
-    if (authorIds.length) {
-      const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", authorIds.slice(0, 100));
-      setAuthors(
-        new Map(((profiles ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name ?? "Staff"]))
-      );
-    }
+  // Stats live in a floating panel — same hover/click behavior as the
+  // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
+  const [statsOpen, setStatsOpen] = useState(false);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen(true);
+  };
+  const scheduleStatsClose = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
+  };
+  const toggleStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen((v) => !v);
   };
 
   useEffect(() => {
-    (async () => {
-      try {
-        await reload();
-      } catch {
-        toast.error("Couldn't load announcements right now.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!statsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStatsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    };
+  }, [statsOpen]);
+
+  useEffect(() => {
+    if (isError) toast.error("Couldn't load announcements right now.");
+  }, [isError]);
 
   useEffect(() => {
     return () => {
@@ -263,7 +374,7 @@ export default function AnnouncementsPage() {
         reset();
         setAudience([]);
         clearImage();
-        await reload();
+        await refetch();
         if (publish) {
           let q = supabase.from("profiles").select("id").eq("is_active", true);
           if (audience.length) q = q.in("role", audience);
@@ -290,7 +401,7 @@ export default function AnnouncementsPage() {
     try {
       const { error } = await createClient().from("announcements").update({ published_at: at }).eq("id", a.id);
       if (error) throw error;
-      await reload();
+      await refetch();
       toast.success(at ? "Post published." : "Post unpublished.");
     } catch {
       toast.error("Couldn't update that post — please try again.");
@@ -311,7 +422,7 @@ export default function AnnouncementsPage() {
           await createClient().storage.from("announcement-images").remove([path]).catch(() => {});
         }
       }
-      await reload();
+      await refetch();
       toast.success("Post deleted.");
     } catch {
       toast.error("Couldn't delete that post — please try again.");
@@ -327,6 +438,8 @@ export default function AnnouncementsPage() {
     { label: "With images", value: stats.withImages },
     { label: "This week", value: stats.thisWeek },
   ];
+
+  const goInsights = () => setTab("insights");
 
   return (
     <div className="space-y-4">
@@ -353,33 +466,71 @@ export default function AnnouncementsPage() {
             </p>
           </div>
           {isHead && (
-          <div
-            role="tablist"
-            aria-label="Announcements views"
-            className="inline-flex shrink-0 rounded-xl border border-ink/10 bg-white p-1 shadow-card"
-          >
-            {(
-              [
+          <div className="flex shrink-0 flex-wrap items-center gap-3">
+            <HoverMenu
+              ariaLabel="Switch view"
+              buttonLabel={<>View: {tab === "feed" ? "Newsfeed" : "Insights"}</>}
+              options={[
                 { value: "feed", label: "Newsfeed" },
                 { value: "insights", label: "Insights" },
-              ] as const
-            ).map((t) => {
-              const selected = tab === t.value;
-              return (
-                <button
-                  key={t.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  onClick={() => setTab(t.value)}
-                  className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 ${
-                    selected ? "bg-primary-600 text-white shadow-soft" : "text-ink-muted hover:bg-cream hover:text-ink"
-                  }`}
+              ]}
+              value={tab}
+              onPick={setTab}
+            />
+            <div
+              ref={statsRef}
+              className="relative shrink-0"
+              onMouseEnter={openStats}
+              onMouseLeave={scheduleStatsClose}
+            >
+              <button
+                type="button"
+                onClick={toggleStats}
+                onFocus={openStats}
+                onBlur={scheduleStatsClose}
+                aria-haspopup="dialog"
+                aria-expanded={statsOpen}
+                className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+              >
+                <BarChart3 className="h-4 w-4" aria-hidden />
+                Stats
+                <ChevronDown
+                  aria-hidden
+                  className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
+                />
+              </button>
+              {statsOpen && (
+                <div
+                  role="dialog"
+                  aria-label="Announcement stats"
+                  className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
                 >
-                  {t.label}
-                </button>
-              );
-            })}
+                  {loading ? (
+                    <div className="animate-pulse px-4 py-3" aria-hidden>
+                      <div className="h-10 rounded-lg bg-ink/10" />
+                      <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                      <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                    </div>
+                  ) : (
+                    statCards.map((s) => (
+                      <button
+                        key={s.label}
+                        type="button"
+                        onClick={() => {
+                          goInsights();
+                          setStatsOpen(false);
+                        }}
+                        title={`See ${s.label} in Insights`}
+                        className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream"
+                      >
+                        <span className="text-[13px] font-medium text-ink-muted">{s.label}</span>
+                        <span className="font-display text-xl font-bold text-ink">{s.value}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           )}
         </div>
@@ -551,22 +702,6 @@ export default function AnnouncementsPage() {
         {/* ── Insights ── */}
         <TabsContent value="insights">
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
-              {loading
-                ? Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                      <div className="h-3.5 w-2/3 rounded-full bg-ink/10" />
-                      <div className="mt-3 h-8 w-1/3 rounded-lg bg-ink/10" />
-                    </div>
-                  ))
-                : statCards.map((s) => (
-                    <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                      <p className="text-[13px] font-medium text-ink-muted">{s.label}</p>
-                      <p className="mt-1 font-display text-3xl font-bold text-ink">{s.value}</p>
-                    </div>
-                  ))}
-            </div>
-
             <div className="grid gap-4 xl:grid-cols-2">
               <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
                 <h2 className="font-display text-base font-bold text-ink">Posts — last 14 days</h2>

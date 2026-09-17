@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertTriangle, Check, CheckCheck, Eye, LayoutGrid, List, X } from "lucide-react";
+import { AlertTriangle, BarChart3, Check, CheckCheck, ChevronDown, Eye, Info, LayoutGrid, List, Loader2, X } from "lucide-react";
 import { createReferralSchema, type CreateReferralInput } from "@dorsu/shared-schemas";
 import { createClient } from "@/lib/supabase/client";
+import { useReferralsBoard } from "@/lib/hooks/use-referrals-board";
 import {
   assignReferral,
   confirmReferralWithSession,
   createReferral,
   isMeetUrl,
-  listReferrals,
   REFERRAL_SCHEDULE_NOTE_PREFIX,
   rejectReferral,
   triageReferral,
@@ -52,6 +52,14 @@ type RefAction = {
   note: string | null;
   created_at: string;
 };
+
+const EMPTY_ROWS: Referral[] = [];
+const EMPTY_TRAIL = new Map<string, RefAction[]>();
+const EMPTY_MAP = new Map<string, string>();
+const EMPTY_COUNSELORS: { id: string; name: string }[] = [];
+const EMPTY_IDS: string[] = [];
+const EMPTY_STUDENTS: { id: string; label: string }[] = [];
+const EMPTY_READY = new Set<string>();
 
 /** Core strict flow — mirrors appointment statuses (pending → assigned →
  * confirmed → resolved, plus rejected/escalated). Legacy acknowledged /
@@ -138,12 +146,12 @@ function parseScheduleNote(note: string | null): string | null {
 
 const HEAD_LEGEND: { icon: typeof Check; label: string; desc: string; variant: "accent" | "outline" }[] = [
   { icon: Check, label: "Assign", desc: "Pending → assigned", variant: "accent" },
-  { icon: X, label: "Reject", desc: "Pending / assigned → rejected", variant: "outline" },
+  { icon: X, label: "Reject", desc: "Pending → rejected", variant: "outline" },
 ];
 
 const COUNSELOR_LEGEND: { icon: typeof Check; label: string; desc: string; variant: "accent" | "outline" }[] = [
   { icon: Check, label: "Confirm", desc: "Assigned → confirmed + creates session", variant: "accent" },
-  { icon: CheckCheck, label: "Resolve", desc: "Confirmed → resolved (needs session)", variant: "accent" },
+  { icon: CheckCheck, label: "Resolve", desc: "Confirmed → resolved (once session time passes)", variant: "accent" },
   { icon: AlertTriangle, label: "Escalate", desc: "Flag as urgent", variant: "outline" },
 ];
 
@@ -179,9 +187,161 @@ function IconAction({
 /** Strict triage moves — assign happens in the Counselor column, never here. */
 type TriageKind = "confirmed" | "resolved" | "escalated" | "rejected";
 
-const TRIAGE_COPY: Record<TriageKind, { title: string; body: string; ok: string }> = {
+/**
+ * Hover/click floating filter menu — the same behavior as the Stats menu
+ * on /appointments: opens on hover or click, closes on mouse leave (short
+ * grace), outside click, Escape, or pick.
+ */
+/** Session time still in the future — Resolve unlocks once it passes (mirrors /appointments). */
+function isSessionUpcoming(iso: string | null | undefined): boolean {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  return !Number.isNaN(t) && t > Date.now();
+}
+
+// SSR-safe layout effect (this page server-renders, effects run on client).
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+/**
+ * Viewport-clamped floating panel position.
+ * Panels render `position: fixed` (never absolute), so an open menu can never
+ * stretch the page and force a horizontal scrollbar. Coordinates come from the
+ * anchor's rect, clamped to 8px page margins, and follow scroll/resize while
+ * open. Hover/click/outside-click/Escape behavior is unchanged — the panel
+ * stays a DOM child of its anchor wrapper.
+ */
+function useClampedPanel(
+  open: boolean,
+  anchorRef: { current: HTMLElement | null },
+  width: number,
+  prefer: "left" | "right" = "left"
+) {
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useIsomorphicLayoutEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const el = anchorRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const w = Math.min(width, window.innerWidth - 16);
+      const raw = prefer === "right" ? r.right - w : r.left;
+      const left = Math.max(8, Math.min(raw, window.innerWidth - w - 8));
+      setPos({ top: r.bottom + 8, left, width: w });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, anchorRef, width, prefer]);
+
+  return pos;
+}
+
+function HoverMenu({
+  buttonLabel,
+  ariaLabel,
+  options,
+  value,
+  onPick,
+  align = "left",
+}: {
+  buttonLabel: React.ReactNode;
+  ariaLabel: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onPick: (v: string) => void;
+  /** Menu edge — preferred side; the panel is viewport-clamped either way. */
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const panelPos = useClampedPanel(open, ref, 224, align);
+
+  const openMenu = () => {
+    if (timer.current) clearTimeout(timer.current);
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setOpen(false), 150);
+  };
+  const toggle = () => {
+    if (timer.current) clearTimeout(timer.current);
+    setOpen((v) => !v);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [open ]);
+
+  return (
+    <div ref={ref} className="shrink-0" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
+      <button
+        type="button"
+        onClick={toggle}
+        onFocus={openMenu}
+        onBlur={scheduleClose}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+      >
+        <span className="max-w-44 truncate">{buttonLabel}</span>
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          aria-label={ariaLabel}
+          style={{ top: panelPos?.top, left: panelPos?.left, width: panelPos?.width ?? 224 }}
+          className="menu-scroll fixed z-50 max-h-60 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+        >
+          {options.map((o) => {
+            const active = o.value === value;
+            return (
+              <li key={o.value} role="option" aria-selected={active}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onPick(o.value);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream",
+                    active ? "font-bold text-primary-700" : "font-medium text-ink-soft hover:text-ink"
+                  )}
+                >
+                  <span className="truncate">{o.label}</span>
+                  {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}const TRIAGE_COPY: Record<TriageKind, { title: string; body: string; ok: string }> = {
   confirmed: { title: "Confirm and schedule this session?", body: "Set the final session date and time plus how you'll meet. Confirming creates the session itself — the student is notified with the schedule.", ok: "Confirm session" },
-  resolved: { title: "Resolve this referral?", body: "Closes the loop — the student needs a confirmed session with a schedule first. Resolve stays blocked until then.", ok: "Resolve" },
+  resolved: { title: "Resolve this referral?", body: "Closes the loop — the student needs a confirmed session with a schedule first, and the session time must have passed. Resolve stays blocked until then.", ok: "Resolve" },
   escalated: { title: "Escalate this referral?", body: "Flags it as needing urgent attention from leadership.", ok: "Escalate" },
   rejected: { title: "Reject this referral?", body: "The referral ends as Rejected and leaves the queue. This can't be undone.", ok: "Reject referral" },
 };
@@ -205,7 +365,7 @@ const COUNSELOR_NEXT: Record<string, TriageKind[]> = {
 
 const HEAD_NEXT: Record<string, TriageKind[]> = {
   pending: ["rejected"],
-  assigned: ["rejected"],
+  assigned: [],
   acknowledged: [],
   in_progress: [],
   confirmed: [],
@@ -229,7 +389,8 @@ const NO_SESSION_MSG =
  * Shared /referrals — same role-separated flow as appointments, different
  * start line: appointments start from the student booking directly, referrals
  * start from faculty flagging a student for session.
- * Admin (guidance_head): assign counselor (pending → assigned) + reject.
+ * Admin (guidance_head): assign counselor (pending → assigned) + reject
+ *   pending referrals only (assigned rows must be unassigned first).
  *   Never confirm / resolve / escalate — those belong to the counselor.
  * Counselor: confirm assigned → confirmed, then resolve once the session is
  *   confirmed, plus escalate when urgent. Never assign / reject. Pending
@@ -238,21 +399,26 @@ const NO_SESSION_MSG =
  * Rules live in referrals/mutations.ts; this page only renders them.
  */
 export default function ReferralsPage() {
-  const [rows, setRows] = useState<Referral[]>([]);
-  const [trail, setTrail] = useState<Map<string, RefAction[]>>(new Map());
-  const [actorNames, setActorNames] = useState<Map<string, string>>(new Map());
-  const [aliases, setAliases] = useState<Map<string, string>>(new Map());
-  const [counselors, setCounselors] = useState<{ id: string; name: string }[]>([]);
-  const [counselorProfiles, setCounselorProfiles] = useState<Map<string, string>>(new Map());
-  const [facultyNames, setFacultyNames] = useState<Map<string, string>>(new Map());
-  const [facultyProfiles, setFacultyProfiles] = useState<Map<string, string>>(new Map());
-  const [headIds, setHeadIds] = useState<string[]>([]);
-  const [students, setStudents] = useState<{ id: string; label: string }[]>([]);
-  const [me, setMe] = useState<string | null>(null);
-  const [role, setRole] = useState<string | null>(null);
-  const [facultyId, setFacultyId] = useState<string | null>(null);
-  const [counselorId, setCounselorId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: board, isLoading, isError, refetch } = useReferralsBoard();
+  const rows = board?.rows ?? EMPTY_ROWS;
+  const trail = board?.trail ?? EMPTY_TRAIL;
+  const actorNames = board?.actorNames ?? EMPTY_MAP;
+  const aliases = board?.aliases ?? EMPTY_MAP;
+  const counselors = board?.counselors ?? EMPTY_COUNSELORS;
+  const counselorProfiles = board?.counselorProfiles ?? EMPTY_MAP;
+  const facultyNames = board?.facultyNames ?? EMPTY_MAP;
+  const facultyProfiles = board?.facultyProfiles ?? EMPTY_MAP;
+  const headIds = board?.headIds ?? EMPTY_IDS;
+  const students = board?.students ?? EMPTY_STUDENTS;
+  const me = board?.me ?? null;
+  const role = board?.role ?? null;
+  const facultyId = board?.facultyId ?? null;
+  const counselorId = board?.counselorId ?? null;
+  const studentProfiles = board?.studentProfiles ?? EMPTY_MAP;
+  // Students with a confirmed/completed scheduled session — only their
+  // referrals may resolve (same flow as appointment sessions).
+  const readyStudents = board?.readyStudents ?? EMPTY_READY;
+  const loading = isLoading && !board;
   const [busyId, setBusyId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -261,6 +427,11 @@ export default function ReferralsPage() {
   const [query, setQuery] = useState("");
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{ ref: Referral; to: TriageKind } | null>(null);
+  // Triage dialog busy flag — the dialog stays open with a spinner while the
+  // move (confirm mints a session + notifies) is processing.
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  // Ref mirror for the Escape handler (its effect doesn't re-subscribe on busy).
+  const confirmBusyRef = useRef(false);
   const [reasonRef, setReasonRef] = useState<Referral | null>(null);
   const [escalateNote, setEscalateNote] = useState("");
   const [escalateError, setEscalateError] = useState<string | null>(null);
@@ -270,10 +441,6 @@ export default function ReferralsPage() {
   const [meetInput, setMeetInput] = useState("");
   const [meetError, setMeetError] = useState<string | null>(null);
   const [studentPick, setStudentPick] = useState("");
-  const [studentProfiles, setStudentProfiles] = useState<Map<string, string>>(new Map());
-  // Students with a confirmed/completed scheduled session — only their
-  // referrals may resolve (same flow as appointment sessions).
-  const [readyStudents, setReadyStudents] = useState<Set<string>>(new Set());
 
   const { register, handleSubmit, formState, reset, setValue, watch } = useForm<CreateReferralInput>({
     resolver: zodResolver(createReferralSchema),
@@ -281,117 +448,86 @@ export default function ReferralsPage() {
   });
   const priorityValue = watch("priority") ?? "medium";
 
-  const reload = async () => {
-    const supabase = createClient();
-    const data = ((await listReferrals(supabase)) ?? []) as Referral[];
-    setRows(data);
+  // Stats live in a floating panel — same hover/click behavior as the
+  // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
+  const [statsOpen, setStatsOpen] = useState(false);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const { data: actions } = await supabase
-      .from("referral_actions")
-      .select("id, referral_id, actor_profile_id, action, note, created_at")
-      .order("created_at", { ascending: false })
-      .limit(500);
-    const grouped = new Map<string, RefAction[]>();
-    for (const a of ((actions ?? []) as RefAction[])) {
-      if (!grouped.has(a.referral_id)) grouped.set(a.referral_id, []);
-      grouped.get(a.referral_id)!.push(a);
-    }
-    setTrail(grouped);
-    const actorIds = [...new Set(((actions ?? []) as RefAction[]).map((a) => a.actor_profile_id))];
-    if (actorIds.length) {
-      const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", actorIds.slice(0, 200));
-      setActorNames(
-        new Map(((profiles ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name ?? "Staff"]))
-      );
-    }
-
-    const studentIds = [...new Set(data.map((r) => r.student_id))];
-    if (studentIds.length) {
-      const { data: studentRows } = await supabase
-        .from("students")
-        .select("id, profile_id, anonymous_alias")
-        .in("id", studentIds.slice(0, 300));
-      const srows = ((studentRows ?? []) as { id: string; profile_id: string; anonymous_alias: string | null }[]);
-      setAliases(new Map(srows.map((s) => [s.id, s.anonymous_alias ?? "Student"])));
-      setStudentProfiles(new Map(srows.map((s) => [s.id, s.profile_id])));
-      // Resolve gate — which referred students already hold a confirmed (or
-      // completed) session with a schedule. RLS-scoped, so counselors only
-      // ever see their own sessions here.
-      const { data: sessionRows } = await supabase
-        .from("appointments")
-        .select("student_id")
-        .in("student_id", studentIds.slice(0, 300))
-        .in("status", ["confirmed", "completed"])
-        .not("scheduled_at", "is", null);
-      setReadyStudents(
-        new Set(((sessionRows ?? []) as { student_id: string }[]).map((a) => a.student_id))
-      );
-    } else {
-      setReadyStudents(new Set());
-    }
-
-    const { data: counselorRows } = await supabase.from("counselors").select("id, profile_id").limit(100);
-    const crows = ((counselorRows ?? []) as { id: string; profile_id: string }[]);
-    if (crows.length) {
-      const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", crows.map((c) => c.profile_id));
-      const names = new Map(((profiles ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name ?? "Counselor"]));
-      setCounselors(crows.map((c) => ({ id: c.id, name: names.get(c.profile_id) ?? "Counselor" })));
-      setCounselorProfiles(new Map(crows.map((c) => [c.id, c.profile_id])));
-    }
-    const { data: headRows } = await supabase.from("profiles").select("id").eq("role", "guidance_head").eq("is_active", true);
-    setHeadIds(((headRows ?? []) as { id: string }[]).map((h) => h.id));
-
-    const facIds = [...new Set(data.map((r) => r.referring_faculty_id).filter(Boolean))] as string[];
-    if (facIds.length) {
-      const { data: facRows } = await supabase.from("faculty_members").select("id, profile_id").in("id", facIds.slice(0, 100));
-      const frows = ((facRows ?? []) as { id: string; profile_id: string }[]);
-      if (frows.length) {
-        const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", frows.map((f) => f.profile_id));
-        const names = new Map(((profiles ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name ?? "Faculty"]));
-        setFacultyNames(new Map(frows.map((f) => [f.id, names.get(f.profile_id) ?? "Faculty"])));
-        setFacultyProfiles(new Map(frows.map((f) => [f.id, f.profile_id])));
-      }
-    }
+  const openStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen(true);
+  };
+  const scheduleStatsClose = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
+  };
+  const toggleStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen((v) => !v);
   };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        setMe(user.id);
-        const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-        const r = (profile as { role: string } | null)?.role ?? null;
-        setRole(r);
-        if (r === "counselor") {
-          const { data: c } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
-          if ((c as { id: string } | null)?.id) setCounselorId((c as { id: string }).id);
-        }
-        if (r === "faculty") {
-          const { data } = await supabase.from("faculty_members").select("id").eq("profile_id", user.id).single();
-          if ((data as { id: string } | null)?.id) setFacultyId((data as { id: string }).id);
-          const { data: studentRows } = await supabase
-            .from("students")
-            .select("id, anonymous_alias, student_no")
-            .order("created_at", { ascending: false })
-            .limit(200);
-          setStudents(
-            ((studentRows ?? []) as { id: string; anonymous_alias: string | null; student_no: string }[]).map((s) => ({
-              id: s.id,
-              label: `${s.anonymous_alias ?? "Student"} · ${s.student_no}`,
-            }))
-          );
-        }
-        if (r && ["counselor", "guidance_head", "faculty"].includes(r)) await reload();
-      } catch {
-        toast.error("Couldn't load referrals right now.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!statsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStatsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    };
+  }, [statsOpen]);
+
+  // Viewport-clamped (fixed) positions — open panels can never widen the page.
+  const statsPos = useClampedPanel(statsOpen, statsRef, 288, "right");
+
+  // Actions legend in its own floating panel beside Stats — same hover/click
+  // behavior. One item per line (never horizontal).
+  const [legendOpen, setLegendOpen] = useState(false);
+  const legendRef = useRef<HTMLDivElement>(null);
+  const legendCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openLegend = () => {
+    if (legendCloseTimer.current) clearTimeout(legendCloseTimer.current);
+    setLegendOpen(true);
+  };
+  const scheduleLegendClose = () => {
+    if (legendCloseTimer.current) clearTimeout(legendCloseTimer.current);
+    legendCloseTimer.current = setTimeout(() => setLegendOpen(false), 150);
+  };
+  const toggleLegend = () => {
+    if (legendCloseTimer.current) clearTimeout(legendCloseTimer.current);
+    setLegendOpen((v) => !v);
+  };
+
+  useEffect(() => {
+    if (!legendOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (legendRef.current && !legendRef.current.contains(e.target as Node)) setLegendOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLegendOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (legendCloseTimer.current) clearTimeout(legendCloseTimer.current);
+    };
+  }, [legendOpen]);
+
+  const legendPos = useClampedPanel(legendOpen, legendRef, 320, "right");
+
+  useEffect(() => {
+    if (isError) toast.error("Couldn't load referrals right now.");
+  }, [isError]);
 
   const canSubmit = role === "faculty";
   const canTriage = role === "counselor" || role === "guidance_head";
@@ -402,8 +538,8 @@ export default function ReferralsPage() {
   const canSeeActions = canAssign || canReject || isCounselor;
 
   // Counselor scope mirrors appointments — my assigned cases only. Other
-  // counselors' cases stay out of my queue and my numbers. Unlinked
-  // counselors fall back to the full inbox until setup finishes.
+  // counselors' cases stay out of my queue and my numbers (enforced by RLS
+  // too — unlinked counselors simply see an empty inbox until setup).
   const mine = useMemo(
     () => (isCounselor && counselorId ? rows.filter((r) => r.assigned_counselor_id === counselorId) : rows),
     [rows, isCounselor, counselorId]
@@ -457,6 +593,12 @@ export default function ReferralsPage() {
   const askConfirm = (ref: Referral, to: TriageKind) => {
     if (to === "resolved" && !canResolve(ref)) {
       toast.error(NO_SESSION_MSG);
+      return;
+    }
+    // Resolve unlocks once the counselor-set session time passes (mirrors
+    // the appointment page's Upcoming session rule).
+    if (to === "resolved" && isSessionUpcoming(sessionSchedule.get(ref.id))) {
+      toast.error("Session hasn't happened yet — resolve unlocks once the session time passes.");
       return;
     }
     setConfirming({ ref, to });
@@ -524,10 +666,28 @@ export default function ReferralsPage() {
           link: "/referrals",
         });
       }
-      await reload();
+      await refetch();
+      // Success feedback for the actor — pops top-right on completion.
+      const okTitle =
+        to === "confirmed"
+          ? "Session confirmed"
+          : to === "resolved"
+            ? "Referral resolved"
+            : to === "escalated"
+              ? "Referral escalated"
+              : "Referral rejected";
+      const okDesc =
+        to === "confirmed" && when
+          ? `Session scheduled on ${when} — student notified.`
+          : to === "confirmed"
+            ? "Student notified."
+            : to === "escalated"
+              ? "Leadership notified."
+              : "Referral closed.";
+      toast.success(okTitle, { description: okDesc, position: "top-right" });
     } catch (e) {
       toast.error(
-        e instanceof Error && /confirmed session|sessions must be|valid session|meet link|only the (assigned|handling)|unknown session|can't (move|assign|unassign|reject|confirm|resolve|escalate|acknowledge|start)/i.test(e.message)
+        e instanceof Error && /confirmed session|sessions must be|valid session|meet link|only the (assigned|handling)|only pending|unassign|unknown session|can't (move|assign|unassign|reject|confirm|resolve|escalate|acknowledge|start|triage)/i.test(e.message)
           ? e.message
           : "Couldn't move that referral — please reload and try again."
       );
@@ -536,10 +696,14 @@ export default function ReferralsPage() {
     }
   };
 
-  const runConfirming = () => {
-    if (!confirming) return;
+  const runConfirming = async () => {
+    if (!confirming || confirmBusy) return;
     if (confirming.to === "resolved" && !canResolve(confirming.ref)) {
       toast.error(NO_SESSION_MSG);
+      return;
+    }
+    if (confirming.to === "resolved" && isSessionUpcoming(sessionSchedule.get(confirming.ref.id))) {
+      toast.error("Session hasn't happened yet — resolve unlocks once the session time passes.");
       return;
     }
     // Counselor schedules the final session time on confirm — same gate
@@ -577,15 +741,24 @@ export default function ReferralsPage() {
     }
     const { ref, to } = confirming;
     const note = to === "escalated" ? escalateNote.trim() : undefined;
-    setConfirming(null);
-    setEscalateNote("");
-    setEscalateError(null);
-    setScheduleInput("");
-    setScheduleError(null);
-    setSessionMode("in_person");
-    setMeetInput("");
-    setMeetError(null);
-    void act(ref, to, note, { scheduledIso, mode: sessionMode, meetingUrl });
+    // Keep the dialog open with a spinner until the move lands, so the user
+    // knows the confirm is processing (session mint + notifications).
+    confirmBusyRef.current = true;
+    setConfirmBusy(true);
+    try {
+      await act(ref, to, note, { scheduledIso, mode: sessionMode, meetingUrl });
+    } finally {
+      confirmBusyRef.current = false;
+      setConfirmBusy(false);
+      setConfirming(null);
+      setEscalateNote("");
+      setEscalateError(null);
+      setScheduleInput("");
+      setScheduleError(null);
+      setSessionMode("in_person");
+      setMeetInput("");
+      setMeetError(null);
+    }
   };
 
   // Counselor-set session time per referral, parsed from confirm notes.
@@ -632,7 +805,7 @@ export default function ReferralsPage() {
           link: "/referrals",
         });
       }
-      await reload();
+      await refetch();
     } catch (e) {
       toast.error(
         e instanceof Error && /can't (move|assign|unassign|reject|confirm|resolve|escalate)|unknown counselor/i.test(e.message)
@@ -659,7 +832,8 @@ export default function ReferralsPage() {
     if (!confirming) return;
     if (confirming.to !== "escalated") setEscalateError(null);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      // Never dismiss mid-processing — the spinner owns the dialog until done.
+      if (e.key === "Escape" && !confirmBusyRef.current) {
         setConfirming(null);
         setEscalateNote("");
         setEscalateError(null);
@@ -706,13 +880,20 @@ export default function ReferralsPage() {
     );
   }
 
+  const resetFilters = () => {
+    setStatusFilter("all");
+    setPriorityFilter("all");
+    setAssigneeFilter("all");
+    setQuery("");
+  };
+
   const statCards = [
-    { label: isCounselor ? "My referrals" : "Total referrals", value: stats.total },
-    { label: "Pending", value: stats.pending },
-    { label: "Assigned", value: stats.assigned },
-    { label: "Confirmed", value: stats.confirmed },
-    { label: "Resolved", value: stats.resolved },
-    { label: "Unassigned", value: stats.unassigned },
+    { label: isCounselor ? "My referrals" : "Total referrals", value: stats.total, pick: resetFilters },
+    { label: "Pending", value: stats.pending, pick: () => setStatusFilter("pending") },
+    { label: "Assigned", value: stats.assigned, pick: () => setStatusFilter("assigned") },
+    { label: "Confirmed", value: stats.confirmed, pick: () => setStatusFilter("confirmed") },
+    { label: "Resolved", value: stats.resolved, pick: () => setStatusFilter("resolved") },
+    { label: "Unassigned", value: stats.unassigned, pick: () => setAssigneeFilter("unassigned") },
   ];
 
   return (
@@ -729,152 +910,255 @@ export default function ReferralsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div>
-        <h1 className="font-display text-2xl font-bold">{isCounselor ? "My referrals" : "Referrals"}</h1>
-        <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-          {role === "faculty"
-            ? "Flag a student for counseling follow-up — the office triages from here."
-            : isCounselor
-              ? "Your assigned queue — confirm assigned referrals: setting the schedule creates the session itself (student notified), then resolve once it's confirmed. Cancels and reschedules come from the student."
-              : "Office-wide referral board — assign a counselor (pending → assigned) or reject the request. Confirm / resolve / escalate belong to the counselor."}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          {loading ? (
+            <div aria-hidden>
+              <div className="h-8 w-48 animate-pulse rounded-lg bg-ink/10" />
+              <div className="mt-2 h-4 w-full max-w-[600px] animate-pulse rounded bg-ink/10" />
+              <div className="mt-1.5 h-4 w-2/3 max-w-[400px] animate-pulse rounded bg-ink/10" />
+            </div>
+          ) : (
+            <>
+              <h1 className="font-display text-2xl font-bold">{isCounselor ? "My referrals" : "Referrals"}</h1>
+              <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
+                {role === "faculty"
+                  ? "Flag a student for counseling follow-up — the office triages from here."
+                  : isCounselor
+                    ? "Your assigned queue — confirm assigned referrals: setting the schedule creates the session itself (student notified), then resolve once the session time passes. Cancels and reschedules come from the student."
+                    : "Office-wide referral board — assign a counselor (pending → assigned) or reject pending referrals (unassign assigned ones first). Confirm / resolve / escalate belong to the counselor."}
+              </p>
+            </>
+          )}
+        </div>
+        {(canTriage || loading) && (
+          <div className="flex shrink-0 items-start gap-2">
+          {loading ? (
+            <>
+              <div className="h-10 w-24 animate-pulse rounded-full bg-ink/10" aria-hidden />
+              <div className="h-10 w-40 animate-pulse rounded-full bg-ink/10" aria-hidden />
+            </>
+          ) : (
+          <>
+          <div ref={statsRef} onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
+            <button
+              type="button"
+              onClick={toggleStats}
+              onFocus={openStats}
+              onBlur={scheduleStatsClose}
+              aria-haspopup="dialog"
+              aria-expanded={statsOpen}
+              className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            >
+              <BarChart3 className="h-4 w-4" aria-hidden />
+              Stats
+              <ChevronDown
+                aria-hidden
+                className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
+              />
+            </button>
+            {statsOpen && (
+              <div
+                role="dialog"
+                aria-label="Referral stats"
+                style={{ top: statsPos?.top, left: statsPos?.left, width: statsPos?.width ?? 288 }}
+                className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+              >
+                {loading ? (
+                  <div className="animate-pulse px-4 py-3" aria-hidden>
+                    <div className="h-10 rounded-lg bg-ink/10" />
+                    <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                    <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                  </div>
+                ) : (
+                  statCards.map((s) => (
+                    <button
+                      key={s.label}
+                      type="button"
+                      onClick={() => {
+                        s.pick();
+                        setStatsOpen(false);
+                      }}
+                      title={`Filter by ${s.label}`}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream"
+                    >
+                      <span className="text-[13px] font-medium text-ink-muted">{s.label}</span>
+                      <span className="font-display text-xl font-bold text-ink">{s.value}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+          {canSeeActions && (
+            <div ref={legendRef} onMouseEnter={openLegend} onMouseLeave={scheduleLegendClose}>
+              <button
+                type="button"
+                onClick={toggleLegend}
+                onFocus={openLegend}
+                onBlur={scheduleLegendClose}
+                aria-haspopup="dialog"
+                aria-expanded={legendOpen}
+                className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+              >
+                <Info className="h-4 w-4" aria-hidden />
+                {role === "guidance_head" ? "Admin actions" : "Counselor actions"}
+                <ChevronDown
+                  aria-hidden
+                  className={cn("h-4 w-4 transition-transform", legendOpen && "rotate-180")}
+                />
+              </button>
+              {legendOpen && (
+                <div
+                  role="dialog"
+                  aria-label={role === "guidance_head" ? "Admin actions legend" : "Counselor actions legend"}
+                  style={{ top: legendPos?.top, left: legendPos?.left, width: legendPos?.width ?? 320 }}
+                  className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-ink/10 bg-white px-4 py-3 shadow-card"
+                >
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
+                    {role === "guidance_head" ? "Admin actions" : "Counselor actions"}
+                  </p>
+                  <ul className="mt-2 flex flex-col gap-2">
+                    {(role === "guidance_head" ? HEAD_LEGEND : COUNSELOR_LEGEND).map((l) => (
+                      <li key={l.label} className="flex items-center gap-2 text-[13px]">
+                        <span
+                          aria-hidden
+                          className={
+                            l.variant === "accent"
+                              ? "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-400 text-ink"
+                              : "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-ink/15 bg-white text-ink"
+                          }
+                        >
+                          <l.icon className="h-3.5 w-3.5" />
+                        </span>
+                        <span>
+                          <span className="font-bold text-ink">{l.label}</span>
+                          <span className="text-ink-muted"> · {l.desc}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          </>
+          )}
+          </div>
+        )}
       </div>
 
       {isCounselor && !counselorId && !loading && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-card">
           <p className="text-sm font-bold text-amber-800">Counselor record not linked yet</p>
           <p className="mt-1 text-[13px] text-amber-700">
-            Showing the full inbox until your counselor record is linked. Ask the guidance head to finish setup.
+            Your login works, but no counselor row is linked to your account — only cases the head assigns to you will appear here. Ask the guidance head to finish setup.
           </p>
         </div>
       )}
 
-      {canTriage && (
+      {(canTriage || loading) && (
         <>
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-            {loading
-              ? Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                    <div className="h-3.5 w-2/3 rounded-full bg-ink/10" />
-                    <div className="mt-3 h-8 w-1/3 rounded-lg bg-ink/10" />
+          {/* Board — filters live inside, above the referral list */}
+          <Card className="p-0">
+            {loading ? (
+              <div className="p-4 sm:px-5" aria-hidden>
+                <div className="flex animate-pulse flex-wrap items-center gap-3">
+                  <div className="h-10 w-full rounded-full bg-ink/10 sm:w-56" />
+                  <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+                    <div className="h-9 w-32 rounded-full bg-ink/10" />
+                    <div className="h-9 w-32 rounded-full bg-ink/10" />
                   </div>
-                ))
-              : statCards.map((s) => (
-                  <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                    <p className="text-[13px] font-medium text-ink-muted">{s.label}</p>
-                    <p className="mt-1 font-display text-3xl font-bold text-ink">{s.value}</p>
-                  </div>
-                ))}
-          </div>
-
-          {/* Filters */}
-          <Card className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {["all", ...STATUSES].map((s) => (
-                <Button
-                  key={s}
-                  size="sm"
-                  variant={statusFilter === s ? "primary" : "outline"}
-                  onClick={() => setStatusFilter(s)}
-                >
-                  {s === "all" ? "All" : statusLabel(s)}
-                </Button>
-              ))}
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <Dropdown
-                menuKey="ref-priority"
-                openMenuKey={openMenuKey}
-                onOpenChange={setOpenMenuKey}
-                value={priorityFilter}
-                onChange={setPriorityFilter}
-                ariaLabel="Filter by priority"
-                options={[
-                  { value: "all", label: "All priorities" },
-                  ...PRIORITIES.map((p) => ({ value: p, label: statusLabel(p) })),
-                ]}
-              />
-              {role !== "counselor" && (
-                <Dropdown
-                  menuKey="ref-assignee"
-                  openMenuKey={openMenuKey}
-                  onOpenChange={setOpenMenuKey}
-                  value={assigneeFilter}
-                  onChange={setAssigneeFilter}
-                  ariaLabel="Filter by assignee"
-                  options={[
-                    { value: "all", label: "All counselors" },
-                    { value: "unassigned", label: "Unassigned only" },
-                    ...counselors.map((c) => ({ value: c.id, label: c.name })),
-                  ]}
-                />
-              )}
+                </div>
+                <div className="mt-4 animate-pulse space-y-3">
+                  <div className="h-12 rounded-xl bg-ink/10" />
+                  <div className="h-12 rounded-xl bg-ink/10" />
+                  <div className="h-12 rounded-xl bg-ink/10" />
+                  <div className="h-12 rounded-xl bg-ink/10" />
+                </div>
+              </div>
+            ) : (
+              <>
+            <div className="flex flex-wrap items-center gap-3 p-4 sm:px-5">
               <Input
                 placeholder="Search reason or student…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                className="w-full sm:w-56"
               />
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-medium text-ink-faint">
-                Showing {visible.length} of {mine.length} referrals · student names stay private (aliases only).
-              </p>
-              <div className="flex rounded-full border border-ink/15 bg-white p-1 shadow-card" role="group" aria-label="Board layout">
-                {(
-                  [
-                    { v: "list", label: "List", Icon: List },
-                    { v: "grid", label: "Grid", Icon: LayoutGrid },
-                  ] as const
-                ).map(({ v, label, Icon }) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={view === v}
-                    onClick={() => setView(v)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[13px] font-bold transition-colors",
-                      view === v ? "bg-primary-600 text-white shadow-soft" : "text-ink-soft hover:bg-cream"
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" aria-hidden />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {canSeeActions && (
-              <div className="rounded-xl border border-ink/10 bg-cream px-4 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
-                  {role === "guidance_head" ? "Admin actions" : "Counselor actions"}
-                </p>
-                <ul className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
-                  {(role === "guidance_head" ? HEAD_LEGEND : COUNSELOR_LEGEND).map((l) => (
-                    <li key={l.label} className="flex items-center gap-2 text-[13px]">
-                      <span
-                        aria-hidden
-                        className={
-                          l.variant === "accent"
-                            ? "inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent-400 text-ink"
-                            : "inline-flex h-6 w-6 items-center justify-center rounded-full border border-ink/15 bg-white text-ink"
-                        }
-                      >
-                        <l.icon className="h-3.5 w-3.5" />
-                      </span>
-                      <span>
-                        <span className="font-bold text-ink">{l.label}</span>
-                        <span className="text-ink-muted"> · {l.desc}</span>
-                      </span>
-                    </li>
+              <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+                <HoverMenu
+                  ariaLabel="Filter by status"
+                  buttonLabel={<>Status: {statusFilter === "all" ? "All" : statusLabel(statusFilter)}</>}
+                  options={["all", ...STATUSES].map((s) => ({ value: s, label: s === "all" ? "All" : statusLabel(s) }))}
+                  value={statusFilter}
+                  onPick={setStatusFilter}
+                />
+                <HoverMenu
+                  ariaLabel="Filter by priority"
+                  buttonLabel={
+                    <>Priority: {priorityFilter === "all" ? "All" : statusLabel(priorityFilter)}</>
+                  }
+                  options={[
+                    { value: "all", label: "All priorities" },
+                    ...PRIORITIES.map((p) => ({ value: p, label: statusLabel(p) })),
+                  ]}
+                  value={priorityFilter}
+                  onPick={setPriorityFilter}
+                />
+                {role !== "counselor" && (
+                  <HoverMenu
+                    ariaLabel="Filter by assignee"
+                    buttonLabel={
+                      <>
+                        Counselor:{" "}
+                        {assigneeFilter === "all"
+                          ? "All"
+                          : assigneeFilter === "unassigned"
+                            ? "Unassigned"
+                            : (counselors.find((c) => c.id === assigneeFilter)?.name ?? "All")}
+                      </>
+                    }
+                    options={[
+                      { value: "all", label: "All counselors" },
+                      { value: "unassigned", label: "Unassigned only" },
+                      ...counselors.map((c) => ({ value: c.id, label: c.name })),
+                    ]}
+                    value={assigneeFilter}
+                    onPick={setAssigneeFilter}
+                  />
+                )}
+                <div className="flex rounded-full border border-ink/15 bg-white p-1 shadow-card" role="group" aria-label="Board layout">
+                  {(
+                    [
+                      { v: "list", label: "List", Icon: List },
+                      { v: "grid", label: "Grid", Icon: LayoutGrid },
+                    ] as const
+                  ).map(({ v, label, Icon }) => (
+                    <button
+                      key={v}
+                      type="button"
+                      aria-pressed={view === v}
+                      onClick={() => setView(v)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[13px] font-bold transition-colors",
+                        view === v ? "bg-primary-600 text-white shadow-soft" : "text-ink-soft hover:bg-cream"
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" aria-hidden />
+                      {label}
+                    </button>
                   ))}
-                </ul>
+                </div>
               </div>
-            )}
-          </Card>
+            </div>
+            <p className="px-4 text-xs font-medium text-ink-faint sm:px-5">
+              Showing {visible.length} of {mine.length} referrals · student names stay private (aliases only).
+            </p>
 
           {/* Board — list */}
           {view === "list" && (
-          <Card className="overflow-x-auto p-0">
+          <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[960px] text-left text-sm">
               <thead>
                 <tr className="border-b border-ink/10 text-xs uppercase text-ink-muted">
@@ -892,6 +1176,8 @@ export default function ReferralsPage() {
               <tbody>
                 {visible.map((r) => {
                   const actions = roleActions(r.status);
+                  // Resolve unlocks once the counselor-set session time passes.
+                  const upcoming = isSessionUpcoming(sessionSchedule.get(r.id));
                   return (
                     <tr key={r.id} className="border-b border-ink/5 align-top last:border-0">
                       <td className="whitespace-nowrap px-4 py-3">
@@ -944,13 +1230,21 @@ export default function ReferralsPage() {
                       {canSeeActions && (
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-1.5">
-                            {/* Admin: assign happens in the Counselor column; reject lives here. */}
-                            {canReject && (r.status === "pending" || r.status === "assigned") && (
+                            {/* Admin: assign happens in the Counselor column; reject lives here (pending only). */}
+                            {canReject && r.status === "pending" && (
                               <IconAction label="Reject" variant="outline" icon={X} disabled={busyId === r.id} onClick={() => askConfirm(r, "rejected")} />
                             )}
-                            {/* Counselor: assigned → confirmed → resolved / escalated. */}
+                            {canReject && r.status === "assigned" && (
+                              <span className="text-xs font-medium text-ink-faint">Assigned — unassign to reject</span>
+                            )}
+                            {/* Counselor: assigned → confirmed → resolved / escalated (resolve after session time). */}
+                            {isCounselor && r.status === "confirmed" && upcoming && (
+                              <span className="text-xs font-medium text-ink-faint">Upcoming session</span>
+                            )}
                             {isCounselor &&
+                              !(r.status === "confirmed" && upcoming) &&
                               actions.map((s) => {
+                                if (s === "resolved" && upcoming) return null;
                                 const Icon = ACTION_ICON[s];
                                 const blocked = s === "resolved" && !canResolve(r);
                                 return (
@@ -987,36 +1281,23 @@ export default function ReferralsPage() {
                 })}
               </tbody>
             </table>
-            {!loading && !visible.length && (
+            {!visible.length && (
               <p className="px-4 py-8 text-center text-sm text-ink-muted">
                 No referrals match these filters. Try clearing the search or choosing another status.
               </p>
             )}
-            {loading && (
-              <div className="animate-pulse space-y-3 p-4" aria-hidden>
-                <div className="h-10 rounded-xl bg-ink/10" />
-                <div className="h-10 rounded-xl bg-ink/10" />
-                <div className="h-10 rounded-xl bg-ink/10" />
-              </div>
-            )}
-          </Card>
+          </div>
           )}
 
           {/* Board — grid cards with real labeled buttons */}
           {view === "grid" && (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {loading &&
-                Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-5 shadow-card" aria-hidden>
-                    <div className="h-4 w-1/3 rounded-full bg-ink/10" />
-                    <div className="mt-3 h-16 rounded-xl bg-ink/10" />
-                    <div className="mt-3 h-9 w-1/2 rounded-full bg-ink/10" />
-                  </div>
-                ))}
-              {!loading &&
-                visible.map((r) => {
+            <div className="grid gap-4 p-4 sm:px-5 md:grid-cols-2 xl:grid-cols-3">
+              {visible.map((r) => {
                   const history = trail.get(r.id) ?? [];
                   const actions = roleActions(r.status);
+                  // Resolve unlocks once the counselor-set session time passes.
+                  const upcoming = isSessionUpcoming(sessionSchedule.get(r.id));
+                  const showUpcoming = isCounselor && r.status === "confirmed" && upcoming;
                   return (
                     <Card key={r.id} className="space-y-3 rounded-lg">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1078,17 +1359,20 @@ export default function ReferralsPage() {
                           </Button>
                         </div>
                       </div>
-                      {actions.length > 0 || (canReject && (r.status === "pending" || r.status === "assigned")) ? (
+                      {showUpcoming ? (
+                        <p className="text-xs font-medium text-ink-faint">Upcoming session</p>
+                      ) : actions.length > 0 || (canReject && r.status === "pending") ? (
                         <div className="flex flex-wrap gap-2">
-                          {/* Admin: assign happens in the Handling row; reject lives here. */}
-                          {canReject && (r.status === "pending" || r.status === "assigned") && (
+                          {/* Admin: assign happens in the Handling row; reject lives here (pending only). */}
+                          {canReject && r.status === "pending" && (
                             <Button size="sm" variant="outline" disabled={busyId === r.id} onClick={() => askConfirm(r, "rejected")}>
                               {TRIAGE_COPY.rejected.ok}
                             </Button>
                           )}
-                          {/* Counselor: assigned → confirmed → resolved / escalated. */}
+                          {/* Counselor: assigned → confirmed → resolved / escalated (resolve after session time). */}
                           {isCounselor &&
                             actions.map((s) => {
+                              if (s === "resolved" && upcoming) return null;
                               const blocked = s === "resolved" && !canResolve(r);
                               return (
                                 <Button
@@ -1107,7 +1391,9 @@ export default function ReferralsPage() {
                       ) : (
                         <p className="text-xs font-medium text-ink-faint">
                           {r.status === "pending" && isCounselor && "Waiting for assignment — the head assigns a counselor first."}
-                          {(r.status === "assigned" || r.status === "confirmed" || r.status === "escalated") && !isCounselor && "Waiting for counselor confirmation."}
+                          {r.status === "assigned" && canReject && "Assigned — unassign to reject."}
+                          {(r.status === "assigned" || r.status === "confirmed" || r.status === "escalated") && !isCounselor && !canReject && "Waiting for counselor confirmation."}
+                          {(r.status === "confirmed" || r.status === "escalated") && canReject && "Waiting for counselor confirmation."}
                           {(r.status === "resolved" || r.status === "rejected") && "Terminal — no further moves."}
                         </p>
                       )}
@@ -1134,11 +1420,14 @@ export default function ReferralsPage() {
                     </Card>
                   );
                 })}
-              {!loading && !visible.length && (
+              {!visible.length && (
                 <Card><p className="text-center text-sm text-ink-muted">No referrals match these filters. Try clearing the search or choosing another status.</p></Card>
               )}
             </div>
           )}
+              </>
+            )}
+          </Card>
         </>
       )}
 
@@ -1169,7 +1458,7 @@ export default function ReferralsPage() {
                 body: v.reason.length > 140 ? `${v.reason.slice(0, 140)}…` : v.reason,
                 link: "/referrals",
               });
-              reload().catch(() => {});
+              refetch().catch(() => {});
             })}
           >
             <div className="md:col-span-1">
@@ -1238,7 +1527,7 @@ export default function ReferralsPage() {
           aria-labelledby="ref-confirm-title"
           aria-describedby="ref-confirm-desc"
         >
-          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => { setConfirming(null); setEscalateNote(""); setEscalateError(null); setScheduleInput(""); setScheduleError(null); setSessionMode("in_person"); setMeetInput(""); setMeetError(null); }} />
+          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => { if (confirmBusyRef.current) return; setConfirming(null); setEscalateNote(""); setEscalateError(null); setScheduleInput(""); setScheduleError(null); setSessionMode("in_person"); setMeetInput(""); setMeetError(null); }} />
           <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-6 shadow-card sm:max-w-md">
             <h2 id="ref-confirm-title" className="font-display text-lg font-bold text-ink">
               {TRIAGE_COPY[confirming.to].title}
@@ -1336,15 +1625,17 @@ export default function ReferralsPage() {
               </div>
             )}
             <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => { setConfirming(null); setEscalateNote(""); setEscalateError(null); setScheduleInput(""); setScheduleError(null); setSessionMode("in_person"); setMeetInput(""); setMeetError(null); }} autoFocus>
+              <Button size="sm" variant="outline" disabled={confirmBusy} onClick={() => { setConfirming(null); setEscalateNote(""); setEscalateError(null); setScheduleInput(""); setScheduleError(null); setSessionMode("in_person"); setMeetInput(""); setMeetError(null); }} autoFocus>
                 Back
               </Button>
               <Button
                 size="sm"
                 variant={confirming.to === "escalated" || confirming.to === "rejected" ? "danger" : "primary"}
+                disabled={confirmBusy}
                 onClick={runConfirming}
               >
-                {TRIAGE_COPY[confirming.to].ok}
+                {confirmBusy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                {confirmBusy ? "Processing…" : TRIAGE_COPY[confirming.to].ok}
               </Button>
             </div>
           </div>

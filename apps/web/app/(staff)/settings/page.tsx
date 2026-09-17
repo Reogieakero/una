@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Check, Eye, EyeOff, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { SETTINGS_BOARD_KEY, useSettingsBoard } from "@/lib/hooks/use-settings-board";
 import { Badge, Button, Card, Input } from "@/components/ui/primitives";
 import { ExportReportsButton } from "@/components/shared/reports-actions";
 import {
@@ -20,6 +22,11 @@ type Counselor = { id: string; name: string; spec: string | null; available: boo
 type FeedItem = { id: string; at: string; text: string; tone: "info" | "success" | "warning" | "danger" };
 type Post = { id: string; title: string; created_at: string; published_at: string | null };
 
+const EMPTY_COUNSELORS: Counselor[] = [];
+const EMPTY_FEED: FeedItem[] = [];
+const EMPTY_POSTS: Post[] = [];
+const EMPTY_GLANCE = { sessionsToday: 0, openReferrals: 0, published: 0 };
+
 function timeAgo(iso: string): string {
   const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
   if (mins < 1) return "just now";
@@ -34,29 +41,39 @@ function initials(name: string): string {
   return name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("") || "?";
 }
 
-/** Head workspace profile — identity, team, activity, and settings. */
+/**
+ * Shared /settings — profile, password, and email for counselors, admins,
+ * and the head. The head additionally gets the workspace/team/activity
+ * overview (office identity, counseling team, glance stats, posts, export).
+ */
 export default function SettingsPage() {
-  const [me, setMe] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const { data: board, isLoading, isError } = useSettingsBoard();
+  const me = board?.me ?? null;
+  const role = board?.role ?? null;
+  const isHead = role === "guidance_head";
+  const joined = board?.joined ?? "";
+  const counselors = board?.counselors ?? EMPTY_COUNSELORS;
+  const feed = board?.feed ?? EMPTY_FEED;
+  const posts = board?.posts ?? EMPTY_POSTS;
+  const glance = board?.glance ?? EMPTY_GLANCE;
+  const loading = isLoading && !board;
+  // Editable copies — seeded from the cache once per visit so typing never
+  // fights a background refetch.
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
-  const [joined, setJoined] = useState("");
-  const [editing, setEditing] = useState(false);
   const [officeName, setOfficeName] = useState("");
   const [officeLocation, setOfficeLocation] = useState("");
   const [officeContact, setOfficeContact] = useState("");
-  const [counselors, setCounselors] = useState<Counselor[]>([]);
-  const [feed, setFeed] = useState<FeedItem[]>([]);
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [glance, setGlance] = useState({ sessionsToday: 0, openReferrals: 0, published: 0 });
+  const [newEmail, setNewEmail] = useState("");
+  const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState("overview");
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [pwDone, setPwDone] = useState(false);
-  const [newEmail, setNewEmail] = useState("");
 
   const pwRules = [
     { label: "At least 8 characters", ok: newPw.length >= 8 },
@@ -66,126 +83,47 @@ export default function SettingsPage() {
   const pwMatch = !confirmPw ? null : confirmPw === newPw && newPw.length > 0;
 
   useEffect(() => {
-    (async () => {
-      try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        setMe(user.id);
+    if (isError) toast.error("Couldn't load settings right now.");
+  }, [isError]);
 
-        const [{ data: profile }, { data: office }] = await Promise.all([
-          supabase.from("profiles").select("email, full_name, created_at").eq("id", user.id).single(),
-          supabase.from("workspace_settings").select("value").eq("key", "office").maybeSingle(),
-        ]);
-        const p = profile as { email: string; full_name: string | null; created_at: string } | null;
-        if (p) {
-          setEmail(p.email);
-          setNewEmail(p.email);
-          setFullName(p.full_name ?? "");
-          setJoined(p.created_at);
-          // Email changed + confirmed elsewhere (link flow lands anywhere):
-          // auth is source of truth, heal the directory copy silently.
-          if (user.email && user.email.toLowerCase() !== p.email.toLowerCase()) {
-            const { error: healErr } = await supabase.from("profiles").update({ email: user.email }).eq("id", user.id);
-            if (!healErr) {
-              setEmail(user.email);
-              setNewEmail(user.email);
-              toast.success("Email updated everywhere.");
-            }
+  // Seed the editable copies from the cache once per visit so typing never
+  // fights a background refetch. The email heal stays here (a write), never
+  // in the cached query: email changed + confirmed elsewhere means auth is
+  // source of truth, so the directory copy is healed silently.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (!board || seededRef.current) return;
+    seededRef.current = true;
+    setEmail(board.email);
+    setNewEmail(board.email);
+    setFullName(board.fullName);
+    setOfficeName(board.office.name);
+    setOfficeLocation(board.office.location);
+    setOfficeContact(board.office.contact);
+    if (board.authEmail && board.email && board.authEmail.toLowerCase() !== board.email.toLowerCase() && board.me) {
+      const healed = board.authEmail;
+      const who = board.me;
+      void createClient()
+        .from("profiles")
+        .update({ email: healed })
+        .eq("id", who)
+        .then(({ error: healErr }) => {
+          if (!healErr) {
+            setEmail(healed);
+            setNewEmail(healed);
+            toast.success("Email updated everywhere.");
           }
-        }
-        const v = (office as { value: { name?: string; location?: string; contact?: string } } | null)?.value;
-        if (v) {
-          setOfficeName(v.name ?? "");
-          setOfficeLocation(v.location ?? "");
-          setOfficeContact(v.contact ?? "");
-        }
-
-        const [
-          { data: counselorRows },
-          { data: appts },
-          { count: openRefCount },
-          { data: postsRows },
-          { data: myActions },
-          { data: myPosts },
-          { data: myGlass },
-        ] = await Promise.all([
-          supabase.from("counselors").select("id, profile_id, specialization, is_available").limit(50),
-          supabase.from("appointments").select("id, counselor_id, scheduled_at, status").limit(500),
-          supabase.from("referrals").select("id", { count: "exact", head: true }).in("status", ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"]),
-          supabase.from("announcements").select("id, title, created_at, published_at, author_profile_id").order("created_at", { ascending: false }).limit(5),
-          supabase.from("referral_actions").select("id, action, created_at").eq("actor_profile_id", user.id).order("created_at", { ascending: false }).limit(8),
-          supabase.from("announcements").select("id, title, created_at").eq("author_profile_id", user.id).order("created_at", { ascending: false }).limit(5),
-          supabase.from("break_glass_logs").select("id, accessed_at").eq("accessor_profile_id", user.id).order("accessed_at", { ascending: false }).limit(5),
-        ]);
-
-        const crows = ((counselorRows ?? []) as { id: string; profile_id: string; specialization: string | null; is_available: boolean }[]);
-        const { data: cprofiles } = crows.length
-          ? await supabase.from("profiles").select("id, full_name").in("id", crows.map((c) => c.profile_id))
-          : { data: [] };
-        const names = new Map(
-          ((cprofiles ?? []) as { id: string; full_name: string | null }[]).map((p2) => [p2.id, p2.full_name ?? "Counselor"])
-        );
-        const sessionsBy = new Map<string, number>();
-        const today = new Date();
-        const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-        const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-        let todayCount = 0;
-        for (const a of ((appts ?? []) as { counselor_id: string | null; scheduled_at: string }[])) {
-          if (a.counselor_id) sessionsBy.set(a.counselor_id, (sessionsBy.get(a.counselor_id) ?? 0) + 1);
-          const t = new Date(a.scheduled_at).getTime();
-          if (t >= start.getTime() && t < end.getTime()) todayCount += 1;
-        }
-        setCounselors(
-          crows.map((c) => ({
-            id: c.id,
-            name: names.get(c.profile_id) ?? "Counselor",
-            spec: c.specialization,
-            available: c.is_available,
-            sessions: sessionsBy.get(c.id) ?? 0,
-          }))
-        );
-        setPosts(((postsRows ?? []) as Post[]));
-        setGlance({
-          sessionsToday: todayCount,
-          openReferrals: openRefCount ?? 0,
-          published: ((postsRows ?? []) as Post[]).filter((a) => a.published_at && new Date(a.published_at).getTime() <= Date.now()).length,
         });
-
-        const items: FeedItem[] = [
-          ...((myActions ?? []) as { id: string; action: string; created_at: string }[]).map((a) => ({
-            id: `a-${a.id}`,
-            at: a.created_at,
-            text: `Triaged a referral → ${a.action.replace(/_/g, " ")}`,
-            tone: "info" as const,
-          })),
-          ...((myPosts ?? []) as { id: string; title: string; created_at: string }[]).map((a) => ({
-            id: `p-${a.id}`,
-            at: a.created_at,
-            text: `Posted “${a.title.length > 48 ? `${a.title.slice(0, 48)}…` : a.title}”`,
-            tone: "success" as const,
-          })),
-          ...((myGlass ?? []) as { id: string; accessed_at: string }[]).map((g) => ({
-            id: `g-${g.id}`,
-            at: g.accessed_at,
-            text: "Logged an emergency access",
-            tone: "warning" as const,
-          })),
-        ].sort((a, b) => +new Date(b.at) - +new Date(a.at)).slice(0, 10);
-        setFeed(items);
-      } catch {
-        toast.error("Couldn't load settings right now.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+    }
+  }, [board]);
 
   const completeness = useMemo(() => {
-    const checks = [fullName.trim().length >= 2, officeName.trim().length > 0, officeLocation.trim().length > 0, officeContact.trim().length > 0];
+    const checks = isHead
+      ? [fullName.trim().length >= 2, officeName.trim().length > 0, officeLocation.trim().length > 0, officeContact.trim().length > 0]
+      : [fullName.trim().length >= 2];
     const done = checks.filter(Boolean).length;
     return Math.round((done / checks.length) * 100);
-  }, [fullName, officeName, officeLocation, officeContact]);
+  }, [fullName, officeName, officeLocation, officeContact, isHead]);
 
   const saveProfile = async () => {
     if (!me || fullName.trim().length < 2) {
@@ -197,6 +135,7 @@ export default function SettingsPage() {
       const { error } = await createClient().from("profiles").update({ full_name: fullName.trim() }).eq("id", me);
       if (error) throw error;
       setEditing(false);
+      void qc.invalidateQueries({ queryKey: [...SETTINGS_BOARD_KEY] });
       toast.success("Profile updated.");
     } catch {
       toast.error("Couldn't update profile — please try again.");
@@ -245,6 +184,7 @@ export default function SettingsPage() {
     try {
       const { error } = await createClient().auth.updateUser({ email: next });
       if (error) throw error;
+      void qc.invalidateQueries({ queryKey: [...SETTINGS_BOARD_KEY] });
       toast.success("Confirmation sent — approve it in both inboxes, then your email switches over.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't start the email change.");
@@ -254,6 +194,7 @@ export default function SettingsPage() {
   };
 
   const saveOffice = async () => {
+    if (!isHead) return;
     if (!officeName.trim()) {
       toast.error("Office name can't be empty.");
       return;
@@ -271,6 +212,7 @@ export default function SettingsPage() {
           { onConflict: "key" }
         );
       if (error) throw error;
+      void qc.invalidateQueries({ queryKey: [...SETTINGS_BOARD_KEY] });
       toast.success("Workspace saved — sidebar updates within a minute.");
     } catch {
       toast.error("Couldn't save workspace — please try again.");
@@ -278,6 +220,17 @@ export default function SettingsPage() {
       setSaving(null);
     }
   };
+
+  if (!loading && (!role || !["counselor", "guidance_head", "admin"].includes(role))) {
+    return (
+      <div className="space-y-4">
+        <h1 className="font-display text-2xl font-bold">Settings</h1>
+        <Card><p className="text-sm text-ink-muted">Only counselors, admins, and the guidance head can open settings.</p></Card>
+      </div>
+    );
+  }
+
+  const roleLabel = isHead ? "Guidance head" : role === "admin" ? "Admin" : "Counselor";
 
   return (
     <div className="space-y-4">
@@ -293,7 +246,7 @@ export default function SettingsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className={isHead ? "grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]" : "grid items-start gap-4"}>
         {/* Left — profile + tabs */}
         <div className="min-w-0 space-y-4">
           <section className="overflow-hidden rounded-lg border border-ink/10 bg-white shadow-card">
@@ -310,8 +263,8 @@ export default function SettingsPage() {
                   <div className="pb-1 leading-tight">
                     <p className="font-display text-xl font-bold text-ink">{loading ? "…" : fullName || "Unnamed"}</p>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] font-medium text-ink-muted">
-                      <Badge tone="warning">Guidance head</Badge>
-                      <span>{officeLocation || "—"}</span>
+                      <Badge tone={isHead ? "warning" : "info"}>{loading ? "…" : roleLabel}</Badge>
+                      {isHead && <span>{officeLocation || "—"}</span>}
                       {joined && <span>· Joined {new Date(joined).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>}
                     </p>
                   </div>
@@ -352,7 +305,7 @@ export default function SettingsPage() {
             {(
               [
                 { value: "overview", label: "Overview" },
-                { value: "team", label: `Team · ${counselors.length}` },
+                ...(isHead ? [{ value: "team", label: `Team · ${counselors.length}` }] : []),
                 { value: "activity", label: `Activity · ${feed.length}` },
                 { value: "security", label: "Security" },
               ] as const
@@ -388,11 +341,15 @@ export default function SettingsPage() {
                   <dl className="mt-3 divide-y divide-ink/10 text-sm">
                     {[
                       ["Name", fullName || "—"],
-                      ["Role", "Guidance head"],
+                      ["Role", roleLabel],
                       ["Email", email || "—"],
-                      ["Office", officeName || "—"],
-                      ["Location", officeLocation || "—"],
-                      ["Contact", officeContact || "—"],
+                      ...(isHead
+                        ? [
+                            ["Office", officeName || "—"],
+                            ["Location", officeLocation || "—"],
+                            ["Contact", officeContact || "—"],
+                          ]
+                        : []),
                     ].map(([k, v]) => (
                       <div key={k} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
                         <dt className="font-medium text-ink-muted">{k}</dt>
@@ -402,6 +359,7 @@ export default function SettingsPage() {
                   </dl>
                 )}
               </section>
+              {isHead && (
               <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
                 <h2 className="font-display text-base font-bold text-ink">Workspace</h2>
                 <p className="mt-0.5 text-[13px] text-ink-muted">Shown in the sidebar on every staff page.</p>
@@ -425,10 +383,11 @@ export default function SettingsPage() {
                   </Button>
                 </div>
               </section>
+              )}
             </div>
           )}
 
-          {tab === "team" && (
+          {isHead && tab === "team" && (
             <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card" role="tabpanel">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-display text-base font-bold text-ink">Counseling team</h2>
@@ -594,7 +553,8 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* Right column */}
+        {/* Right column — head-only office overview */}
+        {isHead && (
         <div className="min-w-0 space-y-4">
           <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
             <h2 className="font-display text-base font-bold text-ink">Office at a glance</h2>
@@ -658,6 +618,7 @@ export default function SettingsPage() {
             </div>
           </section>
         </div>
+        )}
       </div>
     </div>
   );

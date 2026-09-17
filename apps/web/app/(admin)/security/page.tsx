@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { breakGlassSchema, type BreakGlassInput } from "@dorsu/shared-schemas";
 import { actionPolicy, type AppAction } from "@dorsu/shared-services";
-import { createClient } from "@/lib/supabase/client";
+import { useSecurityBoard } from "@/lib/hooks/use-security-board";
 import { Badge, Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
 import { notifyStaff } from "@/lib/notify";
@@ -40,6 +40,13 @@ type AuditRow = {
   created_at: string;
 };
 
+const EMPTY_LOGS: GlassLog[] = [];
+const EMPTY_AUDIT: AuditRow[] = [];
+const EMPTY_MAP = new Map<string, string>();
+const EMPTY_STUDENTS: { id: string; label: string }[] = [];
+const EMPTY_COUNTS = new Map<string, number>();
+const EMPTY_IDS: string[] = [];
+
 const MATRIX_ROLES = ["student", "counselor", "guidance_head", "faculty"] as const;
 const MATRIX_ROLE_LABEL: Record<string, string> = {
   student: "Student",
@@ -60,16 +67,17 @@ function timeAgo(iso: string): string {
 
 /** Head-only security console — break-glass oversight, audit trail, access matrix. */
 export default function SecurityPage() {
-  const [logs, setLogs] = useState<GlassLog[]>([]);
-  const [audit, setAudit] = useState<AuditRow[]>([]);
-  const [names, setNames] = useState<Map<string, string>>(new Map());
-  const [aliases, setAliases] = useState<Map<string, string>>(new Map());
-  const [students, setStudents] = useState<{ id: string; label: string }[]>([]);
-  const [roleCounts, setRoleCounts] = useState<Map<string, number>>(new Map());
-  const [deactivated, setDeactivated] = useState(0);
-  const [me, setMe] = useState<string | null>(null);
-  const [headIds, setHeadIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: board, isLoading, isError, refetch } = useSecurityBoard();
+  const logs = board?.logs ?? EMPTY_LOGS;
+  const audit = board?.audit ?? EMPTY_AUDIT;
+  const names = board?.names ?? EMPTY_MAP;
+  const aliases = board?.aliases ?? EMPTY_MAP;
+  const students = board?.students ?? EMPTY_STUDENTS;
+  const roleCounts = board?.roleCounts ?? EMPTY_COUNTS;
+  const deactivated = board?.deactivated ?? 0;
+  const me = board?.me ?? null;
+  const headIds = board?.headIds ?? EMPTY_IDS;
+  const loading = isLoading && !board;
   const [entityFilter, setEntityFilter] = useState("all");
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [studentPick, setStudentPick] = useState("");
@@ -79,62 +87,9 @@ export default function SecurityPage() {
     resolver: zodResolver(breakGlassSchema),
   });
 
-  const reload = async () => {
-    const supabase = createClient();
-    const [{ data: glass }, { data: auditRows }, { data: profiles }] = await Promise.all([
-      supabase.from("break_glass_logs").select("*").order("accessed_at", { ascending: false }).limit(50),
-      supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(100),
-      supabase.from("profiles").select("id, email, role, full_name, is_active").limit(300),
-    ]);
-    const glassList = ((glass ?? []) as GlassLog[]);
-    setLogs(glassList);
-    setAudit(((auditRows ?? []) as AuditRow[]));
-    const profs = ((profiles ?? []) as { id: string; email: string; role: string; full_name: string | null; is_active: boolean }[]);
-    setNames(new Map(profs.map((p) => [p.id, p.full_name ?? p.email])));
-    const counts = new Map<string, number>();
-    let off = 0;
-    for (const p of profs) {
-      counts.set(p.role, (counts.get(p.role) ?? 0) + 1);
-      if (!p.is_active) off += 1;
-    }
-    setRoleCounts(counts);
-    setDeactivated(off);
-    setHeadIds(profs.filter((p) => p.role === "guidance_head" && p.is_active).map((p) => p.id));
-
-    const studentIds = [...new Set(glassList.map((g) => g.student_id))];
-    const [{ data: studentRows }, { data: directory }] = await Promise.all([
-      studentIds.length
-        ? supabase.from("students").select("id, anonymous_alias").in("id", studentIds.slice(0, 200))
-        : Promise.resolve({ data: [] }),
-      supabase.from("students").select("id, anonymous_alias, student_no").order("created_at", { ascending: false }).limit(200),
-    ]);
-    setAliases(
-      new Map(
-        ((studentRows ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => [s.id, s.anonymous_alias ?? "Student"])
-      )
-    );
-    setStudents(
-      ((directory ?? []) as { id: string; anonymous_alias: string | null; student_no: string }[]).map((s) => ({
-        id: s.id,
-        label: `${s.anonymous_alias ?? "Student"} · ${s.student_no}`,
-      }))
-    );
-  };
-
   useEffect(() => {
-    (async () => {
-      try {
-        const { data: { user } } = await createClient().auth.getUser();
-        setMe(user?.id ?? null);
-        await reload();
-      } catch {
-        toast.error("Couldn't load security data right now.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (isError) toast.error("Couldn't load security data right now.");
+  }, [isError]);
 
   const entities = useMemo(() => [...new Set(audit.map((a) => a.entity))].sort(), [audit]);
   const visibleAudit = useMemo(
@@ -156,7 +111,7 @@ export default function SecurityPage() {
       if (!res.ok) throw new Error(json?.error ?? "Couldn't log that access.");
       reset();
       setStudentPick("");
-      await reload();
+      await refetch();
       toast.success("Emergency access logged and audited.");
       await notifyStaff(headIds.filter((id) => id !== me), {
         type: "system",
@@ -182,7 +137,7 @@ export default function SecurityPage() {
       });
       const json = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(json?.error ?? "Couldn't record the review.");
-      await reload();
+      await refetch();
       toast.success("Marked as reviewed.");
       await notifyStaff([log.accessor_profile_id], {
         type: "system",

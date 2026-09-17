@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
+import { BarChart3, Check, ChevronDown } from "lucide-react";
+import { useStudentsBoard } from "@/lib/hooks/use-students-board";
+import { cn } from "@/lib/utils";
 import { Badge, Card, Input } from "@/components/ui/primitives";
-import { Dropdown } from "@/components/shared/dropdown";
 import { ReportBars, ReportDonut } from "@/components/shared/reports-charts";
 import {
   Breadcrumb,
@@ -28,6 +29,11 @@ type Student = {
 type ApptLite = { student_id: string; scheduled_at: string; status: string };
 type RefLite = { student_id: string; status: string; priority: string };
 type ScreenLite = { student_id: string; band: string; created_at: string };
+
+const EMPTY_ROWS: Student[] = [];
+const EMPTY_APPTS: ApptLite[] = [];
+const EMPTY_REFS: RefLite[] = [];
+const EMPTY_SCREENS: ScreenLite[] = [];
 
 const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"];
 const URGENT_PRIORITIES = ["urgent", "high"];
@@ -54,107 +60,169 @@ function shortDate(iso: string): string {
 }
 
 /**
+ * Hover/click floating filter menu — the same behavior as the Stats menu
+ * on /appointments: opens on hover or click, closes on mouse leave (short
+ * grace), outside click, Escape, or pick.
+ */
+function HoverMenu({
+  buttonLabel,
+  ariaLabel,
+  options,
+  value,
+  onPick,
+  align = "left",
+}: {
+  buttonLabel: React.ReactNode;
+  ariaLabel: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onPick: (v: string) => void;
+  /** Menu edge — "right" keeps right-side menus inside the page width. */
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openMenu = () => {
+    if (timer.current) clearTimeout(timer.current);
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setOpen(false), 150);
+  };
+  const toggle = () => {
+    if (timer.current) clearTimeout(timer.current);
+    setOpen((v) => !v);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [open ]);
+
+  return (
+    <div ref={ref} className="relative shrink-0" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
+      <button
+        type="button"
+        onClick={toggle}
+        onFocus={openMenu}
+        onBlur={scheduleClose}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+      >
+        <span className="max-w-44 truncate">{buttonLabel}</span>
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          aria-label={ariaLabel}
+          className={cn(
+            "menu-scroll absolute top-full z-20 mt-2 max-h-60 w-56 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-card",
+            align === "right" ? "right-0" : "left-0"
+          )}
+        >
+          {options.map((o) => {
+            const active = o.value === value;
+            return (
+              <li key={o.value} role="option" aria-selected={active}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onPick(o.value);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream",
+                    active ? "font-bold text-primary-700" : "font-medium text-ink-soft hover:text-ink"
+                  )}
+                >
+                  <span className="truncate">{o.label}</span>
+                  {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
  * Shared /students — one URL, role-aware UI (same pattern as /appointments).
  * Privacy-safe directory: aliases only, plus per-student workload aggregates
  * (sessions, open referrals, latest screening band).
  */
 export default function StudentsPage() {
-  const [role, setRole] = useState<string | null>(null);
-  const [counselorId, setCounselorId] = useState<string | null>(null);
-  const [rows, setRows] = useState<Student[]>([]);
-  const [appts, setAppts] = useState<ApptLite[]>([]);
-  const [refs, setRefs] = useState<RefLite[]>([]);
-  const [screens, setScreens] = useState<ScreenLite[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: board, isLoading, isError } = useStudentsBoard();
+  const role = board?.role ?? null;
+  const counselorId = board?.counselorId ?? null;
+  const rows = board?.rows ?? EMPTY_ROWS;
+  const appts = board?.appts ?? EMPTY_APPTS;
+  const refs = board?.refs ?? EMPTY_REFS;
+  const screens = board?.screens ?? EMPTY_SCREENS;
+  const loading = isLoading && !board;
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
   const [collegeFilter, setCollegeFilter] = useState("all");
-  const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
+
+  // Stats live in a floating panel — same hover/click behavior as the
+  // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
+  const [statsOpen, setStatsOpen] = useState(false);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen(true);
+  };
+  const scheduleStatsClose = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
+  };
+  const toggleStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen((v) => !v);
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-        const r = (profile as { role: string } | null)?.role ?? null;
-        setRole(r);
-        if (!r || !["counselor", "guidance_head"].includes(r)) return;
-        if (r === "counselor") {
-          // Counselor scope — only students on my caseload: my sessions,
-          // referrals assigned to me, and my chat threads.
-          const { data: c } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
-          const cid = (c as { id: string } | null)?.id ?? null;
-          setCounselorId(cid);
-          if (!cid) {
-            setRows([]);
-            return;
-          }
-          const [{ data: apptRows }, { data: refRows }, { data: threadRows }] = await Promise.all([
-            supabase.from("appointments").select("student_id, scheduled_at, status").eq("counselor_id", cid).limit(1000),
-            supabase.from("referrals").select("student_id, status, priority").eq("assigned_counselor_id", cid).limit(1000),
-            supabase.from("chat_threads").select("student_id").eq("counselor_id", cid).limit(500),
-          ]);
-          const myIds = [
-            ...new Set([
-              ...(((apptRows ?? []) as { student_id: string }[]).map((a) => a.student_id)),
-              ...(((refRows ?? []) as { student_id: string }[]).map((x) => x.student_id)),
-              ...(((threadRows ?? []) as { student_id: string }[]).map((t) => t.student_id)),
-            ]),
-          ];
-          const studentList: Student[] = [];
-          for (let i = 0; i < myIds.length; i += 200) {
-            const chunk = myIds.slice(i, i + 200);
-            if (!chunk.length) break;
-            const { data } = await supabase
-              .from("students")
-              .select("id, student_no, program, year_level, college, anonymous_alias, created_at")
-              .in("id", chunk);
-            studentList.push(...((data ?? []) as Student[]));
-          }
-          studentList.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
-          const screenList: ScreenLite[] = [];
-          for (let i = 0; i < myIds.length; i += 200) {
-            const chunk = myIds.slice(i, i + 200);
-            if (!chunk.length) break;
-            const { data } = await supabase
-              .from("pss10_assessments")
-              .select("student_id, band, created_at")
-              .in("student_id", chunk)
-              .order("created_at", { ascending: false })
-              .limit(1000);
-            screenList.push(...((data ?? []) as ScreenLite[]));
-          }
-          setRows(studentList.slice(0, 300));
-          setAppts(((apptRows ?? []) as ApptLite[]));
-          setRefs(((refRows ?? []) as RefLite[]));
-          setScreens(screenList);
-          return;
-        }
-        const [{ data: studentRows }, { data: apptRows }, { data: refRows }, { data: screenRows }] = await Promise.all([
-          supabase
-            .from("students")
-            .select("id, student_no, program, year_level, college, anonymous_alias, created_at")
-            .order("created_at", { ascending: false })
-            .limit(300),
-          supabase.from("appointments").select("student_id, scheduled_at, status").limit(1000),
-          supabase.from("referrals").select("student_id, status, priority").limit(1000),
-          supabase.from("pss10_assessments").select("student_id, band, created_at").order("created_at", { ascending: false }).limit(1000),
-        ]);
-        setRows(((studentRows ?? []) as Student[]));
-        setAppts(((apptRows ?? []) as ApptLite[]));
-        setRefs(((refRows ?? []) as RefLite[]));
-        setScreens(((screenRows ?? []) as ScreenLite[]));
-      } catch {
-        toast.error("Couldn't load students right now.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!statsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStatsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    };
+  }, [statsOpen]);
+
+  useEffect(() => {
+    if (isError) toast.error("Couldn't load students right now.");
+  }, [isError]);
 
   const now = Date.now();
 
@@ -327,13 +395,58 @@ export default function StudentsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div>
-        <h1 className="font-display text-2xl font-bold">{role === "counselor" ? "My students" : "Students"}</h1>
-        <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-          {role === "counselor"
-            ? "Your caseload — students from your sessions, assigned referrals, and chats. Aliases only, with each student's load with you."
-            : "Privacy-safe directory — aliases only, with each student's session load, open referrals, and latest screening band."}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold">{role === "counselor" ? "My students" : "Students"}</h1>
+          <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
+            {role === "counselor"
+              ? "Your caseload — students from your sessions, assigned referrals, and chats. Aliases only, with each student's load with you."
+              : "Privacy-safe directory — aliases only, with each student's session load, open referrals, and latest screening band."}
+          </p>
+        </div>
+        <div ref={statsRef} className="relative shrink-0" onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
+          <button
+            type="button"
+            onClick={toggleStats}
+            onFocus={openStats}
+            onBlur={scheduleStatsClose}
+            aria-haspopup="dialog"
+            aria-expanded={statsOpen}
+            className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+          >
+            <BarChart3 className="h-4 w-4" aria-hidden />
+            Stats
+            <ChevronDown
+              aria-hidden
+              className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
+            />
+          </button>
+          {statsOpen && (
+            <div
+              role="dialog"
+              aria-label="Student stats"
+              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+            >
+              {loading ? (
+                <div className="animate-pulse px-4 py-3" aria-hidden>
+                  <div className="h-10 rounded-lg bg-ink/10" />
+                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                </div>
+              ) : (
+                statCards.map((s) => (
+                  <div
+                    key={s.label}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
+                  >
+                    <span className="text-[13px] font-medium text-ink-muted">{s.label}</span>
+                    <span className="font-display text-xl font-bold text-ink">{s.value}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {role === "counselor" && !counselorId && !loading && (
@@ -344,23 +457,6 @@ export default function StudentsPage() {
           </p>
         </div>
       )}
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-        {loading
-          ? Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                <div className="h-3.5 w-2/3 rounded-full bg-ink/10" />
-                <div className="mt-3 h-8 w-1/3 rounded-lg bg-ink/10" />
-              </div>
-            ))
-          : statCards.map((s) => (
-              <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                <p className="text-[13px] font-medium text-ink-muted">{s.label}</p>
-                <p className="mt-1 font-display text-3xl font-bold text-ink">{s.value}</p>
-              </div>
-            ))}
-      </div>
 
       {/* Needs attention + program mix */}
       <div className="grid gap-4 xl:grid-cols-2">
@@ -458,49 +554,44 @@ export default function StudentsPage() {
         </section>
       </div>
 
-      {/* Filters */}
-      <Card className="space-y-3">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Dropdown
-            menuKey="program"
-            openMenuKey={openMenuKey}
-            onOpenChange={setOpenMenuKey}
-            value={programFilter}
-            onChange={setProgramFilter}
-            ariaLabel="Filter by program"
-            options={[{ value: "all", label: "All programs" }, ...programs.map((p) => ({ value: p, label: p }))]}
-          />
-          <Dropdown
-            menuKey="year"
-            openMenuKey={openMenuKey}
-            onOpenChange={setOpenMenuKey}
-            value={yearFilter}
-            onChange={setYearFilter}
-            ariaLabel="Filter by year level"
-            options={[{ value: "all", label: "All year levels" }, ...years.map((y) => ({ value: y, label: y }))]}
-          />
-          <Dropdown
-            menuKey="college"
-            openMenuKey={openMenuKey}
-            onOpenChange={setOpenMenuKey}
-            value={collegeFilter}
-            onChange={setCollegeFilter}
-            ariaLabel="Filter by college"
-            options={[{ value: "all", label: "All colleges" }, ...colleges.map((c) => ({ value: c, label: c }))]}
-          />
+      {/* Directory — filters live inside, above the student table */}
+      <Card className="p-0">
+        <div className="flex flex-wrap items-center gap-3 p-4 sm:px-5">
           <Input
             placeholder="Search alias, no., or program…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            className="w-full sm:w-56"
           />
+          <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+            <HoverMenu
+              ariaLabel="Filter by program"
+              buttonLabel={<>Program: {programFilter === "all" ? "All" : programFilter}</>}
+              options={[{ value: "all", label: "All programs" }, ...programs.map((p) => ({ value: p, label: p }))]}
+              value={programFilter}
+              onPick={setProgramFilter}
+            />
+            <HoverMenu
+              ariaLabel="Filter by year level"
+              buttonLabel={<>Year: {yearFilter === "all" ? "All" : yearFilter}</>}
+              options={[{ value: "all", label: "All year levels" }, ...years.map((y) => ({ value: y, label: y }))]}
+              value={yearFilter}
+              onPick={setYearFilter}
+            />
+            <HoverMenu
+              ariaLabel="Filter by college"
+              align="right"
+              buttonLabel={<>College: {collegeFilter === "all" ? "All" : collegeFilter}</>}
+              options={[{ value: "all", label: "All colleges" }, ...colleges.map((c) => ({ value: c, label: c }))]}
+              value={collegeFilter}
+              onPick={setCollegeFilter}
+            />
+          </div>
         </div>
-        <p className="text-xs font-medium text-ink-faint">
+        <p className="px-4 text-xs font-medium text-ink-faint sm:px-5">
           Showing {visible.length} of {rows.length} students.
         </p>
-      </Card>
-
-      {/* Directory */}
-      <Card className="overflow-x-auto p-0">
+        <div className="mt-3 overflow-x-auto">
         <table className="w-full min-w-[860px] text-left text-sm">
           <thead>
             <tr className="border-b border-ink/10 text-xs uppercase text-ink-muted">
@@ -574,6 +665,7 @@ export default function StudentsPage() {
             <div className="h-10 rounded-xl bg-ink/10" />
           </div>
         )}
+        </div>
       </Card>
     </div>
   );

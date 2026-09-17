@@ -222,6 +222,18 @@ const COUNSELOR_PAGES: PageDoc[] = [
     actions: ["Mark items read one by one, or clear the inbox at once. Reading is what clears nav badges."],
     handoff: "Visiting a page does not clear its badge — acknowledging the notification does.",
   },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: Settings,
+    purpose: "Your profile and sign-in security.",
+    displayed: [
+      "Your profile card (name with edit mode) and personal activity feed.",
+      "Change password and change email under the Security tab.",
+    ],
+    actions: ["Keep your name current, rotate your password when needed."],
+    handoff: "Workspace identity and the counseling team roster live on the head's Settings view.",
+  },
 ];
 
 const HEAD_PAGES: PageDoc[] = [
@@ -259,11 +271,11 @@ const HEAD_PAGES: PageDoc[] = [
       "Stat cards: Total sessions, Pending, Assigned, Confirmed, Completed, Unassigned.",
       "Status pills, mode filter, counselor filter (including Unassigned only), and search.",
       "Same board columns as counselors, plus the Join Meet pill on online sessions that carry a link.",
-      "Admin-actions legend: Assign (Pending → assigned), Reject (Pending/assigned → rejected).",
+      "Admin-actions legend: Assign (Pending → assigned), Reject (Pending → rejected; unassign assigned rows first).",
     ],
     actions: [
       "Assign a counselor via the Counselor-column dropdown (pending → assigned; clearing returns it to pending).",
-      "Reject invalid requests (pending/assigned only — terminal and counsel to the requester).",
+      "Reject invalid requests (pending only — unassign assigned rows first; terminal and counsel to the requester).",
       "You never confirm, complete, or mark no-show — those are counselor hands only.",
     ],
     handoff: "Assigned sessions appear in the counselor's queue instantly (realtime + notification); confirmed ones come back to you as Counselor step.",
@@ -287,9 +299,9 @@ const HEAD_PAGES: PageDoc[] = [
     href: "/chat",
     label: "Chat",
     icon: MessagesSquare,
-    purpose: "Message students and staff with the same live threads counselors use.",
-    displayed: ["Thread and DM lists with unread counts, search, day-grouped history, and typing presence."],
-    actions: ["Send and receive in realtime; the peer is notified on every send."],
+    purpose: "Direct messages with your counselor contacts — student threads stay private to their participants.",
+    displayed: ["DM list with unread counts, search, day-grouped history, and typing presence."],
+    actions: ["Send and receive in realtime; the peer is notified on every send. Use + to message a counselor."],
     handoff: "Operational asks live here; case decisions belong in the queues they affect.",
   },
   {
@@ -313,11 +325,11 @@ const HEAD_PAGES: PageDoc[] = [
       "Stat cards: Total, Pending, Assigned, Confirmed, Resolved, Unassigned — plus the List/Grid toggle shared with counselors.",
       "Status pills, priority filter, assignee filter (including Unassigned only), and search.",
       "Assign dropdown in the Counselor column; reason eye-icon opens the full reason plus audit trail.",
-      "Admin-actions legend: Assign (Pending → assigned), Reject (Pending/assigned → rejected).",
+      "Admin-actions legend: Assign (Pending → assigned), Reject (Pending → rejected; unassign assigned rows first).",
     ],
     actions: [
       "Assign a counselor (pending → assigned) or clear back to pending.",
-      "Reject invalid referrals. You never confirm, resolve, or escalate — a row can only ever read Resolved when a counselor resolves it (enforced in the service layer, not just hidden buttons).",
+      "Reject invalid referrals (pending only — unassign assigned rows first). You never confirm, resolve, or escalate — a row can only ever read Resolved when a counselor resolves it (enforced in the service layer, not just hidden buttons).",
     ],
     handoff: "Assigned referrals land in the counselor's queue live; watch Confirmed rows progress to Resolved.",
   },
@@ -448,7 +460,7 @@ const REFERRAL_FLOW = [
 
 const SPLIT_ROWS: { move: string; admin: boolean; counselor: boolean; note: string }[] = [
   { move: "Assign counselor", admin: true, counselor: false, note: "Pending → assigned (clearing returns to pending)." },
-  { move: "Reject request", admin: true, counselor: false, note: "Pending / assigned → rejected. Terminal." },
+  { move: "Reject request", admin: true, counselor: false, note: "Pending → rejected. Terminal (unassign an assigned row first)." },
   { move: "Confirm + schedule", admin: false, counselor: true, note: "Assigned → confirmed. Mints the session row itself (Meet link required when online)." },
   { move: "Complete / No-show", admin: false, counselor: true, note: "Confirmed → completed / no_show. Terminal." },
   { move: "Resolve referral", admin: false, counselor: true, note: "Confirmed → resolved. Blocked until a confirmed session exists." },

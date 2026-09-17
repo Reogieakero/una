@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Video, MapPin } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import { listCounselorAppointments, listOfficeAppointments } from "@dorsu/shared-services";
+import { useSessionsCalendar } from "@/lib/hooks/use-sessions-calendar";
 import { Badge, Button, Card } from "@/components/ui/primitives";
 import {
   Breadcrumb,
@@ -95,82 +94,40 @@ function formatLong(iso: string): string {
   return `${d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} · ${formatTime(iso)}`;
 }
 
+const EMPTY_MAP = new Map<string, string>();
+
 /**
- * Counselor session calendar — month / week / day views over the counselor's
- * sessions (office-wide for the head). Clicking a day shows that day's
+ * Counselor session calendar — month / week / day views over confirmed
+ * sessions only (counselor-scheduled, including referral-minted ones;
+ * office-wide for the head). Clicking a day shows that day's
  * schedule in the side panel; clicking a session shows its details.
+ *
+ * Data comes from the cached useSessionsCalendar hook, so going back to
+ * /sessions renders instantly instead of refetching on every visit.
  */
 export default function SessionCalendarPage() {
-  const [role, setRole] = useState<string | null>(null);
-  const [counselorId, setCounselorId] = useState<string | null>(null);
-  const [rows, setRows] = useState<Session[]>([]);
-  const [aliases, setAliases] = useState<Map<string, string>>(new Map());
-  const [counselorNames, setCounselorNames] = useState<Map<string, string>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const { data: calendar, isLoading, isError } = useSessionsCalendar();
+  const role = calendar?.role ?? null;
+  const counselorId = calendar?.counselorId ?? null;
+  const rows = calendar?.sessions ?? [];
+  const aliases = calendar?.aliases ?? EMPTY_MAP;
+  const counselorNames = calendar?.counselorNames ?? EMPTY_MAP;
+  const loading = isLoading && !calendar;
   const [view, setView] = useState<View>("month");
   const [cursor, setCursor] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(new Date()));
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-        const r = (profile as { role: string } | null)?.role ?? null;
-        setRole(r);
-        let cid: string | null = null;
-        if (r === "counselor") {
-          const { data } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
-          cid = (data as { id: string } | null)?.id ?? null;
-          setCounselorId(cid);
-        }
-        if (!r || !["counselor", "guidance_head"].includes(r)) return;
-        const data = r === "counselor" && cid
-          ? await listCounselorAppointments(supabase, cid)
-          : await listOfficeAppointments(supabase);
-        const list = ((data ?? []) as Session[]).filter((a) => a.scheduled_at);
-        setRows(list);
+    if (isError) toast.error("Couldn't load the session calendar right now.");
+  }, [isError]);
 
-        const studentIds = [...new Set(list.map((a) => a.student_id))];
-        if (studentIds.length) {
-          const { data: students } = await supabase
-            .from("students")
-            .select("id, anonymous_alias")
-            .in("id", studentIds.slice(0, 500));
-          setAliases(
-            new Map(
-              ((students ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => [
-                s.id,
-                s.anonymous_alias ?? "Student",
-              ])
-            )
-          );
-        }
-        if (r === "guidance_head") {
-          const { data: counselorRows } = await supabase.from("counselors").select("id, profile_id").limit(100);
-          const cRows = ((counselorRows ?? []) as { id: string; profile_id: string }[]);
-          const { data: profiles } = await supabase
-            .from("profiles")
-            .select("id, full_name")
-            .in("id", cRows.map((c) => c.profile_id));
-          const names = new Map(
-            ((profiles ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name ?? "Counselor"])
-          );
-          setCounselorNames(new Map(cRows.map((c) => [c.id, names.get(c.profile_id) ?? "Counselor"])));
-        }
-      } catch {
-        toast.error("Couldn't load the session calendar right now.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
+  // Confirmed only (hook queries confirmed, this guards any cached rows).
   const visible = useMemo(
-    () => (role === "counselor" && counselorId ? rows.filter((a) => a.counselor_id === counselorId) : rows),
+    () =>
+      rows
+        .filter((a) => a.status === "confirmed")
+        .filter((a) => (role === "counselor" && counselorId ? a.counselor_id === counselorId : true)),
     [rows, role, counselorId]
   );
 

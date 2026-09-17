@@ -22,6 +22,7 @@ export function Dropdown({
   ariaLabel,
   buttonClassName,
   disabled,
+  openOnHover,
 }: {
   menuKey: string;
   openMenuKey: string | null;
@@ -32,17 +33,21 @@ export function Dropdown({
   ariaLabel: string;
   buttonClassName?: string;
   disabled?: boolean;
+  /** Also open on hover (closes shortly after mouse leave). Click toggle still works. */
+  openOnHover?: boolean;
 }) {
   const open = openMenuKey === menuKey;
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const toggle = () => {
-    if (open) {
-      onOpenChange(null);
-      return;
-    }
+  const clearCloseTimer = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  };
+
+  const openMenu = () => {
+    if (openMenuKey === menuKey) return;
     const r = btnRef.current?.getBoundingClientRect();
     if (!r) return;
     const menuH = Math.min(options.length * 40 + 12, 240);
@@ -54,6 +59,23 @@ export function Dropdown({
     });
     onOpenChange(menuKey);
   };
+
+  // Hover close needs a grace period — the menu lives in a portal, so moving
+  // from button to menu briefly leaves both. Re-entering either cancels it.
+  const scheduleClose = () => {
+    clearCloseTimer();
+    closeTimer.current = setTimeout(() => onOpenChange(null), 150);
+  };
+
+  const toggle = () => {
+    if (open) {
+      onOpenChange(null);
+      return;
+    }
+    openMenu();
+  };
+
+  useEffect(() => () => clearCloseTimer(), []);
 
   useEffect(() => {
     if (!open) return;
@@ -88,6 +110,8 @@ export function Dropdown({
         aria-label={ariaLabel}
         disabled={disabled}
         onClick={toggle}
+        onMouseEnter={openOnHover ? openMenu : undefined}
+        onMouseLeave={openOnHover ? scheduleClose : undefined}
         className={cn(
           "flex w-full items-center justify-between gap-2 rounded-2xl border border-ink/15 bg-white px-4 py-2.5 text-sm font-semibold text-ink focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:opacity-50",
           buttonClassName
@@ -106,7 +130,9 @@ export function Dropdown({
               role="listbox"
               aria-label={ariaLabel}
               style={{ top: pos.top, left: pos.left, width: pos.width }}
-              className="fixed z-50 max-h-60 overflow-y-auto rounded-2xl border border-ink/10 bg-white p-1.5 shadow-card"
+              onMouseEnter={openOnHover ? clearCloseTimer : undefined}
+              onMouseLeave={openOnHover ? scheduleClose : undefined}
+              className="menu-scroll fixed z-50 max-h-60 overflow-y-auto rounded-2xl border border-ink/10 bg-white p-1.5 shadow-card"
             >
               {options.map((o) => {
                 const active = o.value === value;

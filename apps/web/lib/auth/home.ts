@@ -13,6 +13,8 @@ export function homeForRole(role: UserRole | string | null | undefined): string 
       return "/referrals";
     case "guidance_head":
       return "/dashboard";
+    case "admin":
+      return "/settings";
     case "student":
     default:
       return "/";

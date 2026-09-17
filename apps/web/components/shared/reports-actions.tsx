@@ -254,7 +254,7 @@ function aliasOrMasked(alias: string | null | undefined, id: string | null | und
 
 /* ── Data fetch ── */
 
-async function fetchReportData(scope?: { counselorId?: string | null }) {
+async function fetchReportData(scope?: { counselorId?: string | null; from?: string | null; to?: string | null }) {
   const supabase = createClient();
   const [
     officeRes,
@@ -311,6 +311,22 @@ async function fetchReportData(scope?: { counselorId?: string | null }) {
   const counselors = ((counselorsRes.data ?? []) as any[]) ?? [];
   const announcements = ((annRes.data ?? []) as any[]) ?? [];
 
+  // Date-range scope — same rule as the on-screen report: appointments by
+  // scheduled date; referrals, feedback, screenings, and posts by created date.
+  if (scope?.from || scope?.to) {
+    const inWindow = (iso: unknown) => {
+      const s = typeof iso === "string" ? iso : "";
+      if (!s) return false;
+      if (scope.from && s < scope.from) return false;
+      if (scope.to && s > scope.to) return false;
+      return true;
+    };
+    appointments = appointments.filter((a) => inWindow(a.scheduled_at));
+    referrals = referrals.filter((r) => inWindow(r.created_at));
+    feedback = feedback.filter((f) => inWindow(f.created_at));
+    pss = pss.filter((p) => inWindow(p.created_at));
+  }
+
   // Counselor names
   const profileIds = [...new Set(counselors.map((c) => c.profile_id).filter(Boolean))];
   let counselorName = new Map<string, string>();
@@ -347,7 +363,7 @@ type ReportBundle = Awaited<ReturnType<typeof fetchReportData>>;
 
 /* ── Workbook builder ── */
 
-async function buildWorkbook(bundle: ReportBundle, opts?: { personal?: boolean }) {
+async function buildWorkbook(bundle: ReportBundle, opts?: { personal?: boolean; rangeLabel?: string }) {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
   const stamp = new Date();
@@ -360,7 +376,7 @@ async function buildWorkbook(bundle: ReportBundle, opts?: { personal?: boolean }
 
   const { appointments, referrals, feedback, pss, counselors, announcements, counselorName, counselorSpec, counselorAvail, aliasByStudent, office } = bundle;
   const officeLine = office?.name ? `${office.name}${office.location ? ` · ${office.location}` : ""}` : "DOrSU Guidance";
-  const meta = `Generated ${stampLabel}  •  ${officeLine}  •  Privacy-safe: student aliases only, never real names`;
+  const meta = `Generated ${stampLabel}  •  Range: ${opts?.rangeLabel ?? "All time"}  •  ${officeLine}  •  Privacy-safe: student aliases only, never real names`;
 
   const countBy = (items: any[], pick: (x: any) => string) => {
     const m = new Map<string, number>();
@@ -1077,9 +1093,20 @@ async function buildWorkbook(bundle: ReportBundle, opts?: { personal?: boolean }
 /* ── Buttons ── */
 
 /** Export office (or personal, when counselorId is set) as one styled multi-sheet Excel workbook. */
-export function ExportReportsButton({ counselorId }: { counselorId?: string | null } = {}) {
+export function ExportReportsButton({
+  counselorId,
+  from,
+  to,
+  rangeLabel,
+}: {
+  counselorId?: string | null;
+  from?: string | null;
+  to?: string | null;
+  rangeLabel?: string;
+} = {}) {
   const [busy, setBusy] = useState(false);
   const personal = !!counselorId;
+  const label = rangeLabel ?? "All time";
 
   return (
     <button
@@ -1088,8 +1115,8 @@ export function ExportReportsButton({ counselorId }: { counselorId?: string | nu
       onClick={async () => {
         setBusy(true);
         try {
-          const bundle = await fetchReportData(personal ? { counselorId } : undefined);
-          const { buffer, fileDay } = await buildWorkbook(bundle, { personal });
+          const bundle = await fetchReportData(personal ? { counselorId, from, to } : { from, to });
+          const { buffer, fileDay } = await buildWorkbook(bundle, { personal, rangeLabel: label });
           const blob = new Blob([buffer as unknown as BlobPart], {
             type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           });
@@ -1101,7 +1128,7 @@ export function ExportReportsButton({ counselorId }: { counselorId?: string | nu
           a.click();
           a.remove();
           setTimeout(() => URL.revokeObjectURL(url), 4000);
-          toast.success(personal ? "Your workbook downloaded — 8 sheets, your cases only." : "Workbook downloaded — 8 sheets, print-ready.");
+          toast.success(personal ? `Your workbook downloaded — ${label}, your cases only.` : `Workbook downloaded — ${label}, print-ready.`);
         } catch (e) {
           toast.error(e instanceof Error ? e.message : "Couldn't build the workbook — please try again.");
         } finally {

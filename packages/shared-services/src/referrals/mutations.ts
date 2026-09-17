@@ -11,11 +11,10 @@ import { isMeetUrl } from "../appointments/mutations";
  *
  *   pending (flagged, no counselor)
  *     -> assigned   (admin assigns a counselor)
- *     -> rejected   (admin rejects the referral)
+ *     -> rejected   (admin rejects the referral — pending only; unassign first)
  *   assigned
  *     -> confirmed  (counselor confirms, session gets scheduled)
- *     -> rejected   (admin rejects)
- *     -> pending    (admin clears the counselor)
+ *     -> pending    (admin clears the counselor — reject from here instead)
  *   confirmed
  *     -> resolved   (counselor, session done — requires a confirmed session
  *                    with a schedule, enforced below)
@@ -53,10 +52,12 @@ const REFERRAL_MOVE_ROLE_ERRORS: Record<string, string> = {
   in_progress: "Can't start a referral — only the handling counselor can triage it.",
 };
 
-/** Valid status moves (same-status reassignment is always allowed). */
+/** Valid status moves (same-status reassignment is always allowed). Reject is
+ * pending-only: once a counselor is assigned the referral must be unassigned
+ * back to pending before it can be rejected. */
 const REFERRAL_TRANSITIONS: Record<string, string[]> = {
   pending: ["assigned", "rejected", "escalated"],
-  assigned: ["confirmed", "rejected", "pending", "escalated", "acknowledged"],
+  assigned: ["confirmed", "pending", "escalated", "acknowledged"],
   confirmed: ["resolved", "escalated"],
   acknowledged: ["in_progress", "resolved", "escalated", "assigned", "confirmed"],
   in_progress: ["resolved", "escalated", "confirmed"],
@@ -132,11 +133,11 @@ export async function triageReferral(
   });
   const { data: current, error: curErr } = await db
     .from("referrals")
-    .select("status, student_id")
+    .select("status, student_id, assigned_counselor_id")
     .eq("id", parsed.referralId)
     .single();
   if (curErr || !current) throw curErr ?? new Error("Referral not found.");
-  const cur = current as { status: string; student_id: string };
+  const cur = current as { status: string; student_id: string; assigned_counselor_id: string | null };
   // Role gate — who may move a referral TO the target status. Checked
   // before the transition gate so a head can never resolve (or confirm /
   // escalate) and a counselor can never assign / reject, UI or not.
@@ -148,6 +149,19 @@ export async function triageReferral(
   const actorRole = (actor as { role: string } | null)?.role ?? null;
   if (!(REFERRAL_MOVE_ROLES[parsed.status] ?? []).includes(actorRole ?? "")) {
     throw new Error(REFERRAL_MOVE_ROLE_ERRORS[parsed.status] ?? `Can't move a referral to ${parsed.status}.`);
+  }
+  // Counselor ownership — a counselor may only triage referrals the admin
+  // assigned to them (mirrors the RLS row scope with a clear message).
+  if (actorRole === "counselor") {
+    const { data: mine } = await db
+      .from("counselors")
+      .select("id")
+      .eq("profile_id", input.actorProfileId)
+      .maybeSingle();
+    const myCounselorId = (mine as { id: string } | null)?.id ?? null;
+    if (!myCounselorId || cur.assigned_counselor_id !== myCounselorId) {
+      throw new Error("Can't triage a referral — only the assigned counselor can work on it.");
+    }
   }
   const reassignOnly =
     parsed.status === cur.status && parsed.assignedCounselorId !== undefined;
@@ -226,8 +240,19 @@ export async function assignReferral(
   });
 }
 
-/** Admin rejects a referral (terminal — pending/assigned only). */
+/** Admin rejects a referral (terminal — pending only).
+ * Once a counselor is assigned the referral can no longer be rejected;
+ * unassign it back to pending first. */
 export async function rejectReferral(db: DbClient, referralId: string, actorProfileId: string) {
+  const { data: current, error: curErr } = await db
+    .from("referrals")
+    .select("status")
+    .eq("id", referralId)
+    .single();
+  if (curErr || !current) throw curErr ?? new Error("Referral not found.");
+  if ((current as { status: string }).status !== "pending") {
+    throw new Error("Only pending referrals can be rejected. Unassign the counselor first.");
+  }
   return triageReferral(db, { referralId, actorProfileId, status: "rejected" });
 }
 

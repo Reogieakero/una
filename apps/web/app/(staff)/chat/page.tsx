@@ -4,9 +4,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowDown, ArrowLeft, MessagesSquare, Plus, Search, Send } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  CHAT_BOARD_KEY,
+  useChatBoard,
+  type ChatBoardData,
+  type ChatDm,
+  type ChatMsg,
+  type ChatThread,
+} from "@/lib/hooks/use-chat-board";
 import {
   getThreadWithMessages,
-  listStaffMessages,
   markStaffMessagesRead,
   sendMessage,
   sendStaffMessage,
@@ -23,32 +31,11 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-type Thread = {
-  id: string;
-  student_id: string;
-  counselor_id: string | null;
-  appointment_id: string | null;
-  status: string;
-  created_at: string;
-  updated_at: string;
-};
+type Thread = ChatThread;
 
-type Msg = {
-  id: string;
-  thread_id: string;
-  sender_profile_id: string;
-  body: string;
-  created_at: string;
-};
+type Msg = ChatMsg;
 
-type Dm = {
-  id: string;
-  sender_profile_id: string;
-  recipient_profile_id: string;
-  body: string;
-  is_read: boolean;
-  created_at: string;
-};
+type Dm = ChatDm;
 
 type Convo =
   | { kind: "thread"; key: string; at: string; thread: Thread }
@@ -103,30 +90,43 @@ function writeLastChat(v: { threadId: string | null; dmPeer: string | null }) {
   }
 }
 
+const EMPTY_THREADS: Thread[] = [];
+const EMPTY_DMS: Dm[] = [];
+const EMPTY_MAP = new Map<string, string>();
+const EMPTY_ALIASES = new Map<string, { alias: string; profileId: string }>();
+const EMPTY_PREVIEWS = new Map<string, Msg>();
+
+/** Patch the cached board in place — realtime arrivals never flash the list. */
+function patchBoard(qc: QueryClient, patch: (prev: ChatBoardData) => ChatBoardData) {
+  qc.setQueryData<ChatBoardData>([...CHAT_BOARD_KEY], (prev) => (prev ? patch(prev) : prev));
+}
+
 /**
  * Shared /chat — one URL, role-aware UI (same pattern as /appointments).
- * Counselors read + reply on their own threads; the head supervises every
- * thread (only participants may send there) and exchanges direct messages
- * with counselors, which appear as tiles next to the threads.
+ * Counselors read + reply on their own threads; the head sees direct staff
+ * messages with its contacts only — student–counselor threads are
+ * participant-private (the head can neither list nor open them).
  */
 export default function ChatPage() {
-  const [role, setRole] = useState<string | null>(null);
-  const [me, setMe] = useState<string | null>(null);
-  const [myName, setMyName] = useState("Staff");
-  const [ownCounselorId, setOwnCounselorId] = useState<string | null>(null);
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [aliases, setAliases] = useState<Map<string, { alias: string; profileId: string }>>(new Map());
-  const [counselorNames, setCounselorNames] = useState<Map<string, string>>(new Map());
-  const [counselorProfiles, setCounselorProfiles] = useState<Map<string, string>>(new Map());
-  const [previews, setPreviews] = useState<Map<string, Msg>>(new Map());
-  const [dms, setDms] = useState<Dm[]>([]);
-  const [staffNames, setStaffNames] = useState<Map<string, string>>(new Map());
+  const qc = useQueryClient();
+  const { data: board, isLoading, isError, refetch } = useChatBoard();
+  const role = board?.role ?? null;
+  const me = board?.me ?? null;
+  const myName = board?.myName ?? "Staff";
+  const ownCounselorId = board?.ownCounselorId ?? null;
+  const threads = board?.threads ?? EMPTY_THREADS;
+  const aliases = board?.aliases ?? EMPTY_ALIASES;
+  const counselorNames = board?.counselorNames ?? EMPTY_MAP;
+  const counselorProfiles = board?.counselorProfiles ?? EMPTY_MAP;
+  const previews = board?.previews ?? EMPTY_PREVIEWS;
+  const dms = board?.dms ?? EMPTY_DMS;
+  const staffNames = board?.staffNames ?? EMPTY_MAP;
+  const loading = isLoading && !board;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeDm, setActiveDm] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
@@ -152,116 +152,30 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   };
 
-  const loadList = async (r: string, cid: string | null): Promise<Thread[]> => {
-    const supabase = createClient();
-    let q = supabase.from("chat_threads").select("*").order("updated_at", { ascending: false }).limit(100);
-    if (r === "counselor" && cid) q = q.eq("counselor_id", cid);
-    const { data, error } = await q;
-    if (error) throw error;
-    const list = ((data ?? []) as Thread[]);
-    setThreads(list);
-
-    const studentIds = [...new Set(list.map((t) => t.student_id))];
-    if (studentIds.length) {
-      const { data: students } = await supabase
-        .from("students")
-        .select("id, profile_id, anonymous_alias")
-        .in("id", studentIds.slice(0, 200));
-      setAliases(
-        new Map(
-          ((students ?? []) as { id: string; profile_id: string; anonymous_alias: string | null }[]).map((s) => [
-            s.id,
-            { alias: s.anonymous_alias ?? "Student", profileId: s.profile_id },
-          ])
-        )
-      );
+  // Return to the last open chat once cached data arrives (validated —
+  // stale ids are dropped). Runs once so background refetches never yank
+  // the user away from the conversation they switched to.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (!board || restoredRef.current) return;
+    restoredRef.current = true;
+    const last = readLastChat();
+    if (last.threadId && board.threads.some((t) => t.id === last.threadId)) {
+      setActiveId(last.threadId);
+      setShowThreadMobile(true);
+    } else if (
+      last.dmPeer &&
+      last.dmPeer !== board.me &&
+      board.dms.some((d) => d.sender_profile_id === last.dmPeer || d.recipient_profile_id === last.dmPeer)
+    ) {
+      setActiveDm(last.dmPeer);
+      setShowThreadMobile(true);
     }
-    const { data: counselorRows } = await supabase.from("counselors").select("id, profile_id").limit(100);
-    const rows = ((counselorRows ?? []) as { id: string; profile_id: string }[]);
-    if (rows.length) {
-      const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", rows.map((c) => c.profile_id));
-      const names = new Map(((profiles ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name ?? "Counselor"]));
-      setCounselorNames(new Map(rows.map((c) => [c.id, names.get(c.profile_id) ?? "Counselor"])));
-      setCounselorProfiles(new Map(rows.map((c) => [c.id, c.profile_id])));
-    }
-    const threadIds = list.map((t) => t.id).slice(0, 100);
-    if (threadIds.length) {
-      const { data: recent } = await supabase
-        .from("chat_messages")
-        .select("id, thread_id, sender_profile_id, body, created_at")
-        .in("thread_id", threadIds)
-        .order("created_at", { ascending: false })
-        .limit(400);
-      const latest = new Map<string, Msg>();
-      for (const m of ((recent ?? []) as Msg[])) {
-        if (!latest.has(m.thread_id)) latest.set(m.thread_id, m);
-      }
-      setPreviews(latest);
-    } else {
-      setPreviews(new Map());
-    }
-    return list;
-  };
-
-  const loadDms = async (myId: string): Promise<Dm[]> => {
-    const supabase = createClient();
-    const rows = ((await listStaffMessages(supabase, myId)) ?? []) as Dm[];
-    setDms(rows);
-    const peers = [...new Set(rows.flatMap((d) => [d.sender_profile_id, d.recipient_profile_id]))].filter(
-      (id) => id !== myId
-    );
-    if (peers.length) {
-      const { data } = await supabase.from("profiles").select("id, full_name").in("id", peers.slice(0, 100));
-      setStaffNames(
-        new Map(((data ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name ?? "Staff"]))
-      );
-    }
-    return rows;
-  };
+  }, [board]);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        setMe(user.id);
-        const { data: profile } = await supabase.from("profiles").select("role, full_name").eq("id", user.id).single();
-        const r = (profile as { role: string } | null)?.role ?? null;
-        setRole(r);
-        const fullName = (profile as { full_name: string | null } | null)?.full_name;
-        if (fullName) setMyName(fullName);
-        let cid: string | null = null;
-        if (r === "counselor") {
-          const { data } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
-          cid = (data as { id: string } | null)?.id ?? null;
-          setOwnCounselorId(cid);
-        }
-        if (r && ["counselor", "guidance_head"].includes(r)) {
-          const list = await loadList(r, cid);
-          const dmRows = await loadDms(user.id);
-          // Return to the last open chat after a refresh (validated — stale ids are dropped).
-          const last = readLastChat();
-          if (last.threadId && list.some((t) => t.id === last.threadId)) {
-            setActiveId(last.threadId);
-            setShowThreadMobile(true);
-          } else if (
-            last.dmPeer &&
-            last.dmPeer !== user.id &&
-            dmRows.some((d) => d.sender_profile_id === last.dmPeer || d.recipient_profile_id === last.dmPeer)
-          ) {
-            setActiveDm(last.dmPeer);
-            setShowThreadMobile(true);
-          }
-        }
-      } catch {
-        toast.error("Couldn't load chats right now.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (isError) toast.error("Couldn't load chats right now.");
+  }, [isError]);
 
   // Active thread messages + realtime.
   useEffect(() => {
@@ -283,7 +197,7 @@ export default function ChatPage() {
         (p) => {
           const row = p.new as Msg;
           setMessages((m) => (m.some((x) => x.id === row.id) ? m : [...m, row]));
-          setPreviews((prev) => new Map(prev).set(activeId, row));
+          patchBoard(qc, (prev) => ({ ...prev, previews: new Map(prev.previews).set(activeId, row) }));
         }
       )
       .subscribe();
@@ -293,20 +207,20 @@ export default function ChatPage() {
     };
   }, [activeId]);
 
-  // Keep the thread list fresh when any new message lands.
+  // Keep the thread list fresh when any new message lands — invalidate so
+  // the cache revalidates in the background (cached rows stay on screen).
   useEffect(() => {
     if (!role || !["counselor", "guidance_head"].includes(role)) return;
     const ch = createClient()
       .channel("chat-list")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, () => {
-        loadList(role, ownCounselorId).catch(() => {});
+        void qc.invalidateQueries({ queryKey: [...CHAT_BOARD_KEY] });
       })
       .subscribe();
     return () => {
       createClient().removeChannel(ch);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, ownCounselorId]);
+  }, [role, qc]);
 
   // Staff DMs land live for both sides.
   useEffect(() => {
@@ -315,13 +229,15 @@ export default function ChatPage() {
       .channel("staff-dms")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "staff_messages" }, (p) => {
         const row = p.new as Dm;
-        setDms((prev) => (prev.some((x) => x.id === row.id) ? prev : [row, ...prev]));
+        patchBoard(qc, (prev) =>
+          prev.dms.some((x) => x.id === row.id) ? prev : { ...prev, dms: [row, ...prev.dms] }
+        );
       })
       .subscribe();
     return () => {
       createClient().removeChannel(ch);
     };
-  }, [me]);
+  }, [me, qc]);
 
   // New arrivals stick to the bottom only while already viewing the latest —
   // reading history is never yanked away.
@@ -376,7 +292,7 @@ export default function ChatPage() {
       await sendStaffMessage(createClient(), { senderProfileId: me, recipientProfileId: peerProfile, body });
       setMsgOpen(false);
       setMsgBody("");
-      await loadDms(me);
+      await refetch();
       setActiveId(null);
       setMessages([]);
       setActiveDm(peerProfile);
@@ -475,11 +391,12 @@ export default function ChatPage() {
     if (me) {
       void markStaffMessagesRead(createClient(), { readerProfileId: me, counterpartProfileId: peer })
         .then(() =>
-          setDms((prev) =>
-            prev.map((d) =>
+          patchBoard(qc, (prev) => ({
+            ...prev,
+            dms: prev.dms.map((d) =>
               d.sender_profile_id === peer && d.recipient_profile_id === me ? { ...d, is_read: true } : d
-            )
-          )
+            ),
+          }))
         )
         .catch(() => {});
     }
@@ -524,7 +441,9 @@ export default function ChatPage() {
         recipientProfileId: activeDm,
         body,
       })) as Dm;
-      setDms((prev) => (prev.some((x) => x.id === sent.id) ? prev : [sent, ...prev]));
+      patchBoard(qc, (prev) =>
+        prev.dms.some((x) => x.id === sent.id) ? prev : { ...prev, dms: [sent, ...prev.dms] }
+      );
       setDraft("");
       await notifyStaff([activeDm], {
         type: "chat",
@@ -604,18 +523,21 @@ export default function ChatPage() {
               className="pl-9"
             />
           </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {["all", "open", "closed"].map((s) => (
-              <Button
-                key={s}
-                size="sm"
-                variant={statusFilter === s ? "primary" : "outline"}
-                onClick={() => setStatusFilter(s)}
-              >
-                {s === "all" ? "All" : s === "open" ? "Open" : "Closed"}
-              </Button>
-            ))}
-          </div>
+          {/* Thread open/closed pills — counselors only; the head inbox is DMs. */}
+          {!isOffice && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {["all", "open", "closed"].map((s) => (
+                <Button
+                  key={s}
+                  size="sm"
+                  variant={statusFilter === s ? "primary" : "outline"}
+                  onClick={() => setStatusFilter(s)}
+                >
+                  {s === "all" ? "All" : s === "open" ? "Open" : "Closed"}
+                </Button>
+              ))}
+            </div>
+          )}
           <ul className="no-scrollbar mt-3 max-h-[52vh] space-y-1 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1">
             {loading &&
               Array.from({ length: 5 }).map((_, i) => (
@@ -736,9 +658,9 @@ export default function ChatPage() {
               </span>
               <p className="mt-4 font-display text-lg font-bold text-ink">No chat selected</p>
               <p className="mt-1 max-w-[320px] text-sm leading-relaxed text-ink-muted">
-                Select a conversation from the list to read and reply. Threads open from student sessions —
-                the amber dot marks ones waiting on a counselor.
-                {isOffice && " Use + to message a counselor directly."}
+                {isOffice
+                  ? "Select a conversation from the list to read and reply. Use + to message a counselor directly."
+                  : "Select a conversation from the list to read and reply. Threads open from student sessions — the amber dot marks ones waiting on a counselor."}
               </p>
             </div>
           ) : active ? (

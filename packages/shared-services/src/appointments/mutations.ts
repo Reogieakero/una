@@ -8,12 +8,11 @@ import { calculatePss10 } from "../assessments/pss10-scoring";
  *   pending (student booked, no counselor)
  *     -> assigned   (admin assigns a counselor)
  *     -> cancelled  (student cancels)
- *     -> rejected   (admin rejects the request)
+ *     -> rejected   (admin rejects the request — pending only; unassign first)
  *   assigned
  *     -> confirmed  (counselor confirms)
  *     -> cancelled  (student cancels)
- *     -> rejected   (admin rejects)
- *     -> pending    (admin clears the counselor)
+ *     -> pending    (admin clears the counselor — reject from here instead)
  *   confirmed
  *     -> completed  (counselor, session done)
  *     -> no_show    (counselor, student didn't arrive)
@@ -81,13 +80,24 @@ export async function assignAppointment(
   return data;
 }
 
-/** Admin rejects a request (terminal — pending/assigned only). */
+/** Admin rejects a request (terminal — pending only).
+ * Once a counselor is assigned the request can no longer be rejected;
+ * unassign it back to pending first. */
 export async function rejectAppointment(db: DbClient, appointmentId: string) {
+  const { data: current, error: curErr } = await db
+    .from("appointments")
+    .select("status")
+    .eq("id", appointmentId)
+    .single();
+  if (curErr || !current) throw curErr ?? new Error("Session not found.");
+  if ((current as { status: string }).status !== "pending") {
+    throw new Error("Only pending sessions can be rejected. Unassign the counselor first.");
+  }
   const { data, error } = await db
     .from("appointments")
     .update({ status: "rejected" })
     .eq("id", appointmentId)
-    .in("status", ["pending", "assigned"])
+    .eq("status", "pending")
     .select()
     .single();
   if (error) throw error;

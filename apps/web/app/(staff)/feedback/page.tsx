@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { Badge, Button, Card, Input } from "@/components/ui/primitives";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BarChart3, Check, ChevronDown } from "lucide-react";
+import { toast } from "sonner";
+import { useFeedbackBoard } from "@/lib/hooks/use-feedback-board";
+import { cn } from "@/lib/utils";
+import { Badge, Card, Input } from "@/components/ui/primitives";
 import { ReportBars, ReportDonut, ReportLines } from "@/components/shared/reports-charts";
 import {
   Breadcrumb,
@@ -21,6 +24,10 @@ type Feedback = {
   comment: string | null;
   created_at: string;
 };
+
+const EMPTY_ROWS: Feedback[] = [];
+const EMPTY_MAP = new Map<string, string>();
+const EMPTY_CONTEXTS = new Map<string, { concern: string; counselor: string; when: string }>();
 
 const STOPWORDS = new Set(
   "a,an,and,are,as,at,be,been,being,but,by,can,could,did,do,does,each,few,for,from,had,has,have,here,how,i,if,in,into,is,it,its,just,like,me,more,most,my,no,not,now,of,off,on,once,only,or,other,our,out,over,own,same,she,should,so,some,such,than,that,the,their,them,then,there,these,they,this,those,through,to,too,under,until,up,very,was,we,were,what,when,where,which,while,who,whom,will,with,you,your,session,sessions,counselor,counselors,really,very,much,lot,things,thing,feel,felt,also,after,before,again,always,never,ever,got,getting,going,went,come,came,today,yesterday,time,times,first,last,one,two,three,well,still,even,back,made,make,though,although,since,without,within,along,among,between,because,while,despite,toward,towards,upon,via,per".split(",")
@@ -44,131 +51,164 @@ function timeAgo(iso: string): string {
   return days === 1 ? "yesterday" : `${days}d ago`;
 }
 
-/** Admin feedback analytics — KPIs, trends, counselor comparison, and system analysis. */
-export default function FeedbackAdminPage() {
-  const [rows, setRows] = useState<Feedback[]>([]);
-  const [aliases, setAliases] = useState<Map<string, string>>(new Map());
-  const [contexts, setContexts] = useState<Map<string, { concern: string; counselor: string; when: string }>>(new Map());
-  const [completedTotal, setCompletedTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [sentimentFilter, setSentimentFilter] = useState("all");
-  const [query, setQuery] = useState("");
-  const [role, setRole] = useState<string | null>(null);
-  const [counselorId, setCounselorId] = useState<string | null>(null);
+/**
+ * Hover/click floating filter menu — the same behavior as the Stats menu
+ * on /appointments: opens on hover or click, closes on mouse leave (short
+ * grace), outside click, Escape, or pick.
+ */
+function HoverMenu({
+  buttonLabel,
+  ariaLabel,
+  options,
+  value,
+  onPick,
+  align = "left",
+}: {
+  buttonLabel: React.ReactNode;
+  ariaLabel: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onPick: (v: string) => void;
+  /** Menu edge — "right" keeps right-side menus inside the page width. */
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openMenu = () => {
+    if (timer.current) clearTimeout(timer.current);
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setOpen(false), 150);
+  };
+  const toggle = () => {
+    if (timer.current) clearTimeout(timer.current);
+    setOpen((v) => !v);
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        let r: string | null = null;
-        let cid: string | null = null;
-        if (user) {
-          const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-          r = (profile as { role: string } | null)?.role ?? null;
-          setRole(r);
-          if (r === "counselor") {
-            const { data: c } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
-            cid = (c as { id: string } | null)?.id ?? null;
-            setCounselorId(cid);
-          }
-        }
-        // Faculty can't open feedback (rbac) — blocked card below covers it.
-        if (r === "faculty") {
-          setLoading(false);
-          return;
-        }
-        // Counselor without a linked record has no sessions to report on.
-        if (r === "counselor" && !cid) {
-          setRows([]);
-          setLoading(false);
-          return;
-        }
-        let list: Feedback[] = [];
-        let count = 0;
-        if (r === "counselor" && cid) {
-          // Counselor scope — feedback on my sessions only.
-          const { data: myAppts } = await supabase.from("appointments").select("id").eq("counselor_id", cid).limit(2000);
-          const ids = ((myAppts ?? []) as { id: string }[]).map((a) => a.id);
-          const mine: Feedback[] = [];
-          for (let i = 0; i < ids.length; i += 200) {
-            const chunk = ids.slice(i, i + 200);
-            const { data: fb } = await supabase
-              .from("feedback")
-              .select("id, appointment_id, student_id, rating, comment, created_at")
-              .in("appointment_id", chunk)
-              .limit(500);
-            mine.push(...((fb ?? []) as Feedback[]));
-            if (mine.length >= 500) break;
-          }
-          mine.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
-          list = mine.slice(0, 500);
-          const { count: c } = await supabase
-            .from("appointments")
-            .select("id", { count: "exact", head: true })
-            .eq("counselor_id", cid)
-            .eq("status", "completed");
-          count = c ?? 0;
-        } else {
-          const [{ data: fb }, { count: c }] = await Promise.all([
-            supabase
-              .from("feedback")
-              .select("id, appointment_id, student_id, rating, comment, created_at")
-              .order("created_at", { ascending: false })
-              .limit(500),
-            supabase.from("appointments").select("id", { count: "exact", head: true }).eq("status", "completed"),
-          ]);
-          list = ((fb ?? []) as Feedback[]);
-          count = c ?? 0;
-        }
-        setRows(list);
-        setCompletedTotal(count);
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [open ]);
 
-        const studentIds = [...new Set(list.map((f) => f.student_id))];
-        const apptIds = [...new Set(list.map((f) => f.appointment_id))];
-        const [{ data: studentRows }, { data: apptRows }] = await Promise.all([
-          studentIds.length
-            ? supabase.from("students").select("id, anonymous_alias").in("id", studentIds.slice(0, 300))
-            : Promise.resolve({ data: [] }),
-          apptIds.length
-            ? supabase.from("appointments").select("id, concern, counselor_id, scheduled_at").in("id", apptIds.slice(0, 300))
-            : Promise.resolve({ data: [] }),
-        ]);
-        setAliases(
-          new Map(
-            ((studentRows ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => [s.id, s.anonymous_alias ?? "Student"])
-          )
-        );
-        const appts = ((apptRows ?? []) as { id: string; concern: string; counselor_id: string | null; scheduled_at: string }[]);
-        const counselorIds = [...new Set(appts.map((a) => a.counselor_id).filter(Boolean))] as string[];
-        let names = new Map<string, string>();
-        if (counselorIds.length) {
-          const { data: crows } = await supabase.from("counselors").select("id, profile_id").in("id", counselorIds.slice(0, 100));
-          const rows2 = ((crows ?? []) as { id: string; profile_id: string }[]);
-          const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", rows2.map((c) => c.profile_id));
-          const byProfile = new Map(((profiles ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name ?? "Counselor"]));
-          names = new Map(rows2.map((c) => [c.id, byProfile.get(c.profile_id) ?? "Counselor"]));
-        }
-        setContexts(
-          new Map(
-            appts.map((a) => [
-              a.id,
-              {
-                concern: a.concern,
-                counselor: a.counselor_id ? (names.get(a.counselor_id) ?? "Counselor") : "Unassigned",
-                when: a.scheduled_at,
-              },
-            ])
-          )
-        );
-      } catch {
-        // Empty states below cover failures.
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  return (
+    <div ref={ref} className="relative shrink-0" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
+      <button
+        type="button"
+        onClick={toggle}
+        onFocus={openMenu}
+        onBlur={scheduleClose}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+      >
+        <span className="max-w-44 truncate">{buttonLabel}</span>
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          aria-label={ariaLabel}
+          className={cn(
+            "menu-scroll absolute top-full z-20 mt-2 max-h-60 w-56 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-card",
+            align === "right" ? "right-0" : "left-0"
+          )}
+        >
+          {options.map((o) => {
+            const active = o.value === value;
+            return (
+              <li key={o.value} role="option" aria-selected={active}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onPick(o.value);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream",
+                    active ? "font-bold text-primary-700" : "font-medium text-ink-soft hover:text-ink"
+                  )}
+                >
+                  <span className="truncate">{o.label}</span>
+                  {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Admin feedback analytics — KPIs, trends, counselor comparison, and system analysis. */
+export default function FeedbackAdminPage() {
+  const { data: board, isLoading, isError } = useFeedbackBoard();
+  const rows = board?.rows ?? EMPTY_ROWS;
+  const aliases = board?.aliases ?? EMPTY_MAP;
+  const contexts = board?.contexts ?? EMPTY_CONTEXTS;
+  const completedTotal = board?.completedTotal ?? 0;
+  const role = board?.role ?? null;
+  const counselorId = board?.counselorId ?? null;
+  const loading = isLoading && !board;
+  const [sentimentFilter, setSentimentFilter] = useState("all");
+  const [query, setQuery] = useState("");
+
+  // Stats live in a floating panel — same hover/click behavior as the
+  // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
+  const [statsOpen, setStatsOpen] = useState(false);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen(true);
+  };
+  const scheduleStatsClose = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
+  };
+  const toggleStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen((v) => !v);
+  };
+
+  useEffect(() => {
+    if (!statsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStatsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    };
+  }, [statsOpen]);
+
+  useEffect(() => {
+    if (isError) toast.error("Couldn't load feedback right now.");
+  }, [isError]);
 
   const analysis = useMemo(() => {
     const n = rows.length;
@@ -262,13 +302,13 @@ export default function FeedbackAdminPage() {
 
   const sentiment = sentimentOf(analysis.avg);
   const isCounselor = role === "counselor";
-  const statCards = [
-    { label: "Responses", value: analysis.n ? String(analysis.n) : "0" },
-    { label: "Avg. rating", value: analysis.avg === null ? "—" : `${analysis.avg.toFixed(1)} / 5` },
-    { label: "5-star share", value: analysis.n ? `${analysis.fiveShare}%` : "—" },
-    { label: "Response rate", value: completedTotal ? `${Math.round((analysis.n / completedTotal) * 100)}%` : "—", sub: `${analysis.n}/${completedTotal} completed` },
-    { label: "With comments", value: String(analysis.withComments) },
-    { label: "Low ratings (≤2★)", value: String(analysis.low.length) },
+  const statCards: { label: string; value: string; sub?: string; pick: (() => void) | null }[] = [
+    { label: "Responses", value: analysis.n ? String(analysis.n) : "0", pick: () => setSentimentFilter("all") },
+    { label: "Avg. rating", value: analysis.avg === null ? "—" : `${analysis.avg.toFixed(1)} / 5`, pick: null },
+    { label: "5-star share", value: analysis.n ? `${analysis.fiveShare}%` : "—", pick: null },
+    { label: "Response rate", value: completedTotal ? `${Math.round((analysis.n / completedTotal) * 100)}%` : "—", sub: `${analysis.n}/${completedTotal} completed`, pick: null },
+    { label: "With comments", value: String(analysis.withComments), pick: null },
+    { label: "Low ratings (≤2★)", value: String(analysis.low.length), pick: () => setSentimentFilter("negative") },
   ];
 
   const stars = (r: number) => (
@@ -301,13 +341,80 @@ export default function FeedbackAdminPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div>
-        <h1 className="font-display text-2xl font-bold">{isCounselor ? "My feedback" : "Feedback"}</h1>
-        <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-          {isCounselor
-            ? "What your students think after your sessions — your ratings, trends, and who needs a follow-up."
-            : "What students think after sessions — ratings, trends, themes, and who needs a follow-up."}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold">{isCounselor ? "My feedback" : "Feedback"}</h1>
+          <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
+            {isCounselor
+              ? "What your students think after your sessions — your ratings, trends, and who needs a follow-up."
+              : "What students think after sessions — ratings, trends, themes, and who needs a follow-up."}
+          </p>
+        </div>
+        <div ref={statsRef} className="relative shrink-0" onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
+          <button
+            type="button"
+            onClick={toggleStats}
+            onFocus={openStats}
+            onBlur={scheduleStatsClose}
+            aria-haspopup="dialog"
+            aria-expanded={statsOpen}
+            className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+          >
+            <BarChart3 className="h-4 w-4" aria-hidden />
+            Stats
+            <ChevronDown
+              aria-hidden
+              className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
+            />
+          </button>
+          {statsOpen && (
+            <div
+              role="dialog"
+              aria-label="Feedback stats"
+              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+            >
+              {loading ? (
+                <div className="animate-pulse px-4 py-3" aria-hidden>
+                  <div className="h-10 rounded-lg bg-ink/10" />
+                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                </div>
+              ) : (
+                statCards.map((s) =>
+                  s.pick ? (
+                    <button
+                      key={s.label}
+                      type="button"
+                      onClick={() => {
+                        s.pick?.();
+                        setStatsOpen(false);
+                      }}
+                      title={`Filter by ${s.label}`}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream"
+                    >
+                      <span className="text-[13px] font-medium text-ink-muted">
+                        {s.label}
+                        {s.sub && <span className="block text-[11px] font-medium text-ink-faint">{s.sub}</span>}
+                      </span>
+                      <span className="font-display text-xl font-bold text-ink">{s.value}</span>
+                    </button>
+                  ) : (
+                    <div
+                      key={s.label}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
+                    >
+                      <span className="text-[13px] font-medium text-ink-muted">
+                        {s.label}
+                        {s.sub && <span className="block text-[11px] font-medium text-ink-faint">{s.sub}</span>}
+                      </span>
+                      <span className="font-display text-xl font-bold text-ink">{s.value}</span>
+                    </div>
+                  )
+                )
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {isCounselor && !counselorId && !loading && (
@@ -318,24 +425,6 @@ export default function FeedbackAdminPage() {
           </p>
         </div>
       )}
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-        {loading
-          ? Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                <div className="h-3.5 w-2/3 rounded-full bg-ink/10" />
-                <div className="mt-3 h-8 w-1/3 rounded-lg bg-ink/10" />
-              </div>
-            ))
-          : statCards.map((s) => (
-              <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                <p className="text-[13px] font-medium text-ink-muted">{s.label}</p>
-                <p className="mt-1 font-display text-3xl font-bold text-ink">{s.value}</p>
-                {"sub" in s && s.sub && <p className="mt-1 text-xs font-medium text-ink-faint">{(s as { sub?: string }).sub}</p>}
-              </div>
-            ))}
-      </div>
 
       {/* System analysis verdict */}
       <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
@@ -501,33 +590,44 @@ export default function FeedbackAdminPage() {
         </section>
       </div>
 
-      {/* Recent feedback */}
-      <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-        <h2 className="font-display text-base font-bold text-ink">Recent feedback</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <div className="flex flex-wrap gap-2">
-            {[
-              { v: "all", label: "All" },
-              { v: "positive", label: "Positive 4–5★" },
-              { v: "neutral", label: "Neutral 3★" },
-              { v: "negative", label: "Negative 1–2★" },
-            ].map((s) => (
-              <Button
-                key={s.v}
-                size="sm"
-                variant={sentimentFilter === s.v ? "primary" : "outline"}
-                onClick={() => setSentimentFilter(s.v)}
-              >
-                {s.label}
-              </Button>
-            ))}
-          </div>
+      {/* Recent feedback — filters live inside, above the list */}
+      <Card className="p-0">
+        <h2 className="px-4 pt-4 font-display text-base font-bold text-ink sm:px-5">Recent feedback</h2>
+        <div className="flex flex-wrap items-center gap-3 p-4 sm:px-5">
           <Input
             placeholder={isCounselor ? "Search comments, students…" : "Search comments, students, counselors…"}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            className="w-full sm:w-56"
           />
+          <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+            <HoverMenu
+              ariaLabel="Filter by sentiment"
+              align="right"
+              buttonLabel={
+                <>
+                  Sentiment:{" "}
+                  {sentimentFilter === "all"
+                    ? "All"
+                    : sentimentFilter === "positive"
+                      ? "Positive"
+                      : sentimentFilter === "neutral"
+                        ? "Neutral"
+                        : "Negative"}
+                </>
+              }
+              options={[
+                { value: "all", label: "All" },
+                { value: "positive", label: "Positive 4–5★" },
+                { value: "neutral", label: "Neutral 3★" },
+                { value: "negative", label: "Negative 1–2★" },
+              ]}
+              value={sentimentFilter}
+              onPick={setSentimentFilter}
+            />
+          </div>
         </div>
+        <div className="px-4 pb-4 sm:px-5">
         {loading ? (
           <div className="animate-pulse space-y-3 pt-4" aria-hidden>
             <div className="h-16 rounded-xl bg-ink/10" />
@@ -562,7 +662,8 @@ export default function FeedbackAdminPage() {
             {rows.length ? "No feedback matches these filters." : "No feedback yet — ratings appear here after completed sessions."}
           </p>
         )}
-      </section>
+        </div>
+      </Card>
     </div>
   );
 }

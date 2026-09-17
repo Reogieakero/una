@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { BarChart3, ChevronDown } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { type AvailabilityInput } from "@dorsu/shared-schemas";
 import { createClient } from "@/lib/supabase/client";
-import { Badge, Button, Card, FieldError } from "@/components/ui/primitives";
+import { useAvailabilityBoard } from "@/lib/hooks/use-availability-board";
+import { cn } from "@/lib/utils";
+import { Badge, Button, Card, FieldError, Input } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
 import { TimePicker } from "@/components/shared/time-picker";
 import {
@@ -29,6 +32,10 @@ type Slot = {
   is_recurring: boolean;
 };
 type ApptLite = { counselor_id: string | null; scheduled_at: string; status: string };
+
+const EMPTY_COUNSELORS: Counselor[] = [];
+const EMPTY_SLOTS: Slot[] = [];
+const EMPTY_APPTS: ApptLite[] = [];
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MON_FIRST = [1, 2, 3, 4, 5, 6, 0];
@@ -57,15 +64,17 @@ function fmtHours(mins: number): string {
  * toggle counselor availability, and manage any counselor's slots.
  */
 export default function AvailabilityPage() {
-  const [role, setRole] = useState<string | null>(null);
-  const [ownId, setOwnId] = useState<string | null>(null);
-  const [counselors, setCounselors] = useState<Counselor[]>([]);
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [appts, setAppts] = useState<ApptLite[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: board, isLoading, isError, refetch } = useAvailabilityBoard();
+  const role = board?.role ?? null;
+  const ownId = board?.ownId ?? null;
+  const counselors = board?.counselors ?? EMPTY_COUNSELORS;
+  const slots = board?.slots ?? EMPTY_SLOTS;
+  const appts = board?.appts ?? EMPTY_APPTS;
+  const loading = isLoading && !board;
   const [busy, setBusy] = useState(false);
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [managedId, setManagedId] = useState<string>("");
+  const [rosterQuery, setRosterQuery] = useState("");
   const [removeTarget, setRemoveTarget] = useState<Slot | null>(null);
   const [pendingSlots, setPendingSlots] = useState<{
     days: number[];
@@ -92,59 +101,57 @@ export default function AvailabilityPage() {
   });
   const [slotDays, setSlotDays] = useState<number[]>([1]);
 
-  const reload = async () => {
-    const supabase = createClient();
-    const [{ data: counselorRows }, { data: slotRows }, { data: apptRows }] = await Promise.all([
-      supabase.from("counselors").select("id, profile_id, specialization, is_available").limit(100),
-      supabase.from("counselor_availability").select("*").order("weekday").limit(500),
-      supabase.from("appointments").select("counselor_id, scheduled_at, status").limit(500),
-    ]);
-    const list = ((counselorRows ?? []) as { id: string; profile_id: string; specialization: string | null; is_available: boolean }[]);
-    const profileIds = list.map((c) => c.profile_id);
-    let names = new Map<string, string>();
-    if (profileIds.length) {
-      const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", profileIds);
-      names = new Map(((profiles ?? []) as { id: string; full_name: string | null }[]).map((p) => [p.id, p.full_name ?? "Counselor"]));
-    }
-    const mapped = list.map((c) => ({
-      id: c.id,
-      name: names.get(c.profile_id) ?? "Counselor",
-      spec: c.specialization,
-      available: c.is_available,
-    }));
-    setCounselors(mapped);
-    setSlots(((slotRows ?? []) as Slot[]));
-    setAppts(((apptRows ?? []) as ApptLite[]));
+  // Default the managed counselor from cached data — head starts at the
+  // first counselor, counselors resolve via ownId. A valid pick survives
+  // refetches; a stale one falls back instead of pointing at nobody.
+  useEffect(() => {
+    if (!board) return;
     setManagedId((prev) => {
-      if (prev && mapped.some((c) => c.id === prev)) return prev;
-      return mapped[0]?.id ?? "";
+      if (prev && counselors.some((c) => c.id === prev)) return prev;
+      if (role === "counselor" && ownId) return ownId;
+      return counselors[0]?.id ?? "";
     });
+  }, [board, counselors, role, ownId]);
+
+  useEffect(() => {
+    if (isError) toast.error("Couldn't load availability right now.");
+  }, [isError]);
+
+  // Stats live in a floating panel — same hover/click behavior as the
+  // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
+  const [statsOpen, setStatsOpen] = useState(false);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen(true);
+  };
+  const scheduleStatsClose = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
+  };
+  const toggleStats = () => {
+    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    setStatsOpen((v) => !v);
   };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-        const r = (profile as { role: string } | null)?.role ?? null;
-        setRole(r);
-        if (r === "counselor") {
-          const { data } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
-          const cid = (data as { id: string } | null)?.id ?? null;
-          setOwnId(cid);
-          if (cid) setManagedId(cid);
-        }
-        if (r && ["counselor", "guidance_head"].includes(r)) await reload();
-      } catch {
-        toast.error("Couldn't load availability right now.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!statsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStatsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
+    };
+  }, [statsOpen]);
 
   const isOffice = role === "guidance_head";
   // Slot management is counselor-only — the head view is strictly read-only.
@@ -186,8 +193,15 @@ export default function AvailabilityPage() {
     return m;
   }, [slots]);
 
-  const coverage = useMemo(
-    () =>
+  const visibleCounselors = useMemo(() => {
+    const q = rosterQuery.trim().toLowerCase();
+    if (!q) return counselors;
+    return counselors.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.spec ?? "").toLowerCase().includes(q)
+    );
+  }, [counselors, rosterQuery]);
+
+  const coverage = useMemo(    () =>
       MON_FIRST.map((d) => ({
         day: d,
         label: DAYS[d],
@@ -225,7 +239,7 @@ export default function AvailabilityPage() {
     setBusy(true);
     try {
       await fn();
-      await reload();
+      await refetch();
     } catch {
       toast.error(`Couldn't ${label} — please reload and try again.`);
     } finally {
@@ -265,32 +279,60 @@ export default function AvailabilityPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div>
-        <h1 className="font-display text-2xl font-bold">
-          {role === "counselor" ? "My availability" : "Availability"}
-        </h1>
-        <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-          {role === "counselor"
-            ? "Your weekly slots — students book against these, so keep them current."
-            : "Office coverage at a glance — spot gap days and see each counselor's load. Slots are managed by each counselor."}
-        </p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-        {loading
-          ? Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                <div className="h-3.5 w-2/3 rounded-full bg-ink/10" />
-                <div className="mt-3 h-8 w-1/3 rounded-lg bg-ink/10" />
-              </div>
-            ))
-          : statCards.map((s) => (
-              <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                <p className="text-[13px] font-medium text-ink-muted">{s.label}</p>
-                <p className="mt-1 font-display text-3xl font-bold text-ink">{s.value}</p>
-              </div>
-            ))}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold">
+            {role === "counselor" ? "My availability" : "Availability"}
+          </h1>
+          <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
+            {role === "counselor"
+              ? "Your weekly slots — students book against these, so keep them current."
+              : "Office coverage at a glance — spot gap days and see each counselor's load. Slots are managed by each counselor."}
+          </p>
+        </div>
+        <div ref={statsRef} className="relative shrink-0" onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
+          <button
+            type="button"
+            onClick={toggleStats}
+            onFocus={openStats}
+            onBlur={scheduleStatsClose}
+            aria-haspopup="dialog"
+            aria-expanded={statsOpen}
+            className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+          >
+            <BarChart3 className="h-4 w-4" aria-hidden />
+            Stats
+            <ChevronDown
+              aria-hidden
+              className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
+            />
+          </button>
+          {statsOpen && (
+            <div
+              role="dialog"
+              aria-label="Availability stats"
+              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+            >
+              {loading ? (
+                <div className="animate-pulse px-4 py-3" aria-hidden>
+                  <div className="h-10 rounded-lg bg-ink/10" />
+                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
+                </div>
+              ) : (
+                statCards.map((s) => (
+                  <div
+                    key={s.label}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
+                  >
+                    <span className="text-[13px] font-medium text-ink-muted">{s.label}</span>
+                    <span className="font-display text-xl font-bold text-ink">{s.value}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Weekly coverage board */}
@@ -336,8 +378,19 @@ export default function AvailabilityPage() {
       {/* Counselor roster (office view — read-only) */}
       {isOffice && (
         <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-          <h2 className="font-display text-base font-bold text-ink">Counselors</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">The team roster and current load per counselor.</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-base font-bold text-ink">Counselors</h2>
+              <p className="mt-0.5 text-[13px] text-ink-muted">The team roster and current load per counselor.</p>
+            </div>
+            <Input
+              placeholder="Search counselors…"
+              value={rosterQuery}
+              onChange={(e) => setRosterQuery(e.target.value)}
+              aria-label="Search counselors"
+              className="w-full sm:w-56"
+            />
+          </div>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[600px] text-left text-sm">
               <thead>
@@ -350,7 +403,7 @@ export default function AvailabilityPage() {
                 </tr>
               </thead>
               <tbody>
-                {counselors.map((c) => (
+                {visibleCounselors.map((c) => (
                   <tr key={c.id} className="border-b border-ink/5 last:border-0">
                     <td className="px-4 py-3">
                       <p className="font-bold text-ink">{c.name}</p>
@@ -368,6 +421,18 @@ export default function AvailabilityPage() {
             </table>
             {!loading && !counselors.length && (
               <p className="px-4 py-8 text-center text-sm text-ink-muted">No counselors yet — add them via the Users page.</p>
+            )}
+            {!loading && !!counselors.length && !visibleCounselors.length && (
+              <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                No counselors match “{rosterQuery.trim()}”.{" "}
+                <button
+                  type="button"
+                  onClick={() => setRosterQuery("")}
+                  className="font-bold text-primary-700 hover:underline"
+                >
+                  Clear search
+                </button>
+              </p>
             )}
           </div>
         </section>
