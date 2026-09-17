@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { BarChart3, Check, ChevronDown } from "lucide-react";
+import { BarChart3, ChevronDown } from "lucide-react";
 import { useUsersBoard, type UsersProfile } from "@/lib/hooks/use-users-board";
 import { cn } from "@/lib/utils";
-import { Badge, Button, Card, Input } from "@/components/ui/primitives";
+import { HoverMenu } from "@/components/shared/hover-menu";
+import { ROLES, ROLE_LABEL } from "@/components/users/RolePill";
+import { UserRow } from "@/components/users/UserRow";
+import { Button, Card, Input } from "@/components/ui/primitives";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -19,131 +22,6 @@ type Profile = UsersProfile;
 
 const EMPTY_ROWS: Profile[] = [];
 const EMPTY_DETAILS = new Map<string, string>();
-
-const ROLES = ["student", "counselor", "guidance_head", "faculty"] as const;
-
-const ROLE_LABEL: Record<string, string> = {
-  student: "Student",
-  counselor: "Counselor",
-  guidance_head: "Guidance head",
-  faculty: "Faculty",
-};
-
-function roleTone(r: string): "info" | "success" | "warning" | "danger" {
-  if (r === "counselor") return "success";
-  if (r === "guidance_head") return "warning";
-  return "info";
-}
-
-function initials(name: string): string {
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("") || "?";
-}
-
-/**
- * Hover/click floating filter menu — the same behavior as the Stats menu
- * on /appointments: opens on hover or click, closes on mouse leave (short
- * grace), outside click, Escape, or pick.
- */
-function HoverMenu({
-  buttonLabel,
-  ariaLabel,
-  options,
-  value,
-  onPick,
-  align = "left",
-}: {
-  buttonLabel: React.ReactNode;
-  ariaLabel: string;
-  options: { value: string; label: string }[];
-  value: string;
-  onPick: (v: string) => void;
-  /** Menu edge — "right" keeps right-side menus inside the page width. */
-  align?: "left" | "right";
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openMenu = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setOpen(true);
-  };
-  const scheduleClose = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(false), 150);
-  };
-  const toggle = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setOpen((v) => !v);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [open ]);
-
-  return (
-    <div ref={ref} className="relative shrink-0" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
-      <button
-        type="button"
-        onClick={toggle}
-        onFocus={openMenu}
-        onBlur={scheduleClose}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={ariaLabel}
-        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-      >
-        <span className="max-w-44 truncate">{buttonLabel}</span>
-        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <ul
-          role="listbox"
-          aria-label={ariaLabel}
-          className={cn(
-            "menu-scroll absolute top-full z-20 mt-2 max-h-60 w-56 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-card",
-            align === "right" ? "right-0" : "left-0"
-          )}
-        >
-          {options.map((o) => {
-            const active = o.value === value;
-            return (
-              <li key={o.value} role="option" aria-selected={active}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onPick(o.value);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream",
-                    active ? "font-bold text-primary-700" : "font-medium text-ink-soft hover:text-ink"
-                  )}
-                >
-                  <span className="truncate">{o.label}</span>
-                  {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 /** Admin user directory — stats, filters, and activate/deactivate (via a service-role route). */
 export default function AdminUsersPage() {
@@ -405,58 +283,16 @@ export default function AdminUsersPage() {
             </tr>
           </thead>
           <tbody>
-            {visible.map((u) => {
-              const isSelf = u.id === me;
-              return (
-                <tr key={u.id} className="border-b border-ink/5 align-top last:border-0">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <span
-                        aria-hidden
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-600 font-display text-xs font-bold text-white"
-                      >
-                        {initials(u.full_name ?? u.email)}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate font-bold text-ink">
-                          {u.full_name ?? "Unnamed"}
-                          {isSelf && <span className="ml-2 text-[11px] font-bold text-ink-faint">(you)</span>}
-                        </span>
-                        <span className="block truncate text-xs font-medium text-ink-muted">{u.email}</span>
-                      </span>
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <Badge tone={roleTone(u.role)}>{ROLE_LABEL[u.role] ?? u.role}</Badge>
-                  </td>
-                  <td className="max-w-[200px] truncate px-4 py-3 text-ink-muted" title={details.get(u.id) ?? ""}>
-                    {details.get(u.id) ?? "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-center">
-                    <Badge tone={u.is_active ? "success" : "danger"}>{u.is_active ? "Active" : "Deactivated"}</Badge>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-ink-muted">
-                    {new Date(u.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    {isSelf ? (
-                      <span className="text-xs font-medium text-ink-faint" title="You can't change your own access">
-                        Locked
-                      </span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busyId === u.id}
-                        onClick={() => setConfirming({ user: u, toActive: !u.is_active })}
-                      >
-                        {u.is_active ? "Deactivate" : "Activate"}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {visible.map((u) => (
+              <UserRow
+                key={u.id}
+                user={u}
+                isSelf={u.id === me}
+                busy={busyId === u.id}
+                detail={details.get(u.id)}
+                onAccessToggle={(user) => setConfirming({ user, toActive: !user.is_active })}
+              />
+            ))}
           </tbody>
         </table>
         {!loading && !visible.length && (

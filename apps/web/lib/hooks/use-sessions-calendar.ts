@@ -6,7 +6,8 @@ import { listCounselorAppointments, listOfficeAppointments } from "@dorsu/shared
 
 export type CalendarSession = {
   id: string;
-  student_id: string;
+  /** Null for walk-in sessions confirmed from typed-identity referrals. */
+  student_id: string | null;
   counselor_id: string | null;
   scheduled_at: string;
   mode: string;
@@ -61,7 +62,7 @@ export async function fetchSessionsCalendar(): Promise<SessionsCalendarData> {
   // Pending / assigned requests live on /appointments; terminal rows stay out.
   const list = ((data ?? []) as CalendarSession[]).filter((a) => a.scheduled_at && a.status === "confirmed");
 
-  const studentIds = [...new Set(list.map((a) => a.student_id))];
+  const studentIds = [...new Set(list.map((a) => a.student_id).filter((id): id is string => !!id))];
   let aliases = EMPTY_MAP;
   if (studentIds.length) {
     const { data: students } = await supabase

@@ -8,8 +8,11 @@ import { toast } from "sonner";
 import { breakGlassSchema, type BreakGlassInput } from "@dorsu/shared-schemas";
 import { actionPolicy, type AppAction } from "@dorsu/shared-services";
 import { useSecurityBoard } from "@/lib/hooks/use-security-board";
-import { Badge, Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
+import { timeAgo } from "@/lib/format";
+import { Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
+import { AuditEntityFilter } from "@/components/security/AuditFilters";
+import { EventRow, type GlassLog } from "@/components/security/EventRow";
 import { notifyStaff } from "@/lib/notify";
 import {
   Breadcrumb,
@@ -19,16 +22,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-
-type GlassLog = {
-  id: string;
-  accessor_profile_id: string;
-  student_id: string;
-  justification: string;
-  accessed_at: string;
-  reviewed_by: string | null;
-  reviewed_at: string | null;
-};
 
 type AuditRow = {
   id: string;
@@ -54,16 +47,6 @@ const MATRIX_ROLE_LABEL: Record<string, string> = {
   guidance_head: "Head",
   faculty: "Faculty",
 };
-
-function timeAgo(iso: string): string {
-  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "yesterday" : `${days}d ago`;
-}
 
 /** Head-only security console — break-glass oversight, audit trail, access matrix. */
 export default function SecurityPage() {
@@ -260,35 +243,16 @@ export default function SecurityPage() {
           ) : logs.length ? (
             <ul className="mt-3 divide-y divide-ink/10">
               {logs.slice(0, 2).map((l) => (
-                <li key={l.id} className="py-2.5 first:pt-0 last:pb-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone={l.reviewed_at ? "success" : "danger"}>
-                      {l.reviewed_at ? "Reviewed" : "Unreviewed"}
-                    </Badge>
-                    <span className="text-[11px] font-medium text-ink-faint">{timeAgo(l.accessed_at)}</span>
-                    {!l.reviewed_at && (
-                      <button
-                        type="button"
-                        disabled={busyId === l.id}
-                        onClick={() => void markReviewed(l)}
-                        className="ml-auto text-[13px] font-bold text-primary-600 hover:underline disabled:opacity-50"
-                      >
-                        Mark reviewed
-                      </button>
-                    )}
-                  </div>
-                  <p className="mt-1 text-sm font-bold text-ink">
-                    {names.get(l.accessor_profile_id) ?? "Staff"}
-                    <span className="font-medium text-ink-muted"> opened </span>
-                    {aliases.get(l.student_id) ?? "Student"}
-                  </p>
-                  <p className="mt-0.5 line-clamp-2 text-[13px] text-ink-muted">{l.justification}</p>
-                  {l.reviewed_at && (
-                    <p className="mt-0.5 text-[11px] font-medium text-ink-faint">
-                      Reviewed by {names.get(l.reviewed_by ?? "") ?? "Head"} · {timeAgo(l.reviewed_at)}
-                    </p>
-                  )}
-                </li>
+                <EventRow
+                  key={l.id}
+                  log={l}
+                  accessorName={names.get(l.accessor_profile_id)}
+                  studentAlias={aliases.get(l.student_id)}
+                  reviewerName={names.get(l.reviewed_by ?? "")}
+                  busy={busyId === l.id}
+                  variant="preview"
+                  onMarkReviewed={(log) => void markReviewed(log)}
+                />
               ))}
             </ul>
           ) : (
@@ -304,17 +268,13 @@ export default function SecurityPage() {
             <h2 className="font-display text-base font-bold text-ink">Audit trail</h2>
             <p className="mt-0.5 text-[13px] text-ink-muted">Append-only — rows can be written, never edited or deleted.</p>
           </div>
-          <div className="w-full max-w-xs">
-            <Dropdown
-              menuKey="audit-entity"
-              openMenuKey={openMenuKey}
-              onOpenChange={setOpenMenuKey}
-              value={entityFilter}
-              onChange={setEntityFilter}
-              ariaLabel="Filter by entity"
-              options={[{ value: "all", label: "All entities" }, ...entities.map((e) => ({ value: e, label: e }))]}
-            />
-          </div>
+          <AuditEntityFilter
+            value={entityFilter}
+            entities={entities}
+            openMenuKey={openMenuKey}
+            onOpenChange={setOpenMenuKey}
+            onChange={setEntityFilter}
+          />
         </div>
         {loading ? (
           <div className="animate-pulse space-y-3 pt-3" aria-hidden>

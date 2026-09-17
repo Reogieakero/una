@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Check, ChevronDown } from "lucide-react";
+import { BarChart3, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { useFeedbackBoard } from "@/lib/hooks/use-feedback-board";
 import { cn } from "@/lib/utils";
-import { Badge, Card, Input } from "@/components/ui/primitives";
+import { Badge, Card } from "@/components/ui/primitives";
 import { ReportBars, ReportDonut, ReportLines } from "@/components/shared/reports-charts";
+import { sentimentOf } from "@/lib/sentiment";
+import { FeedbackList, FollowUpList, type Feedback } from "@/components/feedback/FeedbackList";
+import { WordCloud } from "@/components/feedback/WordCloud";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -16,146 +19,9 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-type Feedback = {
-  id: string;
-  appointment_id: string;
-  student_id: string;
-  rating: number;
-  comment: string | null;
-  created_at: string;
-};
-
 const EMPTY_ROWS: Feedback[] = [];
 const EMPTY_MAP = new Map<string, string>();
 const EMPTY_CONTEXTS = new Map<string, { concern: string; counselor: string; when: string }>();
-
-const STOPWORDS = new Set(
-  "a,an,and,are,as,at,be,been,being,but,by,can,could,did,do,does,each,few,for,from,had,has,have,here,how,i,if,in,into,is,it,its,just,like,me,more,most,my,no,not,now,of,off,on,once,only,or,other,our,out,over,own,same,she,should,so,some,such,than,that,the,their,them,then,there,these,they,this,those,through,to,too,under,until,up,very,was,we,were,what,when,where,which,while,who,whom,will,with,you,your,session,sessions,counselor,counselors,really,very,much,lot,things,thing,feel,felt,also,after,before,again,always,never,ever,got,getting,going,went,come,came,today,yesterday,time,times,first,last,one,two,three,well,still,even,back,made,make,though,although,since,without,within,along,among,between,because,while,despite,toward,towards,upon,via,per".split(",")
-);
-
-function sentimentOf(avg: number | null): { label: string; tone: "success" | "warning" | "danger" | "info"; hint: string } {
-  if (avg === null) return { label: "No data yet", tone: "info", hint: "Ratings will appear once students respond." };
-  if (avg >= 4.5) return { label: "Excellent", tone: "success", hint: "Students love the service — protect what's working." };
-  if (avg >= 4.0) return { label: "Good", tone: "success", hint: "Solid overall. Mine the 3★ comments for quick wins." };
-  if (avg >= 3.0) return { label: "Fair", tone: "warning", hint: "Mixed signals — review neutral and low comments below." };
-  return { label: "Needs attention", tone: "danger", hint: "Satisfaction is low. Work the follow-up list first." };
-}
-
-function timeAgo(iso: string): string {
-  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "yesterday" : `${days}d ago`;
-}
-
-/**
- * Hover/click floating filter menu — the same behavior as the Stats menu
- * on /appointments: opens on hover or click, closes on mouse leave (short
- * grace), outside click, Escape, or pick.
- */
-function HoverMenu({
-  buttonLabel,
-  ariaLabel,
-  options,
-  value,
-  onPick,
-  align = "left",
-}: {
-  buttonLabel: React.ReactNode;
-  ariaLabel: string;
-  options: { value: string; label: string }[];
-  value: string;
-  onPick: (v: string) => void;
-  /** Menu edge — "right" keeps right-side menus inside the page width. */
-  align?: "left" | "right";
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openMenu = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setOpen(true);
-  };
-  const scheduleClose = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(false), 150);
-  };
-  const toggle = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setOpen((v) => !v);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [open ]);
-
-  return (
-    <div ref={ref} className="relative shrink-0" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
-      <button
-        type="button"
-        onClick={toggle}
-        onFocus={openMenu}
-        onBlur={scheduleClose}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={ariaLabel}
-        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-      >
-        <span className="max-w-44 truncate">{buttonLabel}</span>
-        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <ul
-          role="listbox"
-          aria-label={ariaLabel}
-          className={cn(
-            "menu-scroll absolute top-full z-20 mt-2 max-h-60 w-56 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-card",
-            align === "right" ? "right-0" : "left-0"
-          )}
-        >
-          {options.map((o) => {
-            const active = o.value === value;
-            return (
-              <li key={o.value} role="option" aria-selected={active}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onPick(o.value);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream",
-                    active ? "font-bold text-primary-700" : "font-medium text-ink-soft hover:text-ink"
-                  )}
-                >
-                  <span className="truncate">{o.label}</span>
-                  {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 /** Admin feedback analytics — KPIs, trends, counselor comparison, and system analysis. */
 export default function FeedbackAdminPage() {
@@ -255,20 +121,6 @@ export default function FeedbackAdminPage() {
       .sort((a, b) => b.avg - a.avg || b.n - a.n)
       .slice(0, 6);
 
-    // Theme keywords from comments.
-    const freq = new Map<string, number>();
-    for (const f of rows) {
-      if (!f.comment) continue;
-      for (const w of f.comment.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)) {
-        if (w.length < 4 || STOPWORDS.has(w) || /^\d+$/.test(w)) continue;
-        freq.set(w, (freq.get(w) ?? 0) + 1);
-      }
-    }
-    const themes = [...freq.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([word, count]) => ({ word, count }));
-
     // Sentiment donut: positive 4–5, neutral 3, negative 1–2.
     const pos = rows.filter((f) => f.rating >= 4).length;
     const neu = rows.filter((f) => f.rating === 3).length;
@@ -279,7 +131,7 @@ export default function FeedbackAdminPage() {
       { name: "Negative", value: neg, color: "#EF4444" },
     ].filter((s) => s.value > 0);
 
-    return { n, avg, dist, fiveShare, withComments, low, trend, leaderboard, themes, donut };
+    return { n, avg, dist, fiveShare, withComments, low, trend, leaderboard, donut };
   }, [rows, contexts]);
 
   const visible = useMemo(() => {
@@ -310,13 +162,6 @@ export default function FeedbackAdminPage() {
     { label: "With comments", value: String(analysis.withComments), pick: null },
     { label: "Low ratings (≤2★)", value: String(analysis.low.length), pick: () => setSentimentFilter("negative") },
   ];
-
-  const stars = (r: number) => (
-    <span className="text-sm font-bold tracking-tight" aria-label={`${r} out of 5 stars`}>
-      <span className="text-amber-500">{"★".repeat(r)}</span>
-      <span className="text-ink/20">{"★".repeat(Math.max(0, 5 - r))}</span>
-    </span>
-  );
 
   if (!loading && role === "faculty") {
     return (
@@ -533,137 +378,30 @@ export default function FeedbackAdminPage() {
 
       {/* Themes + follow-ups */}
       <div className="grid gap-4 xl:grid-cols-2">
-        <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-          <h2 className="font-display text-base font-bold text-ink">Comment themes</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">Most-used words across written feedback.</p>
-          {loading ? (
-            <div className="animate-pulse pt-3" aria-hidden><div className="h-20 rounded-xl bg-ink/10" /></div>
-          ) : analysis.themes.length ? (
-            <ul className="mt-3 flex flex-wrap gap-2">
-              {analysis.themes.map((t) => (
-                <li
-                  key={t.word}
-                  className="rounded-full bg-blue-50 px-3 py-1.5 text-[13px] font-bold text-primary-700 ring-1 ring-blue-100"
-                >
-                  {t.word} <span className="font-semibold text-primary-500">· {t.count}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No written comments yet.</p>
-          )}
-        </section>
-        <section className="rounded-lg border border-red-200 bg-red-50/50 p-5 shadow-card">
-          <h2 className="font-display text-base font-bold text-ink">Needs follow-up</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">1–2★ ratings — reach out while it&apos;s fresh.</p>
-          {loading ? (
-            <div className="animate-pulse space-y-3 pt-3" aria-hidden>
-              <div className="h-10 rounded-xl bg-ink/10" />
-              <div className="h-10 rounded-xl bg-ink/10" />
-            </div>
-          ) : analysis.low.length ? (
-            <ul className="mt-3 max-h-[260px] divide-y divide-red-100 overflow-y-auto">
-              {analysis.low.slice(0, 8).map((f) => {
-                const ctx = contexts.get(f.appointment_id);
-                return (
-                  <li key={f.id} className="py-2.5 first:pt-0 last:pb-0">
-                    <div className="flex items-center justify-between gap-2">
-                      {stars(f.rating)}
-                      <span className="text-[11px] font-medium text-ink-faint">{timeAgo(f.created_at)}</span>
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-ink-soft">
-                      {f.comment?.trim() || "No written comment."}
-                    </p>
-                    <p className="mt-1 text-xs font-medium text-ink-muted">
-                      {aliases.get(f.student_id) ?? "Student"}
-                      {ctx ? (isCounselor ? ` · ${ctx.concern.slice(0, 48)}` : ` · ${ctx.counselor} · ${ctx.concern.slice(0, 48)}`) : ""}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">
-              {analysis.n ? "No low ratings — nothing to chase." : "No ratings yet."}
-            </p>
-          )}
-        </section>
+        <WordCloud loading={loading} rows={rows} />
+        <FollowUpList
+          loading={loading}
+          low={analysis.low}
+          totalCount={analysis.n}
+          aliases={aliases}
+          contexts={contexts}
+          isCounselor={isCounselor}
+        />
       </div>
 
       {/* Recent feedback — filters live inside, above the list */}
-      <Card className="p-0">
-        <h2 className="px-4 pt-4 font-display text-base font-bold text-ink sm:px-5">Recent feedback</h2>
-        <div className="flex flex-wrap items-center gap-3 p-4 sm:px-5">
-          <Input
-            placeholder={isCounselor ? "Search comments, students…" : "Search comments, students, counselors…"}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full sm:w-56"
-          />
-          <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
-            <HoverMenu
-              ariaLabel="Filter by sentiment"
-              align="right"
-              buttonLabel={
-                <>
-                  Sentiment:{" "}
-                  {sentimentFilter === "all"
-                    ? "All"
-                    : sentimentFilter === "positive"
-                      ? "Positive"
-                      : sentimentFilter === "neutral"
-                        ? "Neutral"
-                        : "Negative"}
-                </>
-              }
-              options={[
-                { value: "all", label: "All" },
-                { value: "positive", label: "Positive 4–5★" },
-                { value: "neutral", label: "Neutral 3★" },
-                { value: "negative", label: "Negative 1–2★" },
-              ]}
-              value={sentimentFilter}
-              onPick={setSentimentFilter}
-            />
-          </div>
-        </div>
-        <div className="px-4 pb-4 sm:px-5">
-        {loading ? (
-          <div className="animate-pulse space-y-3 pt-4" aria-hidden>
-            <div className="h-16 rounded-xl bg-ink/10" />
-            <div className="h-16 rounded-xl bg-ink/10" />
-          </div>
-        ) : visible.length ? (
-          <ul className="mt-3 divide-y divide-ink/10">
-            {visible.map((f) => {
-              const ctx = contexts.get(f.appointment_id);
-              return (
-                <li key={f.id} className="py-3 first:pt-0 last:pb-0">
-                  <div className="flex items-center justify-between gap-2">
-                    {stars(f.rating)}
-                    <span className="text-[11px] font-medium text-ink-faint">
-                      {aliases.get(f.student_id) ?? "Student"} · {timeAgo(f.created_at)}
-                    </span>
-                  </div>
-                  {f.comment?.trim() && (
-                    <p className="mt-1 text-sm leading-relaxed text-ink-soft">{f.comment}</p>
-                  )}
-                  {ctx && (
-                    <p className="mt-1 truncate text-xs font-medium text-ink-muted">
-                      {isCounselor ? ctx.concern : `${ctx.counselor} · ${ctx.concern}`}
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-center text-[13px] text-ink-muted">
-            {rows.length ? "No feedback matches these filters." : "No feedback yet — ratings appear here after completed sessions."}
-          </p>
-        )}
-        </div>
-      </Card>
+      <FeedbackList
+        loading={loading}
+        visible={visible}
+        rowsLength={rows.length}
+        query={query}
+        setQuery={setQuery}
+        sentimentFilter={sentimentFilter}
+        setSentimentFilter={setSentimentFilter}
+        aliases={aliases}
+        contexts={contexts}
+        isCounselor={isCounselor}
+      />
     </div>
   );
 }

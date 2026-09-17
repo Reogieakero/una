@@ -31,6 +31,13 @@ export type ChatDm = {
   created_at: string;
 };
 
+export type ChatContact = {
+  profileId: string;
+  name: string;
+  role: string;
+  detail: string | null;
+};
+
 export type ChatBoardData = {
   role: string | null;
   me: string | null;
@@ -43,6 +50,8 @@ export type ChatBoardData = {
   previews: Map<string, ChatMsg>;
   dms: ChatDm[];
   staffNames: Map<string, string>;
+  /** Office contacts (counselors + head) — populated for faculty only. */
+  contacts: ChatContact[];
 };
 
 export const CHAT_BOARD_KEY = ["chat", "board"] as const;
@@ -68,6 +77,33 @@ export async function fetchChatBoard(): Promise<ChatBoardData> {
     const { data } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
     cid = (data as { id: string } | null)?.id ?? null;
   }
+  // Faculty inbox is office DMs only — no student threads (participant-
+  // private). Names come from /api/chat/contacts because faculty clients
+  // cannot read other profiles (RLS).
+  if (r === "faculty") {
+    const dms = ((await listStaffMessages(supabase, user.id)) ?? []) as ChatDm[];
+    let contacts: ChatContact[] = [];
+    try {
+      const res = await fetch("/api/chat/contacts", { credentials: "same-origin" });
+      if (res.ok) contacts = (((await res.json()) as { contacts?: ChatContact[] }).contacts ?? []);
+    } catch {
+      contacts = [];
+    }
+    return {
+      role: r,
+      me: user.id,
+      myName,
+      ownCounselorId: null,
+      threads: [],
+      aliases: EMPTY_ALIASES,
+      counselorNames: EMPTY_NAMES,
+      counselorProfiles: EMPTY_NAMES,
+      previews: EMPTY_PREVIEWS,
+      dms,
+      staffNames: new Map(contacts.map((c) => [c.profileId, c.name])),
+      contacts,
+    };
+  }
   if (!r || !["counselor", "guidance_head"].includes(r)) {
     return {
       role: r,
@@ -81,6 +117,7 @@ export async function fetchChatBoard(): Promise<ChatBoardData> {
       previews: EMPTY_PREVIEWS,
       dms: [],
       staffNames: EMPTY_NAMES,
+      contacts: [],
     };
   }
 
@@ -165,6 +202,7 @@ export async function fetchChatBoard(): Promise<ChatBoardData> {
     previews,
     dms,
     staffNames,
+    contacts: [],
   };
 }
 

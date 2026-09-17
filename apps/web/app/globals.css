@@ -144,3 +144,31 @@
     background-size: 22px 22px;
   }
 }
+
+/* Official-form printing — only the referral sheet reaches the printer,
+   so "Save as PDF" yields the Counseling Referral Form alone. The sheet
+   is designed to fit one page, like the paper original (Page 1 of 1). */
+@page {
+  margin: 12mm;
+}
+@media print {
+  body {
+    background: #fff;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #referral-form-sheet,
+  #referral-form-sheet * {
+    visibility: visible;
+  }
+  #referral-form-sheet {
+    position: fixed;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

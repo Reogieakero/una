@@ -65,9 +65,9 @@ export async function fetchStudentsBoard(): Promise<StudentsBoardData> {
     const myIds = [
       ...new Set([
         ...(((apptRows ?? []) as { student_id: string }[]).map((a) => a.student_id)),
-        ...(((refRows ?? []) as { student_id: string }[]).map((x) => x.student_id)),
+        ...(((refRows ?? []) as { student_id: string | null }[]).map((x) => x.student_id)),
         ...(((threadRows ?? []) as { student_id: string }[]).map((t) => t.student_id)),
-      ]),
+      ].filter((id): id is string => !!id)),
     ];
     const studentList: StudentsRow[] = [];
     for (let i = 0; i < myIds.length; i += 200) {

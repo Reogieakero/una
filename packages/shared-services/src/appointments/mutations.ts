@@ -104,9 +104,173 @@ export async function rejectAppointment(db: DbClient, appointmentId: string) {
   return data;
 }
 
+/* ── Counselor availability scope (confirm + reschedule) ── */
+
+// Slots are set in Philippine wall-clock time and Asia/Manila has no DST,
+// so a fixed UTC+8 shift converts instants to the wall-clock the slots use.
+// The web dropdowns build options in the counselor's browser-local time —
+// identical for PH counselors. Documented here so server and UI never drift
+// silently for anyone elsewhere.
+const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DEFAULT_SESSION_MS = 60 * 60 * 1000;
+
+type AvailabilitySlotRow = {
+  weekday: number;
+  start_time: string;
+  end_time: string;
+  is_recurring: boolean;
+  valid_from: string | null;
+  valid_to: string | null;
+};
+
+function manilaParts(t: number): { day: number; weekday: number; mins: number } {
+  const w = new Date(t + MANILA_OFFSET_MS);
+  return {
+    day: Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate()),
+    weekday: w.getUTCDay(),
+    mins: w.getUTCHours() * 60 + w.getUTCMinutes(),
+  };
+}
+
+function hhmmToMins(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+function ymdToDay(ymd: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/**
+ * Pre-migration fallback: when the database never got 00051
+ * (appointments.ends_at missing), writes carrying ends_at fail with an
+ * undefined-column error. Detect it, drop the end time, and let the caller
+ * retry once — scheduling keeps working, only the end display is lost until
+ * the migration is applied. Same precedent as the meeting_url/00034 path.
+ */
+export function isMissingEndsAtColumn(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  const msg = (error as { message?: unknown }).message;
+  if (typeof msg === "string" && /ends_at/i.test(msg)) return true;
+  return code === "42703";
+}
+
+/**
+ * Pure scope check: [startMs, endMs) must sit entirely inside ONE availability
+ * slot on the start day (same slot window, same weekday, inside any
+ * valid_from/valid_to range — never spanning midnight). Exported for reuse.
+ */
+export function fitsAvailabilitySlot(
+  slots: AvailabilitySlotRow[],
+  startMs: number,
+  endMs: number,
+): boolean {
+  if (!(startMs < endMs)) return false;
+  const s = manilaParts(startMs);
+  const e = manilaParts(endMs);
+  if (s.day !== e.day) return false;
+  return slots.some((slot) => {
+    if (slot.weekday !== s.weekday) return false;
+    if (s.mins < hhmmToMins(slot.start_time) || e.mins > hhmmToMins(slot.end_time)) return false;
+    if (!slot.is_recurring) {
+      const from = slot.valid_from ? ymdToDay(slot.valid_from) : null;
+      const to = slot.valid_to ? ymdToDay(slot.valid_to) : null;
+      // One-off slots without an explicit date range fall back to the
+      // weekday match above so older rows keep working.
+      if (from !== null && s.day < from) return false;
+      if (to !== null && s.day > to) return false;
+    }
+    return true;
+  });
+}
+
+async function getCounselorSlots(db: DbClient, counselorId: string): Promise<AvailabilitySlotRow[]> {
+  const { data, error } = await db
+    .from("counselor_availability")
+    .select("weekday, start_time, end_time, is_recurring, valid_from, valid_to")
+    .eq("counselor_id", counselorId);
+  if (error) throw error;
+  return ((data ?? []) as AvailabilitySlotRow[]);
+}
+
+/** No overlapping active session for this counselor (ends_at ?? start + 60m). */
+async function assertNoOverlap(
+  db: DbClient,
+  counselorId: string,
+  excludeAppointmentId: string | null,
+  startMs: number,
+  endMs: number,
+) {
+  let q = db
+    .from("appointments")
+    .select("id, scheduled_at, ends_at")
+    .eq("counselor_id", counselorId)
+    .in("status", ["assigned", "confirmed"])
+    .lt("scheduled_at", new Date(endMs).toISOString())
+    .gt("scheduled_at", new Date(startMs - 12 * 60 * 60 * 1000).toISOString());
+  // Mint path (referral confirm) has no row to exclude yet — null skips it.
+  if (excludeAppointmentId) q = q.neq("id", excludeAppointmentId);
+  const { data, error } = await q;
+  if (error) throw error;
+  for (const row of ((data ?? []) as { id: string; scheduled_at: string; ends_at: string | null }[])) {
+    const s = new Date(row.scheduled_at).getTime();
+    const e = row.ends_at ? new Date(row.ends_at).getTime() : s + DEFAULT_SESSION_MS;
+    if (s < endMs && e > startMs) {
+      throw new Error("That time overlaps another session on your calendar — pick a free window.");
+    }
+  }
+}
+
+/**
+ * Shared counselor schedule gate: future start, valid end, inside the
+ * counselor's availability scope, no double-booking. Returns normalized
+ * bounds; throws friendly errors the UI passes straight through.
+ * Exported so referral-confirm (which mints sessions) enforces the same
+ * scope — pass null exclusion on the mint path.
+ */
+export async function validateCounselorSchedule(
+  db: DbClient,
+  counselorId: string,
+  scheduledAt: Date,
+  endsAt?: Date | null,
+  excludeAppointmentId?: string | null,
+): Promise<{ startMs: number; endMs: number }> {
+  if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
+    throw new Error("Choose a valid session date and time");
+  }
+  const startMs = scheduledAt.getTime();
+  if (startMs <= Date.now()) {
+    throw new Error("Sessions must be scheduled in the future");
+  }
+  let endMs = startMs + DEFAULT_SESSION_MS;
+  if (endsAt !== undefined && endsAt !== null) {
+    if (!(endsAt instanceof Date) || Number.isNaN(endsAt.getTime())) {
+      throw new Error("Choose a valid session end time");
+    }
+    endMs = endsAt.getTime();
+    if (!(endMs > startMs)) {
+      throw new Error("The end time must be after the start time");
+    }
+  }
+  const slots = await getCounselorSlots(db, counselorId);
+  if (!slots.length) {
+    throw new Error("Set your availability slots first — sessions must fall inside them.");
+  }
+  if (!fitsAvailabilitySlot(slots, startMs, endMs)) {
+    throw new Error("That time is outside your availability slots — pick a window inside one.");
+  }
+  await assertNoOverlap(db, counselorId, excludeAppointmentId ?? null, startMs, endMs);
+  return { startMs, endMs };
+}
+
 /** Counselor confirms an assigned appointment (assignment gate — no skipping pending).
  * The counselor sets the final session time/date on confirm; the student is
  * notified with that scheduled slot (see /appointments page runConfirming).
+ * The window must sit inside the counselor's availability slots and must not
+ * overlap another session — enforced here, not just in the picker.
  * Online sessions additionally require a Google Meet link, stored on the
  * row so the board + calendar can offer a Join button.
  * scheduledAt is required for new calls but optional for backward compat —
@@ -126,26 +290,24 @@ export async function confirmAppointment(
   appointmentId: string,
   scheduledAt?: Date,
   meetingUrl?: string | null,
+  endsAt?: Date | null,
 ) {
   const { data: current, error: curErr } = await db
     .from("appointments")
-    .select("mode, status")
+    .select("mode, status, counselor_id")
     .eq("id", appointmentId)
     .single();
   if (curErr || !current) throw curErr ?? new Error("Session not found.");
-  const cur = current as { mode: string; status: string };
+  const cur = current as { mode: string; status: string; counselor_id: string | null };
   if (cur.status !== "assigned") {
     throw new Error("Only assigned sessions can be confirmed.");
   }
-  let patch: Record<string, string> = { status: "confirmed", confirmed_datetime: new Date().toISOString() };
+  const patch: Record<string, string> = { status: "confirmed", confirmed_datetime: new Date().toISOString() };
   if (scheduledAt !== undefined) {
-    if (!(scheduledAt instanceof Date) || Number.isNaN(scheduledAt.getTime())) {
-      throw new Error("Choose a valid session date and time");
-    }
-    if (scheduledAt.getTime() <= Date.now()) {
-      throw new Error("Confirmed sessions must be scheduled in the future");
-    }
-    patch.scheduled_at = scheduledAt.toISOString();
+    if (!cur.counselor_id) throw new Error("Session has no counselor yet.");
+    const { startMs, endMs } = await validateCounselorSchedule(db, cur.counselor_id, scheduledAt, endsAt, appointmentId);
+    patch.scheduled_at = new Date(startMs).toISOString();
+    if (endsAt !== undefined && endsAt !== null) patch.ends_at = new Date(endMs).toISOString();
   }
   const link = (meetingUrl ?? "").trim();
   if (cur.mode === "online") {
@@ -162,13 +324,20 @@ export async function confirmAppointment(
     }
     patch.meeting_url = link;
   }
-  const { data, error } = await db
-    .from("appointments")
-    .update(patch)
-    .eq("id", appointmentId)
-    .eq("status", "assigned")
-    .select()
-    .single();
+  const runUpdate = () =>
+    db
+      .from("appointments")
+      .update(patch)
+      .eq("id", appointmentId)
+      .eq("status", "assigned")
+      .select()
+      .single();
+  let result = await runUpdate();
+  if (result.error && "ends_at" in patch && isMissingEndsAtColumn(result.error)) {
+    delete patch.ends_at;
+    result = await runUpdate();
+  }
+  const { data, error } = result;
   if (error) {
     // The Meet link column ships in migration 00034 — if the database was
     // never updated, online confirms fail here (not on the status gate).
@@ -222,6 +391,51 @@ export async function markAppointmentNoShow(db: DbClient, appointmentId: string)
     .single();
   if (error) throw error;
   return data;
+}
+
+/**
+ * Counselor reschedules one of their sessions to a new window inside their
+ * availability slots (status untouched — assigned stays assigned, confirmed
+ * stays confirmed). Ownership is enforced by RLS (only the assigned
+ * counselor's update passes); the from-status gate + scope + overlap checks
+ * below hold even if the UI is bypassed. The student is notified with the
+ * new schedule (see /appointments page runConfirming).
+ */
+export async function rescheduleAppointmentByCounselor(
+  db: DbClient,
+  appointmentId: string,
+  scheduledAt: Date,
+  endsAt?: Date | null,
+) {
+  const { data: current, error: curErr } = await db
+    .from("appointments")
+    .select("status, counselor_id")
+    .eq("id", appointmentId)
+    .single();
+  if (curErr || !current) throw curErr ?? new Error("Session not found.");
+  const cur = current as { status: string; counselor_id: string | null };
+  if (!["assigned", "confirmed"].includes(cur.status)) {
+    throw new Error("Only assigned or confirmed sessions can be rescheduled.");
+  }
+  if (!cur.counselor_id) throw new Error("Session has no counselor yet.");
+  const { startMs, endMs } = await validateCounselorSchedule(db, cur.counselor_id, scheduledAt, endsAt, appointmentId);
+  const patch: Record<string, string> = { scheduled_at: new Date(startMs).toISOString() };
+  if (endsAt !== undefined && endsAt !== null) patch.ends_at = new Date(endMs).toISOString();
+  const runUpdate = () =>
+    db
+      .from("appointments")
+      .update(patch)
+      .eq("id", appointmentId)
+      .in("status", ["assigned", "confirmed"])
+      .select()
+      .single();
+  let result = await runUpdate();
+  if (result.error && "ends_at" in patch && isMissingEndsAtColumn(result.error)) {
+    delete patch.ends_at;
+    result = await runUpdate();
+  }
+  if (result.error) throw result.error;
+  return result.data;
 }
 
 /**

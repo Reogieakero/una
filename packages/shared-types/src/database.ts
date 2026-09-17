@@ -43,6 +43,23 @@ export type ReferralStatus =
 
 export type ReferralPriority = "low" | "medium" | "high" | "urgent";
 
+/**
+ * Official sheet Case Classification set (FM-DOrSU-GCTC-02, migration
+ * 00040) — the canonical referral categorization, multi-select.
+ */
+export const REFERRAL_CLASSIFICATIONS = [
+  "Behavioral",
+  "Relational",
+  "Financial",
+  "Absenteeism",
+  "Social Adjustment",
+  "Academic-related",
+  "Health",
+  "Others",
+] as const;
+
+export type ReferralClassification = (typeof REFERRAL_CLASSIFICATIONS)[number];
+
 export type ChatThreadStatus = "open" | "closed";
 
 export type NotificationType =
@@ -115,9 +132,12 @@ export type CounselorAvailabilityRow = {
 
 export type AppointmentRow = {
   id: string;
-  student_id: string;
+  /** Null for walk-in sessions confirmed from typed-identity referrals (00042). */
+  student_id: string | null;
   counselor_id: string | null;
   scheduled_at: string;
+  /** Session end picked by the counselor inside an availability slot (00051, nullable for older rows). */
+  ends_at: string | null;
   mode: AppointmentMode;
   status: AppointmentStatus;
   concern: string;
@@ -202,6 +222,10 @@ export type NotificationRow = {
   link: string | null;
   is_read: boolean;
   created_at: string;
+  // Added by hand (00021 dedupe_key, 00044 tone) — db:types regen will keep
+  // these once run against the migrated project.
+  dedupe_key: string | null;
+  tone: string | null;
 };
 
 export type AnnouncementRow = {
@@ -219,19 +243,35 @@ export type ReferralRow = {
   id: string;
   referring_faculty_id: string | null;
   referring_personnel_id: string | null;
-  student_id: string;
+  /** Null for walk-ins: referred student has no account yet (00041). */
+  student_id: string | null;
+  /** Free-text identity typed off the paper form for walk-ins (00041). */
+  student_name_text: string | null;
+  student_no_text: string | null;
   reason: string;
   priority: ReferralPriority;
   status: ReferralStatus;
   assigned_counselor_id: string | null;
   created_at: string;
   updated_at: string;
+  /** Point-in-time snapshot from the official referral sheet (00040). */
+  student_gender: string | null;
+  student_age: string | null;
+  relation_to_client: string | null;
+  /** Paper Case Classification checkboxes (multi-select). */
+  case_classification: string[];
+  /** Free text for the "Others, please specify" classification. */
+  classification_other: string | null;
 };
 
 export type ReferralActionRow = {
   id: string;
   referral_id: string;
   actor_profile_id: string;
+  // Added by hand (00048 actor_name, 00049 actor_role) — db:types regen will
+  // keep them once run against the migrated project.
+  actor_name: string | null;
+  actor_role: string | null;
   action: string;
   note: string | null;
   created_at: string;
@@ -295,7 +335,13 @@ export interface Database {
     Views: {
       analytics_daily_summary: { Row: AnalyticsDailySummaryRow; Relationships: [] };
     };
-    Functions: { [_ in never]: never };
+    Functions: {
+      // Added by hand (00049) — db:types regen will keep it.
+      counselor_directory: {
+        Args: Record<string, never>;
+        Returns: { counselor_id: string; display_name: string }[];
+      };
+    };
     Enums: Record<string, never>;
   };
 }

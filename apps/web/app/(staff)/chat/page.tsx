@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowDown, ArrowLeft, MessagesSquare, Plus, Search, Send } from "lucide-react";
+import { ArrowLeft, MessagesSquare } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   CHAT_BOARD_KEY,
   useChatBoard,
@@ -19,9 +19,14 @@ import {
   sendMessage,
   sendStaffMessage,
 } from "@dorsu/shared-services";
-import { Badge, Button, Card, Input, Textarea } from "@/components/ui/primitives";
-import { Dropdown } from "@/components/shared/dropdown";
+import { Badge, Card } from "@/components/ui/primitives";
+import { initials } from "@/lib/format";
+import { patchBoard } from "@/lib/patch-board";
 import { notifyStaff } from "@/lib/notify";
+import { ThreadList, type Convo } from "@/components/chat/ThreadList";
+import { MessageList } from "@/components/chat/MessageList";
+import { Composer } from "@/components/chat/Composer";
+import { NewMessageModal } from "@/components/chat/NewMessageModal";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -36,35 +41,6 @@ type Thread = ChatThread;
 type Msg = ChatMsg;
 
 type Dm = ChatDm;
-
-type Convo =
-  | { kind: "thread"; key: string; at: string; thread: Thread }
-  | { kind: "dm"; key: string; at: string; peer: string; last: Dm; unread: number };
-
-function timeAgo(iso: string): string {
-  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function dayLabel(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  if (day === today) return "Today";
-  if (day === today - 24 * 60 * 60 * 1000) return "Yesterday";
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-}
-
-function initials(name: string): string {
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("") || "?";
-}
 
 const LAST_CHAT_KEY = "chekie.chat.last";
 
@@ -96,11 +72,6 @@ const EMPTY_MAP = new Map<string, string>();
 const EMPTY_ALIASES = new Map<string, { alias: string; profileId: string }>();
 const EMPTY_PREVIEWS = new Map<string, Msg>();
 
-/** Patch the cached board in place — realtime arrivals never flash the list. */
-function patchBoard(qc: QueryClient, patch: (prev: ChatBoardData) => ChatBoardData) {
-  qc.setQueryData<ChatBoardData>([...CHAT_BOARD_KEY], (prev) => (prev ? patch(prev) : prev));
-}
-
 /**
  * Shared /chat — one URL, role-aware UI (same pattern as /appointments).
  * Counselors read + reply on their own threads; the head sees direct staff
@@ -121,6 +92,7 @@ export default function ChatPage() {
   const previews = board?.previews ?? EMPTY_PREVIEWS;
   const dms = board?.dms ?? EMPTY_DMS;
   const staffNames = board?.staffNames ?? EMPTY_MAP;
+  const contacts = board?.contacts ?? [];
   const loading = isLoading && !board;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeDm, setActiveDm] = useState<string | null>(null);
@@ -197,7 +169,7 @@ export default function ChatPage() {
         (p) => {
           const row = p.new as Msg;
           setMessages((m) => (m.some((x) => x.id === row.id) ? m : [...m, row]));
-          patchBoard(qc, (prev) => ({ ...prev, previews: new Map(prev.previews).set(activeId, row) }));
+          patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) => ({ ...prev, previews: new Map(prev.previews).set(activeId, row) }));
         }
       )
       .subscribe();
@@ -207,32 +179,34 @@ export default function ChatPage() {
     };
   }, [activeId]);
 
-  // Keep the thread list fresh when any new message lands — invalidate so
-  // the cache revalidates in the background (cached rows stay on screen).
-  useEffect(() => {
-    if (!role || !["counselor", "guidance_head"].includes(role)) return;
-    const ch = createClient()
-      .channel("chat-list")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, () => {
-        void qc.invalidateQueries({ queryKey: [...CHAT_BOARD_KEY] });
-      })
-      .subscribe();
-    return () => {
-      createClient().removeChannel(ch);
-    };
-  }, [role, qc]);
-
-  // Staff DMs land live for both sides.
+  // One shared channel for everything outside the open thread: thread-list
+  // previews patch in place (never a full invalidate — the old chat-list
+  // channel refetched the whole board on every message), and staff DMs land
+  // live, filtered to messages addressed to me. The open thread keeps its
+  // own filtered subchannel above. RLS still scopes chat_messages to
+  // participant threads server-side; the recipient filter narrows DMs.
   useEffect(() => {
     if (!me) return;
     const ch = createClient()
-      .channel("staff-dms")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "staff_messages" }, (p) => {
-        const row = p.new as Dm;
-        patchBoard(qc, (prev) =>
-          prev.dms.some((x) => x.id === row.id) ? prev : { ...prev, dms: [row, ...prev.dms] }
-        );
+      .channel(`chat-global-${me}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (p) => {
+        const row = p.new as Msg;
+        if (!row?.id || !row.thread_id) return;
+        patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) => ({
+          ...prev,
+          previews: new Map(prev.previews).set(row.thread_id, row),
+        }));
       })
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "staff_messages", filter: `recipient_profile_id=eq.${me}` },
+        (p) => {
+          const row = p.new as Dm;
+          patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) =>
+            prev.dms.some((x) => x.id === row.id) ? prev : { ...prev, dms: [row, ...prev.dms] }
+          );
+        }
+      )
       .subscribe();
     return () => {
       createClient().removeChannel(ch);
@@ -274,7 +248,9 @@ export default function ChatPage() {
   }, [msgOpen]);
 
   const openMessenger = () => {
-    const first = [...counselorNames.keys()][0] ?? "";
+    const first = isFaculty
+      ? (contacts[0]?.profileId ?? "")
+      : ([...counselorNames.keys()][0] ?? "");
     setMsgCounselor((prev) => prev || first);
     setMsgOpen(true);
   };
@@ -282,14 +258,16 @@ export default function ChatPage() {
   const sendToCounselor = async () => {
     const body = msgBody.trim();
     if (!me || !msgCounselor || !body || msgBusy) return;
-    const peerProfile = counselorProfiles.get(msgCounselor);
+    // Faculty compose is keyed by office profile id directly; the head
+    // compose picks a counselor row and resolves its profile.
+    const peerProfile = isFaculty ? msgCounselor : counselorProfiles.get(msgCounselor);
     if (!peerProfile) {
       toast.error("Couldn't find that counselor.");
       return;
     }
     setMsgBusy(true);
     try {
-      await sendStaffMessage(createClient(), { senderProfileId: me, recipientProfileId: peerProfile, body });
+      const sent = (await sendStaffMessage(createClient(), { senderProfileId: me, recipientProfileId: peerProfile, body })) as { id?: string } | null;
       setMsgOpen(false);
       setMsgBody("");
       await refetch();
@@ -297,11 +275,14 @@ export default function ChatPage() {
       setMessages([]);
       setActiveDm(peerProfile);
       setShowThreadMobile(true);
-      await notifyStaff([peerProfile], {
+      // Fire-and-forget: dialog close reflects the sent message, not delivery.
+      void notifyStaff([peerProfile], {
         type: "chat",
         title: `New message from ${myName}`,
         body: body.length > 140 ? `${body.slice(0, 140)}…` : body,
         link: "/chat",
+        ...(sent?.id ? { dedupeKey: `chat:${sent.id}:dm` } : {}),
+        tone: "info",
       });
     } catch {
       toast.error("Couldn't deliver the message — please try again.");
@@ -311,6 +292,11 @@ export default function ChatPage() {
   };
 
   const isOffice = role === "guidance_head";
+  const isFaculty = role === "faculty";
+  const contactOptions = contacts.map((c) => ({
+    value: c.profileId,
+    label: `${c.name} · ${c.role === "guidance_head" ? "Guidance Head" : "Counselor"}`,
+  }));
 
   const dmGroups = useMemo(() => {
     const byPeer = new Map<string, Dm[]>();
@@ -391,7 +377,7 @@ export default function ChatPage() {
     if (me) {
       void markStaffMessagesRead(createClient(), { readerProfileId: me, counterpartProfileId: peer })
         .then(() =>
-          patchBoard(qc, (prev) => ({
+          patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) => ({
             ...prev,
             dms: prev.dms.map((d) =>
               d.sender_profile_id === peer && d.recipient_profile_id === me ? { ...d, is_read: true } : d
@@ -417,11 +403,14 @@ export default function ChatPage() {
           ? aliases.get(thread.student_id)?.profileId
           : counselorProfiles.get(thread.counselor_id ?? "")
         : null;
-      await notifyStaff([otherProfile], {
+      // Fire-and-forget: composer reset reflects the sent message, not delivery.
+      void notifyStaff([otherProfile], {
         type: "chat",
         title: `New message from ${myName}`,
         body: body.length > 140 ? `${body.slice(0, 140)}…` : body,
         link: "/chat",
+        dedupeKey: `chat:${sent.id}:thread`,
+        tone: "info",
       });
     } catch {
       toast.error("Couldn't send — please try again.");
@@ -441,15 +430,18 @@ export default function ChatPage() {
         recipientProfileId: activeDm,
         body,
       })) as Dm;
-      patchBoard(qc, (prev) =>
+      patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) =>
         prev.dms.some((x) => x.id === sent.id) ? prev : { ...prev, dms: [sent, ...prev.dms] }
       );
       setDraft("");
-      await notifyStaff([activeDm], {
+      // Fire-and-forget: composer reset reflects the sent message, not delivery.
+      void notifyStaff([activeDm], {
         type: "chat",
         title: `New message from ${myName}`,
         body: body.length > 140 ? `${body.slice(0, 140)}…` : body,
         link: "/chat",
+        dedupeKey: `chat:${sent.id}:dm`,
+        tone: "info",
       });
     } catch {
       toast.error("Couldn't send — please try again.");
@@ -458,16 +450,15 @@ export default function ChatPage() {
     }
   };
 
-  if (!loading && (!role || !["counselor", "guidance_head"].includes(role))) {
+  if (!loading && (!role || !["counselor", "guidance_head", "faculty"].includes(role))) {
     return (
       <div className="space-y-4">
         <h1 className="font-display text-2xl font-bold">Chat</h1>
-        <Card><p className="text-sm text-ink-muted">Only counselors and the guidance head can open chat.</p></Card>
+        <Card><p className="text-sm text-ink-muted">Only counselors, the guidance head, and faculty can open chat.</p></Card>
       </div>
     );
   }
 
-  let lastDay = "";
   const showing = active ?? activeDm;
 
   return (
@@ -489,162 +480,27 @@ export default function ChatPage() {
       </div>
 
       <div className="grid items-start gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[340px_minmax(0,1fr)]">
-        {/* Thread list */}
-        <section
-          aria-label="Conversations"
-          className={`rounded-lg border border-ink/10 bg-white p-4 shadow-card lg:h-full lg:min-h-0 ${showThreadMobile ? "hidden lg:flex lg:flex-col" : "lg:flex lg:flex-col"}`}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="font-display text-base font-bold text-ink">
-              Conversations{" "}
-              <span className="ml-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-primary-700">
-                {convos.length}
-              </span>
-            </h2>
-            {isOffice && (
-              <button
-                type="button"
-                onClick={openMessenger}
-                title="Message a counselor"
-                aria-label="Message a counselor"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-600 text-white shadow-soft transition hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-              >
-                <Plus className="h-4 w-4" aria-hidden />
-              </button>
-            )}
-          </div>
-          <div className="relative mt-3">
-            <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search chats…"
-              aria-label="Search chats"
-              className="pl-9"
-            />
-          </div>
-          {/* Thread open/closed pills — counselors only; the head inbox is DMs. */}
-          {!isOffice && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {["all", "open", "closed"].map((s) => (
-                <Button
-                  key={s}
-                  size="sm"
-                  variant={statusFilter === s ? "primary" : "outline"}
-                  onClick={() => setStatusFilter(s)}
-                >
-                  {s === "all" ? "All" : s === "open" ? "Open" : "Closed"}
-                </Button>
-              ))}
-            </div>
-          )}
-          <ul className="no-scrollbar mt-3 max-h-[52vh] space-y-1 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1">
-            {loading &&
-              Array.from({ length: 5 }).map((_, i) => (
-                <li key={i} className="flex animate-pulse items-center gap-3 rounded-xl px-2 py-2.5" aria-hidden>
-                  <div className="h-10 w-10 shrink-0 rounded-full bg-ink/10" />
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="h-3 w-2/3 rounded-full bg-ink/10" />
-                    <div className="h-3 w-full rounded-full bg-ink/10" />
-                  </div>
-                </li>
-              ))}
-            {!loading &&
-              convos.map((c) => {
-                if (c.kind === "thread") {
-                  const t = c.thread;
-                  const alias = aliases.get(t.student_id)?.alias ?? "Student";
-                  const last = previews.get(t.id);
-                  const flag = needsReply(t);
-                  const selected = t.id === activeId;
-                  return (
-                    <li key={c.key}>
-                      <button
-                        type="button"
-                        onClick={() => openThread(t.id)}
-                        aria-current={selected ? "true" : undefined}
-                        className={`flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
-                          selected ? "bg-blue-50 ring-1 ring-blue-100" : "hover:bg-cream"
-                        }`}
-                      >
-                        <span
-                          aria-hidden
-                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-sm font-bold text-white ${
-                            t.status === "open" ? "bg-primary-600" : "bg-ink/30"
-                          }`}
-                        >
-                          {initials(alias)}
-                        </span>
-                        <span className="min-w-0 flex-1 leading-snug">
-                          <span className="flex items-baseline justify-between gap-2">
-                            <span className="truncate text-sm font-bold text-ink">{alias}</span>
-                            <span className="shrink-0 text-[11px] font-medium text-ink-faint">{timeAgo(c.at)}</span>
-                          </span>
-                          <span className="mt-0.5 flex items-center gap-1.5">
-                            {flag && (
-                              <span aria-label="Needs reply" title="Waiting on a counselor reply" className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-                            )}
-                            <span className="truncate text-[13px] text-ink-muted">
-                              {last
-                                ? `${last.sender_profile_id === me ? "You: " : ""}${last.body}`
-                                : t.status === "open"
-                                  ? "No messages yet."
-                                  : "Closed · no messages."}
-                            </span>
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                }
-                const name = staffNames.get(c.peer) ?? "Staff";
-                const selected = c.peer === activeDm;
-                return (
-                  <li key={c.key}>
-                    <button
-                      type="button"
-                      onClick={() => openDm(c.peer)}
-                      aria-current={selected ? "true" : undefined}
-                      className={`flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
-                        selected ? "bg-blue-50 ring-1 ring-blue-100" : "hover:bg-cream"
-                      }`}
-                    >
-                      <span
-                        aria-hidden
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink font-display text-sm font-bold text-white"
-                      >
-                        {initials(name)}
-                      </span>
-                      <span className="min-w-0 flex-1 leading-snug">
-                        <span className="flex items-baseline justify-between gap-2">
-                          <span className="truncate text-sm font-bold text-ink">{name}</span>
-                          <span className="shrink-0 text-[11px] font-medium text-ink-faint">{timeAgo(c.at)}</span>
-                        </span>
-                        <span className="mt-0.5 flex items-center gap-1.5">
-                          <span className="shrink-0 rounded-full bg-ink/10 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-ink-muted">
-                            Direct
-                          </span>
-                          <span className="truncate text-[13px] text-ink-muted">
-                            {`${c.last.sender_profile_id === me ? "You: " : ""}${c.last.body}`}
-                          </span>
-                          {c.unread > 0 && (
-                            <span aria-label={`${c.unread} unread`} className="shrink-0 rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-bold text-amber-800">
-                              {c.unread}
-                            </span>
-                          )}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            {!loading && !convos.length && (
-              <li className="px-2 py-8 text-center text-sm text-ink-muted">
-                No conversations match. Try clearing the search or filters.
-              </li>
-            )}
-          </ul>
-        </section>
+        <ThreadList
+          convos={convos}
+          loading={loading}
+          search={search}
+          setSearch={setSearch}
+          statusFilter={statusFilter}
+          setStatusFilter={setStatusFilter}
+          isOffice={isOffice}
+          isFaculty={isFaculty}
+          showThreadMobile={showThreadMobile}
+          aliases={aliases}
+          previews={previews}
+          staffNames={staffNames}
+          me={me}
+          activeId={activeId}
+          activeDm={activeDm}
+          openThread={openThread}
+          openDm={openDm}
+          needsReply={needsReply}
+          onNewMessage={openMessenger}
+        />
 
         {/* Conversation */}
         <section
@@ -658,9 +514,11 @@ export default function ChatPage() {
               </span>
               <p className="mt-4 font-display text-lg font-bold text-ink">No chat selected</p>
               <p className="mt-1 max-w-[320px] text-sm leading-relaxed text-ink-muted">
-                {isOffice
-                  ? "Select a conversation from the list to read and reply. Use + to message a counselor directly."
-                  : "Select a conversation from the list to read and reply. Threads open from student sessions — the amber dot marks ones waiting on a counselor."}
+                {isFaculty
+                  ? "Select a conversation from the list to read and reply. Use + to message a counselor or the guidance head about your referrals."
+                  : isOffice
+                    ? "Select a conversation from the list to read and reply. Use + to message a counselor directly."
+                    : "Select a conversation from the list to read and reply. Threads open from student sessions — the amber dot marks ones waiting on a counselor."}
               </p>
             </div>
           ) : active ? (
@@ -691,68 +549,26 @@ export default function ChatPage() {
                 <Badge tone={active.status === "open" ? "success" : "info"}>{active.status === "open" ? "Open" : "Closed"}</Badge>
               </div>
 
-              <div className="relative h-[46vh] min-h-[320px] lg:h-auto lg:min-h-0 lg:flex-1">
-                <div onScroll={onMessagesScroll} className="no-scrollbar h-full space-y-3 overflow-y-auto px-4 py-4">
-                {messages.map((m) => {
-                  const mine = m.sender_profile_id === me;
-                  const day = dayLabel(m.created_at);
-                  const showDay = day !== lastDay;
-                  lastDay = day;
-                  return (
-                    <div key={m.id}>
-                      {showDay && (
-                        <p className="mb-3 mt-1 text-center text-[11px] font-bold uppercase tracking-wider text-ink-faint">
-                          {day}
-                        </p>
-                      )}
-                      <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                        <div
-                          className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
-                            mine
-                              ? "rounded-br-md bg-primary-600 text-white"
-                              : "rounded-bl-md bg-cream-dark text-ink"
-                          }`}
-                        >
-                          <p>{m.body}</p>
-                          <p className={`mt-1 text-right text-[10px] font-medium ${mine ? "text-white/70" : "text-ink-faint"}`}>
-                            {new Date(m.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {!messages.length && (
-                  <p className="py-10 text-center text-sm text-ink-muted">No messages yet — say hello first.</p>
-                )}
-                <div ref={bottomRef} />
-                </div>
-                {showJump && messages.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={jumpToLatest}
-                    title="Jump to latest"
-                    aria-label="Jump to latest messages"
-                    className="absolute bottom-4 left-1/2 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-ink/10 bg-white text-primary-600 shadow-card transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-                  >
-                    <ArrowDown className="h-4 w-4" aria-hidden />
-                  </button>
-                )}
-              </div>
+              <MessageList
+                messages={messages}
+                me={me}
+                bottomRef={bottomRef}
+                showJump={showJump}
+                onScroll={onMessagesScroll}
+                onJump={jumpToLatest}
+                emptyText="No messages yet — say hello first."
+              />
 
               {iAmParticipant ? (
-                <form onSubmit={send} className="flex gap-2 border-t border-ink/10 px-4 py-3">
-                  <Input
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    placeholder="Reply…"
-                    aria-label="Reply"
-                    disabled={sending}
-                  />
-                  <Button disabled={sending || !draft.trim()} aria-label="Send reply" className="shrink-0 px-4">
-                    <Send className="h-4 w-4" aria-hidden />
-                  </Button>
-                </form>
+                <Composer
+                  draft={draft}
+                  onDraftChange={setDraft}
+                  sending={sending}
+                  onSubmit={send}
+                  placeholder="Reply…"
+                  inputLabel="Reply"
+                  sendLabel="Send reply"
+                />
               ) : (
                 <p className="border-t border-ink/10 bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
                   Supervisory view — replies come from the assigned counselor ({activeCounselor}), so this
@@ -784,116 +600,50 @@ export default function ChatPage() {
                 <Badge tone="info">Direct</Badge>
               </div>
 
-              <div className="relative h-[46vh] min-h-[320px] lg:h-auto lg:min-h-0 lg:flex-1">
-                <div onScroll={onMessagesScroll} className="no-scrollbar h-full space-y-3 overflow-y-auto px-4 py-4">
-                {dmHistory.map((m) => {
-                  const mine = m.sender_profile_id === me;
-                  const day = dayLabel(m.created_at);
-                  const showDay = day !== lastDay;
-                  lastDay = day;
-                  return (
-                    <div key={m.id}>
-                      {showDay && (
-                        <p className="mb-3 mt-1 text-center text-[11px] font-bold uppercase tracking-wider text-ink-faint">
-                          {day}
-                        </p>
-                      )}
-                      <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                        <div
-                          className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
-                            mine
-                              ? "rounded-br-md bg-primary-600 text-white"
-                              : "rounded-bl-md bg-cream-dark text-ink"
-                          }`}
-                        >
-                          <p>{m.body}</p>
-                          <p className={`mt-1 text-right text-[10px] font-medium ${mine ? "text-white/70" : "text-ink-faint"}`}>
-                            {new Date(m.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                <div ref={bottomRef} />
-                </div>
-                {showJump && dmHistory.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={jumpToLatest}
-                    title="Jump to latest"
-                    aria-label="Jump to latest messages"
-                    className="absolute bottom-4 left-1/2 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-ink/10 bg-white text-primary-600 shadow-card transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-                  >
-                    <ArrowDown className="h-4 w-4" aria-hidden />
-                  </button>
-                )}
-              </div>
+              <MessageList
+                messages={dmHistory}
+                me={me}
+                bottomRef={bottomRef}
+                showJump={showJump}
+                onScroll={onMessagesScroll}
+                onJump={jumpToLatest}
+              />
 
-              <form onSubmit={sendDm} className="flex gap-2 border-t border-ink/10 px-4 py-3">
-                <Input
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder="Write a message…"
-                  aria-label="Write a message"
-                  disabled={sending}
-                />
-                <Button disabled={sending || !draft.trim()} aria-label="Send message" className="shrink-0 px-4">
-                  <Send className="h-4 w-4" aria-hidden />
-                </Button>
-              </form>
+              <Composer
+                draft={draft}
+                onDraftChange={setDraft}
+                sending={sending}
+                onSubmit={sendDm}
+                placeholder="Write a message…"
+                inputLabel="Write a message"
+                sendLabel="Send message"
+              />
             </>
           )}
         </section>
       </div>
 
-      {/* Message-a-counselor dialog (head only) */}
-      {msgOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="msg-counselor-title"
-        >
-          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => setMsgOpen(false)} />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-card">
-            <h2 id="msg-counselor-title" className="font-display text-lg font-bold text-ink">
-              Message a counselor
-            </h2>
-            <p className="mt-1 text-sm leading-relaxed text-ink-muted">
-              Opens a direct conversation shown right in this list.
-            </p>
-            <div className="mt-4 space-y-3">
-              <Dropdown
-                menuKey="msg-counselor"
-                openMenuKey={openMenuKey}
-                onOpenChange={setOpenMenuKey}
-                value={msgCounselor}
-                onChange={setMsgCounselor}
-                ariaLabel="Choose counselor"
-                options={[...counselorNames.entries()].map(([id, name]) => ({ value: id, label: name }))}
-              />
-              <Textarea
-                rows={4}
-                value={msgBody}
-                onChange={(e) => setMsgBody(e.target.value)}
-                placeholder="Write your message…"
-                aria-label="Message"
-                maxLength={2000}
-              />
-              <p className="text-right text-[11px] font-medium text-ink-faint">{msgBody.trim().length}/2000</p>
-            </div>
-            <div className="mt-2 flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => setMsgOpen(false)} autoFocus>
-                Back
-              </Button>
-              <Button size="sm" variant="primary" disabled={msgBusy || !msgCounselor || !msgBody.trim()} onClick={sendToCounselor}>
-                {msgBusy ? "Sending…" : "Send message"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <NewMessageModal
+        open={msgOpen}
+        onClose={() => setMsgOpen(false)}
+        counselor={msgCounselor}
+        onCounselorChange={setMsgCounselor}
+        body={msgBody}
+        onBodyChange={setMsgBody}
+        busy={msgBusy}
+        onSend={sendToCounselor}
+        counselorNames={counselorNames}
+        openMenuKey={openMenuKey}
+        onOpenMenuChange={setOpenMenuKey}
+        title={isFaculty ? "Message the office" : undefined}
+        description={
+          isFaculty
+            ? "Ask about your referrals — a counselor or the head will reply here."
+            : undefined
+        }
+        options={isFaculty ? contactOptions : undefined}
+        pickerLabel={isFaculty ? "Choose who to message" : undefined}
+      />
     </div>
   );
 }

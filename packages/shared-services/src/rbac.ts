@@ -25,6 +25,7 @@ export type AppRoute =
   | "/security"
   | "/announcements"
   | "/referrals"
+  | "/refer-student"
   | "/about"
   | "/feedback";
 
@@ -58,23 +59,24 @@ export const routePolicy: Record<AppRoute, UserRole[]> = {
   "/login": ["student", "counselor", "guidance_head", "faculty"],
   "/register": ["student", "counselor", "guidance_head", "faculty"],
   "/reset-password": ["student", "counselor", "guidance_head", "faculty"],
-  "/dashboard": ["counselor", "guidance_head"],
+  "/dashboard": ["counselor", "guidance_head", "faculty"],
   "/appointments": ["student", "counselor", "guidance_head"],
   "/appointments/new": ["student"],
-  "/chat": ["student", "counselor", "guidance_head"],
+  "/chat": ["student", "counselor", "guidance_head", "faculty"],
   "/resources": ["student"],
   "/notifications": ["student", "counselor", "guidance_head", "faculty"],
   "/settings": ["student", "counselor", "guidance_head", "faculty"],
   "/availability": ["counselor", "guidance_head"],
   "/sessions": ["counselor", "guidance_head"],
   "/students": ["counselor", "guidance_head"],
-  "/reports": ["counselor", "guidance_head"],
+  "/reports": ["counselor", "guidance_head", "faculty"],
   "/users": ["guidance_head"],
   "/analytics": ["guidance_head"],
   "/security": ["guidance_head"],
   "/announcements": ["counselor", "guidance_head", "faculty", "student"],
   "/referrals": ["counselor", "guidance_head", "faculty"],
-  "/about": ["counselor", "guidance_head"],
+  "/refer-student": ["faculty"],
+  "/about": ["counselor", "guidance_head", "faculty"],
   "/feedback": ["student", "counselor", "guidance_head"],
 };
 
@@ -87,10 +89,10 @@ export const actionPolicy: Record<AppAction, UserRole[]> = {
   "appointment.complete": ["counselor"],
   "appointment.no_show": ["counselor"],
   "appointment.cancel": ["student"],
-  "appointment.reschedule": ["student"],
+  "appointment.reschedule": ["student", "counselor"],
   "pss10.submit": ["student"],
   "feedback.submit": ["student"],
-  "chat.send": ["student", "counselor", "guidance_head"],
+  "chat.send": ["student", "counselor", "guidance_head", "faculty"],
   "referral.create": ["faculty", "guidance_head"],
   "referral.assign": ["guidance_head"],
   "referral.reject": ["guidance_head"],
@@ -125,7 +127,7 @@ export function homeRouteFor(role: UserRole): string {
     case "counselor":
       return "/dashboard";
     case "faculty":
-      return "/referrals";
+      return "/dashboard";
     case "guidance_head":
     case "admin":
       return "/analytics";

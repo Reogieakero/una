@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 import { cn } from "@/lib/utils";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { RoutePendingProvider } from "@/components/shared/route-pending";
+import { RealtimeProvider } from "@/components/shared/realtime-provider";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -55,10 +56,14 @@ export default function RootLayout({
             ((admin)/(staff)/(counselor) layouts remount), so pending state and
             the overlay never flicker mid-navigation. */}
         <QueryProvider>
-          <RoutePendingProvider>{children}</RoutePendingProvider>
+          {/* One realtime channel per session lives here — bell counts,
+              toasts, and inbox patches for every page, no per-page channels. */}
+          <RealtimeProvider>
+            <RoutePendingProvider>{children}</RoutePendingProvider>
+          </RealtimeProvider>
         </QueryProvider>
-        {/* App-wide toasts — top-center, 2s auto-dismiss, closable (see globals.css). */}
-        <Toaster position="top-center" duration={2000} closeButton gap={8} />
+        {/* App-wide toasts — top-right, 2s auto-dismiss, closable (see globals.css). */}
+        <Toaster position="top-right" duration={2000} closeButton gap={8} />
       </body>
     </html>
   );

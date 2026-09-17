@@ -12,8 +12,17 @@ import {
   useEmergencyBoard,
   type EmergencyBoardData,
 } from "@/lib/hooks/use-emergency-board";
-import { Badge, Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
+import {
+  clearStoredGrant,
+  isUnexpiredGrant,
+  loadStoredGrant,
+  saveStoredGrant,
+  type EmergencyGrant as Grant,
+} from "@/lib/hooks/use-emergency-grant";
+import { Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
+import { GrantBanner } from "@/components/emergency/grant-banner";
+import { IdentityCard, type EmergencyIdentity as Identity } from "@/components/emergency/identity-card";
 import { notifyStaff } from "@/lib/notify";
 import {
   Breadcrumb,
@@ -24,85 +33,8 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-type Identity = {
-  fullName: string | null;
-  email: string | null;
-  studentNo: string;
-  program: string | null;
-  yearLevel: string | null;
-  college: string | null;
-  contactNo: string | null;
-  alias: string | null;
-};
-
-type Grant = { studentId: string; alias: string; expiresAt: string; logId: string; reviewed: boolean };
-
-const GRANT_STORAGE_KEY = "dorsu:emergency-grant";
-
-type StoredGrant = Grant & { accessorId: string | null };
-
-function isUnexpiredGrant(g: { expiresAt: string }): boolean {
-  const t = new Date(g.expiresAt).getTime();
-  return Number.isFinite(t) && t > Date.now();
-}
-
-function loadStoredGrant(): StoredGrant | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(GRANT_STORAGE_KEY);
-    if (!raw) return null;
-    const p = JSON.parse(raw) as Partial<StoredGrant>;
-    if (!p || typeof p.studentId !== "string" || typeof p.expiresAt !== "string" || typeof p.logId !== "string") {
-      return null;
-    }
-    const g: StoredGrant = {
-      studentId: p.studentId,
-      alias: typeof p.alias === "string" ? p.alias : "Student",
-      expiresAt: p.expiresAt,
-      logId: p.logId,
-      reviewed: p.reviewed === true,
-      accessorId: typeof p.accessorId === "string" ? p.accessorId : null,
-    };
-    if (!isUnexpiredGrant(g)) {
-      try {
-        window.localStorage.removeItem(GRANT_STORAGE_KEY);
-      } catch {
-        // best-effort cleanup
-      }
-      return null;
-    }
-    return g;
-  } catch {
-    return null;
-  }
-}
-
-function saveStoredGrant(g: Grant, accessorId: string | null) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(GRANT_STORAGE_KEY, JSON.stringify({ ...g, accessorId }));
-  } catch {
-    // Private mode etc. — persistence is best-effort.
-  }
-}
-
-function clearStoredGrant() {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(GRANT_STORAGE_KEY);
-  } catch {
-    // best-effort
-  }
-}
-
 const EMPTY_STUDENTS: { id: string; label: string; alias: string }[] = [];
 const EMPTY_IDS: string[] = [];
-
-function fmtLeft(ms: number): string {
-  if (ms <= 0) return "00:00";
-  const s = Math.floor(ms / 1000);
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-}
 
 /**
  * Shared /emergency — break-glass anonymity override for authorized
@@ -260,11 +192,15 @@ export default function EmergencyPage() {
           ? "Emergency access logged — waiting for head review before the identity can be revealed."
           : "Emergency access logged — 30-minute grant open."
       );
-      await notifyStaff(headIds.filter((id) => id !== me), {
+      // Fire-and-forget: heads review from /security; the grant itself is
+      // already persisted above. Body carries ids only, never identity.
+      void notifyStaff(headIds.filter((id) => id !== me), {
         type: "system",
         title: "Emergency access logged",
         body: `${myName} opened a restricted record with justification on file.`,
         link: "/security",
+        dedupeKey: `breakglass:${row.id}:logged`,
+        tone: "info",
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't log that access.");
@@ -364,18 +300,6 @@ export default function EmergencyPage() {
     );
   }
 
-  const idRows: [string, string | null][] = identity
-    ? [
-        ["Full name", identity.fullName],
-        ["Email", identity.email],
-        ["Student no.", identity.studentNo],
-        ["Program", identity.program],
-        ["Year level", identity.yearLevel],
-        ["College", identity.college],
-        ["Contact no.", identity.contactNo],
-      ]
-    : [];
-
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4">
       <Breadcrumb>
@@ -446,13 +370,7 @@ export default function EmergencyPage() {
 
       {/* Step 2 — grant + reveal */}
       {grant && (
-        <Card className="border-red-300">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-base font-bold text-ink">2 · Active grant — {grant.alias}</h2>
-            <Badge tone={msLeft > 5 * 60 * 1000 ? "warning" : "danger"}>
-              Expires in {fmtLeft(msLeft)}
-            </Badge>
-          </div>
+        <GrantBanner grant={grant} msLeft={msLeft}>
           {!identity ? (
             needsReview ? (
               <div className="mt-3 space-y-3">
@@ -477,21 +395,9 @@ export default function EmergencyPage() {
             </div>
             )
           ) : (
-            <div className="mt-3 space-y-3">
-              <div className="rounded-xl bg-red-50 px-4 py-2.5 text-[13px] font-semibold text-red-800 ring-1 ring-red-200">
-                This view was audit-logged under your name. Handle these details with care.
-              </div>
-              <dl className="divide-y divide-ink/10 rounded-xl border border-ink/10">
-                {idRows.map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                    <dt className="font-medium text-ink-muted">{k}</dt>
-                    <dd className="truncate font-bold text-ink">{v ?? "—"}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
+            <IdentityCard identity={identity} />
           )}
-        </Card>
+        </GrantBanner>
       )}
     </div>
   );

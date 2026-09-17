@@ -72,6 +72,23 @@ export async function markNotificationRead(db: DbClient, notificationId: string)
   return data;
 }
 
+/**
+ * Mark many notifications read in ONE query (owner-only via RLS — rows the
+ * caller doesn't own are simply not matched, never an error).
+ * Returns the updated rows so callers can reconcile optimistic UI.
+ */
+export async function markNotificationsRead(db: DbClient, notificationIds: string[]) {
+  const ids = [...new Set(notificationIds.filter(Boolean))];
+  if (!ids.length) return [];
+  const { data, error } = await db
+    .from("notifications")
+    .update({ is_read: true })
+    .in("id", ids)
+    .select("id");
+  if (error) throw error;
+  return (data ?? []) as { id: string }[];
+}
+
 /** List a user's notifications newest-first (pure read). */
 export async function listNotifications(db: DbClient, profileId: string) {
   const { data, error } = await db

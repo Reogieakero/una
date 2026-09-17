@@ -57,8 +57,8 @@ export async function fetchEmergencyBoard(): Promise<EmergencyBoardData> {
       const ids = [
         ...new Set([
           ...(((apptRows ?? []) as { student_id: string }[]).map((a) => a.student_id)),
-          ...(((refRows ?? []) as { student_id: string }[]).map((x) => x.student_id)),
-        ]),
+          ...(((refRows ?? []) as { student_id: string | null }[]).map((x) => x.student_id)),
+        ].filter((id): id is string => !!id)),
       ];
       for (let i = 0; i < ids.length; i += 200) {
         const chunk = ids.slice(i, i + 200);

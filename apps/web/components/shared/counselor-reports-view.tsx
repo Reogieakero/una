@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense } from "react";
-import Link from "next/link";
 import {
   BarChart3,
   PieChart as PieChartIcon,
@@ -29,42 +28,19 @@ import {
   type ReportRange,
   type ReportSection,
 } from "@/lib/reports-scope";
+import { timeAgoLong } from "@/lib/format";
+import { EmptyState, PanelShell, ListSkeleton } from "@/components/shared/panel-shell";
+import {
+  APPT_STATUS_META,
+  FALLBACK_SLICE,
+  MODE_COLORS,
+  PRIORITY_META,
+  REFERRAL_STATUS_META,
+  STRESS_META,
+  ratingColor,
+} from "@/lib/report-palette";
 
 const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"] as const;
-
-const APPT_META: Record<string, { label: string; color: string }> = {
-  pending: { label: "Pending", color: "#F59E0B" },
-  assigned: { label: "Assigned", color: "#6366F1" },
-  confirmed: { label: "Confirmed", color: "#3B82F6" },
-  completed: { label: "Completed", color: "#22C55E" },
-  cancelled: { label: "Cancelled", color: "#94A3B8" },
-  rejected: { label: "Rejected", color: "#EF4444" },
-  no_show: { label: "No-show", color: "#F97316" },
-};
-
-const REFERRAL_META: Record<string, { label: string; color: string }> = {
-  pending: { label: "Pending", color: "#F59E0B" },
-  assigned: { label: "Assigned", color: "#6366F1" },
-  acknowledged: { label: "Acknowledged", color: "#3B82F6" },
-  in_progress: { label: "In progress", color: "#2563EB" },
-  confirmed: { label: "Confirmed", color: "#3B82F6" },
-  resolved: { label: "Resolved", color: "#22C55E" },
-  escalated: { label: "Escalated", color: "#EF4444" },
-  rejected: { label: "Rejected", color: "#EF4444" },
-};
-
-const PRIORITY_META: Record<string, { label: string; color: string }> = {
-  low: { label: "Low", color: "#94A3B8" },
-  medium: { label: "Medium", color: "#3B82F6" },
-  high: { label: "High", color: "#F59E0B" },
-  urgent: { label: "Urgent", color: "#EF4444" },
-};
-
-const STRESS_META: Record<string, { label: string; color: string }> = {
-  low: { label: "Low", color: "#22C55E" },
-  moderate: { label: "Moderate", color: "#F59E0B" },
-  high: { label: "High", color: "#EF4444" },
-};
 
 function startOfTodayUTC(): Date {
   const n = new Date();
@@ -76,64 +52,7 @@ function pct(part: number, whole: number): string {
   return `${Math.round((part / whole) * 100)}%`;
 }
 
-function timeAgo(iso: string): string {
-  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "yesterday" : `${days} days ago`;
-}
-
-function EmptyState({
-  icon: Icon,
-  title,
-  hint,
-}: {
-  icon: typeof BarChart3;
-  title: string;
-  hint: string;
-}) {
-  return (
-    <div className="flex min-h-[200px] flex-col items-center justify-center px-6 py-8 text-center">
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-primary-600 ring-1 ring-blue-100">
-        <Icon className="h-6 w-6" aria-hidden />
-      </span>
-      <p className="mt-3 text-sm font-bold text-ink">{title}</p>
-      <p className="mt-1 max-w-[260px] text-[13px] leading-relaxed text-ink-muted">{hint}</p>
-    </div>
-  );
-}
-
-function PanelShell({
-  title,
-  hint,
-  viewAllHref,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  viewAllHref?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="font-display text-base font-bold text-ink">{title}</h2>
-          {hint && <p className="mt-0.5 text-[13px] text-ink-muted">{hint}</p>}
-        </div>
-        {viewAllHref && (
-          <Link href={viewAllHref} className="shrink-0 text-[13px] font-bold text-primary-600 hover:underline">
-            View all
-          </Link>
-        )}
-      </div>
-      {children}
-    </section>
-  );
-}
+/* ── Pure section renderers (same math as the old server components) ── */
 
 function KpiSkeleton() {
   return (
@@ -156,20 +75,6 @@ function ChartSkeleton() {
     </div>
   );
 }
-
-function ListSkeleton() {
-  return (
-    <div className="animate-pulse" aria-hidden>
-      <div className="space-y-3 pt-3">
-        <div className="h-10 rounded-xl bg-ink/10" />
-        <div className="h-10 rounded-xl bg-ink/10" />
-        <div className="h-10 rounded-xl bg-ink/10" />
-      </div>
-    </div>
-  );
-}
-
-/* ── Pure section renderers (same math as the old server components) ── */
 
 function KpiGrid({ data }: { data: CounselorReportsPayload }) {
   const total = data.appointments.length;
@@ -243,7 +148,7 @@ function AppointmentStatus({ data }: { data: CounselorReportsPayload }) {
   for (const row of data.appointments) counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
   const slices = [...counts.entries()]
     .filter(([, v]) => v > 0)
-    .map(([k, v]) => ({ name: APPT_META[k]?.label ?? k, value: v, color: APPT_META[k]?.color ?? "#94A3B8" }));
+    .map(([k, v]) => ({ name: APPT_STATUS_META[k]?.label ?? k, value: v, color: APPT_STATUS_META[k]?.color ?? FALLBACK_SLICE }));
   if (!slices.length) {
     return <EmptyState icon={PieChartIcon} title="No sessions yet" hint="Your session breakdown will appear here." />;
   }
@@ -258,7 +163,7 @@ function SessionMode({ data }: { data: CounselorReportsPayload }) {
     key: k,
     label: k === "in_person" ? "In person" : "Online",
     value: v,
-    color: k === "in_person" ? "#2563EB" : "#22C55E",
+    color: k === "in_person" ? MODE_COLORS.in_person : MODE_COLORS.online,
   }));
   if (!total) {
     return <EmptyState icon={MessagesSquare} title="No mode data yet" hint="Your in-person vs online split will show here." />;
@@ -290,7 +195,7 @@ function ReferralStatus({ data }: { data: CounselorReportsPayload }) {
   for (const row of data.referrals) counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
   const slices = [...counts.entries()]
     .filter(([, v]) => v > 0)
-    .map(([k, v]) => ({ name: REFERRAL_META[k]?.label ?? k, value: v, color: REFERRAL_META[k]?.color ?? "#94A3B8" }));
+    .map(([k, v]) => ({ name: REFERRAL_STATUS_META[k]?.label ?? k, value: v, color: REFERRAL_STATUS_META[k]?.color ?? FALLBACK_SLICE }));
   if (!slices.length) {
     return <EmptyState icon={Inbox} title="No referrals assigned" hint="Referrals assigned to you will break down here." />;
   }
@@ -326,7 +231,7 @@ function Satisfaction({ data }: { data: CounselorReportsPayload }) {
   const counts = [1, 2, 3, 4, 5].map((s) => ({
     label: `${s}★`,
     value: rows.filter((f) => f.rating === s).length,
-    color: s >= 4 ? "#22C55E" : s === 3 ? "#F59E0B" : "#EF4444",
+    color: ratingColor(s),
   }));
   const avg = (rows.reduce((a, f) => a + f.rating, 0) / rows.length).toFixed(1);
   return (
@@ -352,11 +257,11 @@ function RecentFeedback({ data }: { data: CounselorReportsPayload }) {
       {rows.map((f, i) => (
         <li key={`${f.created_at}-${i}`} className="py-2.5 first:pt-0 last:pb-0">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-bold text-amber-500" aria-label={`${f.rating} out of 5 stars`}>
+            <p className="text-sm font-bold text-accent-500" aria-label={`${f.rating} out of 5 stars`}>
               {"★".repeat(f.rating)}
               <span className="text-ink/20">{"★".repeat(Math.max(0, 5 - f.rating))}</span>
             </p>
-            <p className="text-[11px] font-medium text-ink-faint">{timeAgo(f.created_at)}</p>
+            <p className="text-[11px] font-medium text-ink-faint">{timeAgoLong(f.created_at)}</p>
           </div>
           <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-ink-soft">
             {f.comment?.trim() || "No written comment."}
@@ -427,7 +332,7 @@ function PipelineWatch({ data }: { data: CounselorReportsPayload }) {
   const rows = [
     { label: "My open referrals", value: String(open.length), tone: "bg-blue-100 text-blue-800" },
     { label: "Escalated", value: String(escalated), tone: "bg-amber-100 text-amber-800" },
-    { label: "Longest wait", value: oldest ? timeAgo(oldest) : "—", tone: "bg-red-100 text-red-800" },
+    { label: "Longest wait", value: oldest ? timeAgoLong(oldest) : "—", tone: "bg-red-100 text-red-800" },
   ];
   return (
     <ul className="mt-4 space-y-3">

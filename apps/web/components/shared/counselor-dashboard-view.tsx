@@ -24,6 +24,8 @@ import {
 import { useCounselorDashboard } from "@/lib/hooks/use-counselor-dashboard";
 import type { CounselorDashboardPayload } from "@/lib/hooks/use-counselor-dashboard";
 import { cn } from "@/lib/utils";
+import { formatWhen, timeAgoLong } from "@/lib/format";
+import { EmptyState, PanelShell, ListSkeleton } from "@/components/shared/panel-shell";
 
 const APPT_TONE: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -43,79 +45,6 @@ const COUNSELOR_QUICK_LINKS = [
   { href: "/sessions", label: "Today's sessions", hint: "Month, week, day calendar", icon: CalendarDays, chip: "bg-blue-50 text-primary-700" },
   { href: "/reports", label: "Reports", hint: "Review my work", icon: BarChart3, chip: "bg-green-50 text-green-800" },
 ] as const;
-
-function formatWhen(iso: string): string {
-  const d = new Date(iso);
-  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  return `${date}, ${time}`;
-}
-
-function timeAgo(iso: string): string {
-  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "yesterday" : `${days} days ago`;
-}
-
-function EmptyState({
-  icon: Icon,
-  title,
-  hint,
-}: {
-  icon: typeof BarChart3;
-  title: string;
-  hint: string;
-}) {
-  return (
-    <div className="flex min-h-[220px] flex-col items-center justify-center px-6 py-8 text-center">
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-primary-600 ring-1 ring-blue-100">
-        <Icon className="h-6 w-6" aria-hidden />
-      </span>
-      <p className="mt-3 text-sm font-bold text-ink">{title}</p>
-      <p className="mt-1 max-w-[260px] text-[13px] leading-relaxed text-ink-muted">{hint}</p>
-    </div>
-  );
-}
-
-function PanelShell({
-  title,
-  viewAllHref,
-  children,
-}: {
-  title: string;
-  viewAllHref?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display text-base font-bold text-ink">{title}</h2>
-        {viewAllHref && (
-          <Link href={viewAllHref} className="text-[13px] font-bold text-primary-600 hover:underline">
-            View all
-          </Link>
-        )}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function ListSkeleton() {
-  return (
-    <div className="animate-pulse" aria-hidden>
-      <div className="space-y-3 pt-3">
-        <div className="h-10 rounded-xl bg-ink/10" />
-        <div className="h-10 rounded-xl bg-ink/10" />
-        <div className="h-10 rounded-xl bg-ink/10" />
-      </div>
-    </div>
-  );
-}
 
 function SessionRows({
   items,
@@ -369,7 +298,7 @@ export function CounselorDashboardView({ name }: { name: string | null }) {
                         <div className="min-w-0">
                           <p className="truncate text-sm font-bold text-ink">
                             {r.studentAlias}
-                            <span className="ml-2 text-[11px] font-medium text-ink-faint">{timeAgo(r.createdAt)}</span>
+                            <span className="ml-2 text-[11px] font-medium text-ink-faint">{timeAgoLong(r.createdAt)}</span>
                           </p>
                           <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">{r.reason}</p>
                         </div>

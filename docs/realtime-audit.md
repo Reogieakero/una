@@ -298,6 +298,31 @@ unless noted.
 - [ ] RLS, audit trail, and business rules intact; `typecheck`, `lint`, and
       `build:web` pass.
 
+## 6. Decisions log (2026-09-17, pre-implementation)
+
+- **Announcements audience → role-filtered by audience.** Publish fan-out
+  notifies only the roles in the announcement's `audience` field (all active
+  staff when empty). Matches current code; no fan-out query change needed
+  beyond `void` + `dedupeKey`.
+- **Cancel/reschedule trigger → approved.** One new `UPDATE` trigger on
+  `appointments` (status/`scheduled_at` change → counselor + heads,
+  `dedupe_key = appt:<id>:<status>:<epoch>`). Only new DB automation in plan.
+- **Blocking awaits → bug, fix both.** `announcements/page.tsx:218` and
+  `ReferralExcelModal.tsx:273` become fire-and-forget `void notifyStaff` with
+  `dedupeKey`; success reflects the DB write.
+- **Sequencing → phased PRs.** PR1: blocking-await fixes + faculty
+  double-submit guard + single-query `markAllRead` with rollback. PR2:
+  `RealtimeProvider` consolidation (4→1 channels, count context, deep-link
+  toasts, chat multiplex). PR3: reconnect/resync + structured logging.
+- **Unfiltered chat channels → noise, not leak** (verified: `00012`
+  `messages_select_participant`, `00023` `staff_messages_select_scoped`;
+  Realtime enforces RLS per subscriber). Fixed inside PR2, no separate
+  security work.
+- **`useMutationAction` wraps busy/error handling only** — guards, transition
+  tables, and role-gates stay untouched.
+- **`/sessions` + `/availability` live-update → deferred** (provider
+  invalidation-only; no per-board patch work in this phase).
+
 ## 5. Open questions
 
 1. **Announcements audience** — all staff or role-filtered? (Determines the

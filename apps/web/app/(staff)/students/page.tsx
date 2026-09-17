@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { BarChart3, Check, ChevronDown } from "lucide-react";
+import { BarChart3, ChevronDown } from "lucide-react";
 import { useStudentsBoard } from "@/lib/hooks/use-students-board";
 import { cn } from "@/lib/utils";
-import { Badge, Card, Input } from "@/components/ui/primitives";
-import { ReportBars, ReportDonut } from "@/components/shared/reports-charts";
+import { Card } from "@/components/ui/primitives";
+import { StudentTable, type Student } from "@/components/students/StudentTable";
+import { RiskSummary } from "@/components/students/RiskSummary";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -15,16 +16,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-
-type Student = {
-  id: string;
-  student_no: string;
-  program: string | null;
-  year_level: string | null;
-  college: string | null;
-  anonymous_alias: string | null;
-  created_at: string;
-};
 
 type ApptLite = { student_id: string; scheduled_at: string; status: string };
 type RefLite = { student_id: string; status: string; priority: string };
@@ -43,127 +34,6 @@ const STRESS_META: Record<string, { label: string; color: string }> = {
   moderate: { label: "Moderate", color: "#F59E0B" },
   high: { label: "High", color: "#EF4444" },
 };
-
-function bandTone(b: string): "success" | "warning" | "danger" {
-  if (b === "high") return "danger";
-  if (b === "moderate") return "warning";
-  return "success";
-}
-
-function bandLabel(b: string): string {
-  return b.charAt(0).toUpperCase() + b.slice(1);
-}
-
-function shortDate(iso: string): string {
-  const d = new Date(iso);
-  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
-}
-
-/**
- * Hover/click floating filter menu — the same behavior as the Stats menu
- * on /appointments: opens on hover or click, closes on mouse leave (short
- * grace), outside click, Escape, or pick.
- */
-function HoverMenu({
-  buttonLabel,
-  ariaLabel,
-  options,
-  value,
-  onPick,
-  align = "left",
-}: {
-  buttonLabel: React.ReactNode;
-  ariaLabel: string;
-  options: { value: string; label: string }[];
-  value: string;
-  onPick: (v: string) => void;
-  /** Menu edge — "right" keeps right-side menus inside the page width. */
-  align?: "left" | "right";
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openMenu = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setOpen(true);
-  };
-  const scheduleClose = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(false), 150);
-  };
-  const toggle = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setOpen((v) => !v);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [open ]);
-
-  return (
-    <div ref={ref} className="relative shrink-0" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
-      <button
-        type="button"
-        onClick={toggle}
-        onFocus={openMenu}
-        onBlur={scheduleClose}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={ariaLabel}
-        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-      >
-        <span className="max-w-44 truncate">{buttonLabel}</span>
-        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <ul
-          role="listbox"
-          aria-label={ariaLabel}
-          className={cn(
-            "menu-scroll absolute top-full z-20 mt-2 max-h-60 w-56 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-card",
-            align === "right" ? "right-0" : "left-0"
-          )}
-        >
-          {options.map((o) => {
-            const active = o.value === value;
-            return (
-              <li key={o.value} role="option" aria-selected={active}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onPick(o.value);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream",
-                    active ? "font-bold text-primary-700" : "font-medium text-ink-soft hover:text-ink"
-                  )}
-                >
-                  <span className="truncate">{o.label}</span>
-                  {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 /**
  * Shared /students — one URL, role-aware UI (same pattern as /appointments).
@@ -458,215 +328,32 @@ export default function StudentsPage() {
         </div>
       )}
 
-      {/* Needs attention + program mix */}
-      <div className="grid gap-4 xl:grid-cols-2">
-        <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-          <h2 className="font-display text-base font-bold text-ink">Needs attention</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">Urgent referrals, unsupported high stress, and repeated misses.</p>
-          {loading ? (
-            <div className="animate-pulse space-y-3 pt-3" aria-hidden>
-              <div className="h-10 rounded-xl bg-ink/10" />
-              <div className="h-10 rounded-xl bg-ink/10" />
-              <div className="h-10 rounded-xl bg-ink/10" />
-            </div>
-          ) : needsAttention.length ? (
-            <ul className="mt-3 max-h-[300px] divide-y divide-ink/10 overflow-y-auto">
-              {needsAttention.map(({ student: s, reasons }) => (
-                <li key={s.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-ink">{s.anonymous_alias ?? "Student"}</p>
-                    <p className="mt-0.5 truncate text-xs font-medium text-ink-muted">{s.program ?? "Undeclared"}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                    {reasons.map((r) => (
-                      <span key={r} className="rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-bold text-red-800">
-                        {r}
-                      </span>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">
-              Nothing urgent — no unsupported high-stress screens, urgent referrals, or repeat misses.
-            </p>
-          )}
-        </section>
-        <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-          <h2 className="font-display text-base font-bold text-ink">Students per program</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">Where to focus outreach and group sessions.</p>
-          {loading ? (
-            <div className="animate-pulse pt-4" aria-hidden>
-              <div className="h-[240px] rounded-xl bg-ink/10" />
-            </div>
-          ) : programBars.length ? (
-            <ReportBars data={programBars} />
-          ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No program data yet.</p>
-          )}
-        </section>
-      </div>
-
-      {/* Screening mix + never booked */}
-      <div className="grid gap-4 xl:grid-cols-2">
-        <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-          <h2 className="font-display text-base font-bold text-ink">Latest screening mix</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">Each student counted once, by most recent PSS-10 band.</p>
-          {loading ? (
-            <div className="animate-pulse pt-4" aria-hidden>
-              <div className="h-[200px] rounded-xl bg-ink/10" />
-            </div>
-          ) : screeningDonut.length ? (
-            <ReportDonut data={screeningDonut} />
-          ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No screenings yet.</p>
-          )}
-        </section>
-        <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-          <h2 className="font-display text-base font-bold text-ink">Never booked</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">Registered but no session yet — candidates for a nudge.</p>
-          {loading ? (
-            <div className="animate-pulse space-y-3 pt-3" aria-hidden>
-              <div className="h-10 rounded-xl bg-ink/10" />
-              <div className="h-10 rounded-xl bg-ink/10" />
-              <div className="h-10 rounded-xl bg-ink/10" />
-            </div>
-          ) : neverBooked.length ? (
-            <ul className="mt-3 max-h-[300px] divide-y divide-ink/10 overflow-y-auto">
-              {neverBooked.map((s) => (
-                <li key={s.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-ink">{s.anonymous_alias ?? "Student"}</p>
-                    <p className="mt-0.5 truncate text-xs font-medium text-ink-muted">{s.program ?? "Undeclared"}</p>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800">
-                    Joined {new Date(s.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">
-              Everyone has booked at least once. Nice coverage.
-            </p>
-          )}
-        </section>
-      </div>
+      <RiskSummary
+        loading={loading}
+        needsAttention={needsAttention}
+        programBars={programBars}
+        screeningDonut={screeningDonut}
+        neverBooked={neverBooked}
+      />
 
       {/* Directory — filters live inside, above the student table */}
-      <Card className="p-0">
-        <div className="flex flex-wrap items-center gap-3 p-4 sm:px-5">
-          <Input
-            placeholder="Search alias, no., or program…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full sm:w-56"
-          />
-          <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
-            <HoverMenu
-              ariaLabel="Filter by program"
-              buttonLabel={<>Program: {programFilter === "all" ? "All" : programFilter}</>}
-              options={[{ value: "all", label: "All programs" }, ...programs.map((p) => ({ value: p, label: p }))]}
-              value={programFilter}
-              onPick={setProgramFilter}
-            />
-            <HoverMenu
-              ariaLabel="Filter by year level"
-              buttonLabel={<>Year: {yearFilter === "all" ? "All" : yearFilter}</>}
-              options={[{ value: "all", label: "All year levels" }, ...years.map((y) => ({ value: y, label: y }))]}
-              value={yearFilter}
-              onPick={setYearFilter}
-            />
-            <HoverMenu
-              ariaLabel="Filter by college"
-              align="right"
-              buttonLabel={<>College: {collegeFilter === "all" ? "All" : collegeFilter}</>}
-              options={[{ value: "all", label: "All colleges" }, ...colleges.map((c) => ({ value: c, label: c }))]}
-              value={collegeFilter}
-              onPick={setCollegeFilter}
-            />
-          </div>
-        </div>
-        <p className="px-4 text-xs font-medium text-ink-faint sm:px-5">
-          Showing {visible.length} of {rows.length} students.
-        </p>
-        <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[860px] text-left text-sm">
-          <thead>
-            <tr className="border-b border-ink/10 text-xs uppercase text-ink-muted">
-              <th className="px-4 py-3">Student</th>
-              <th className="px-4 py-3">Program</th>
-              <th className="px-4 py-3 text-center">Sessions</th>
-              <th className="px-4 py-3">Upcoming</th>
-              <th className="px-4 py-3 text-center">Open referrals</th>
-              <th className="px-4 py-3 text-center">Latest screening</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((s) => {
-              const agg = perStudent.get(s.id);
-              return (
-                <tr key={s.id} className="border-b border-ink/5 align-top last:border-0">
-                  <td className="px-4 py-3">
-                    <p className="font-bold text-ink">{s.anonymous_alias ?? "Student"}</p>
-                    <p className="text-xs font-medium text-ink-muted">{s.student_no}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-ink">{s.program ?? "—"}</p>
-                    <p className="text-xs font-medium text-ink-muted">
-                      {[s.year_level, s.college].filter(Boolean).join(" · ") || "—"}
-                    </p>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-center">
-                    {agg ? `${agg.completed}/${agg.total}` : "0/0"}
-                    <span className="block text-[11px] font-medium text-ink-faint">done/booked</span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    {agg?.nextAt ? (
-                      <span className="font-semibold text-ink">{shortDate(agg.nextAt)}</span>
-                    ) : (
-                      <span className="text-ink-faint">—</span>
-                    )}
-                    {agg && agg.upcoming > 1 && (
-                      <span className="block text-[11px] font-medium text-ink-faint">+{agg.upcoming - 1} more</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {agg && agg.openRefs > 0 ? (
-                      <span className="inline-block rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
-                        {agg.openRefs} open
-                      </span>
-                    ) : (
-                      <span className="text-ink-faint">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {agg?.band ? (
-                      <Badge tone={bandTone(agg.band)}>{bandLabel(agg.band)}</Badge>
-                    ) : (
-                      <span className="text-ink-faint">—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {!loading && !visible.length && (
-          <p className="px-4 py-8 text-center text-sm text-ink-muted">
-            No students match these filters. Try clearing the search or choosing another program.
-          </p>
-        )}
-        {loading && (
-          <div className="animate-pulse space-y-3 p-4" aria-hidden>
-            <div className="h-10 rounded-xl bg-ink/10" />
-            <div className="h-10 rounded-xl bg-ink/10" />
-            <div className="h-10 rounded-xl bg-ink/10" />
-          </div>
-        )}
-        </div>
-      </Card>
+      <StudentTable
+        visible={visible}
+        totalCount={rows.length}
+        loading={loading}
+        query={query}
+        setQuery={setQuery}
+        programFilter={programFilter}
+        setProgramFilter={setProgramFilter}
+        yearFilter={yearFilter}
+        setYearFilter={setYearFilter}
+        collegeFilter={collegeFilter}
+        setCollegeFilter={setCollegeFilter}
+        programs={programs}
+        years={years}
+        colleges={colleges}
+        perStudent={perStudent}
+      />
     </div>
   );
 }

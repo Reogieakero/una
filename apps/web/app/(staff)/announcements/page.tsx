@@ -4,15 +4,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ImagePlus, X, BarChart3, Check, ChevronDown } from "lucide-react";
+import { BarChart3, ChevronDown } from "lucide-react";
 import { announcementSchema, type AnnouncementInput } from "@dorsu/shared-schemas";
 import { createClient } from "@/lib/supabase/client";
 import { useAnnouncementsBoard } from "@/lib/hooks/use-announcements-board";
+import { useFocusRow } from "@/lib/hooks/use-focus-row";
+import { useMutationAction } from "@/lib/hooks/use-mutation-action";
 import { cn } from "@/lib/utils";
-import { Badge, Button, Card, FieldError, Input, Textarea } from "@/components/ui/primitives";
+import { HoverMenu } from "@/components/shared/hover-menu";
+import { Button, Card } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { ReportDonut, ReportLines } from "@/components/shared/reports-charts";
+import { AnnouncementCard, statusOf, type Announcement } from "@/components/announcements/AnnouncementCard";
+import { AnnouncementForm, type AudienceValue } from "@/components/announcements/AnnouncementForm";
+import { imageValidationError, uploadAnnouncementImage } from "@/components/announcements/image-upload";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -22,165 +28,8 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-type Announcement = {
-  id: string;
-  author_profile_id: string;
-  title: string;
-  body: string;
-  audience: string[] | null;
-  image_url: string | null;
-  published_at: string | null;
-  created_at: string;
-};
-
 const EMPTY_ROWS: Announcement[] = [];
 const EMPTY_AUTHORS = new Map<string, string>();
-
-const AUDIENCES = [
-  { value: "student", label: "Students" },
-  { value: "counselor", label: "Counselors" },
-  { value: "faculty", label: "Faculty" },
-] as const;
-
-const MAX_IMAGE_MB = 5;
-
-function statusOf(a: Announcement, now: number): "published" | "draft" | "scheduled" {
-  if (!a.published_at) return "draft";
-  return new Date(a.published_at).getTime() <= now ? "published" : "scheduled";
-}
-
-function statusTone(s: string): "success" | "warning" | "info" {
-  if (s === "published") return "success";
-  if (s === "scheduled") return "info";
-  return "warning";
-}
-
-function timeAgo(iso: string): string {
-  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function audienceLabel(a: string[] | null): string {
-  if (!a || !a.length) return "Everyone";
-  const names: Record<string, string> = { student: "Students", counselor: "Counselors", faculty: "Faculty", guidance_head: "Head" };
-  return a.map((r) => names[r] ?? r).join(", ");
-}
-
-function initials(name: string): string {
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("") || "?";
-}
-
-/**
- * Hover/click floating filter menu — the same behavior as the Stats menu
- * on /appointments: opens on hover or click, closes on mouse leave (short
- * grace), outside click, Escape, or pick.
- */
-function HoverMenu({
-  buttonLabel,
-  ariaLabel,
-  options,
-  value,
-  onPick,
-  align = "left",
-}: {
-  buttonLabel: React.ReactNode;
-  ariaLabel: string;
-  options: { value: string; label: string }[];
-  value: string;
-  onPick: (v: string) => void;
-  /** Menu edge — "right" keeps right-side menus inside the page width. */
-  align?: "left" | "right";
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openMenu = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setOpen(true);
-  };
-  const scheduleClose = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(false), 150);
-  };
-  const toggle = () => {
-    if (timer.current) clearTimeout(timer.current);
-    setOpen((v) => !v);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [open ]);
-
-  return (
-    <div ref={ref} className="relative shrink-0" onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
-      <button
-        type="button"
-        onClick={toggle}
-        onFocus={openMenu}
-        onBlur={scheduleClose}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={ariaLabel}
-        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-      >
-        <span className="max-w-44 truncate">{buttonLabel}</span>
-        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <ul
-          role="listbox"
-          aria-label={ariaLabel}
-          className={cn(
-            "menu-scroll absolute top-full z-20 mt-2 max-h-60 w-56 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-card",
-            align === "right" ? "right-0" : "left-0"
-          )}
-        >
-          {options.map((o) => {
-            const active = o.value === value;
-            return (
-              <li key={o.value} role="option" aria-selected={active}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onPick(o.value);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-[13px] transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream",
-                    active ? "font-bold text-primary-700" : "font-medium text-ink-soft hover:text-ink"
-                  )}
-                >
-                  <span className="truncate">{o.label}</span>
-                  {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 /** Head-only announcements — Facebook-style newsfeed plus an insights tab. */
 export default function AnnouncementsPage() {
@@ -190,11 +39,11 @@ export default function AnnouncementsPage() {
   const myName = board?.myName ?? "Guidance";
   const role = board?.role ?? null;
   const loading = isLoading && !board;
-  const [audience, setAudience] = useState<("student" | "counselor" | "faculty")[]>([]);
+  const [audience, setAudience] = useState<AudienceValue[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const { busyId, run: runMutation } = useMutationAction();
   const [confirmDelete, setConfirmDelete] = useState<Announcement | null>(null);
   const [tab, setTab] = useState("feed");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -263,6 +112,7 @@ export default function AnnouncementsPage() {
           statusOf(a, now) === "published" &&
           (!a.audience || !a.audience.length || a.audience.includes(audienceKey))
       );
+  const focusedId = useFocusRow(visibleRows);
 
   const stats = useMemo(() => {
     const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -314,17 +164,14 @@ export default function AnnouncementsPage() {
       .filter((s) => s.value > 0);
   }, [rows]);
 
-  const toggleAudience = (v: "student" | "counselor" | "faculty") =>
+  const toggleAudience = (v: AudienceValue) =>
     setAudience((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
 
   const pickImage = (f: File | undefined) => {
     if (!f) return;
-    if (!f.type.startsWith("image/")) {
-      toast.error("That file isn't an image — pick a JPG, PNG, or WEBP.");
-      return;
-    }
-    if (f.size > MAX_IMAGE_MB * 1024 * 1024) {
-      toast.error(`Images must be under ${MAX_IMAGE_MB}MB.`);
+    const err = imageValidationError(f);
+    if (err) {
+      toast.error(err);
       return;
     }
     if (imagePreview) URL.revokeObjectURL(imagePreview);
@@ -340,15 +187,7 @@ export default function AnnouncementsPage() {
   };
 
   const uploadImage = async (file: File): Promise<string> => {
-    const supabase = createClient();
-    const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-    const path = `${crypto.randomUUID()}.${ext}`;
-    const { error } = await supabase.storage.from("announcement-images").upload(path, file, {
-      contentType: file.type,
-      upsert: false,
-    });
-    if (error) throw new Error("Image upload failed — please try again.");
-    return supabase.storage.from("announcement-images").getPublicUrl(path).data.publicUrl;
+    return uploadAnnouncementImage(createClient(), file);
   };
 
   const save = (publish: boolean) =>
@@ -362,14 +201,14 @@ export default function AnnouncementsPage() {
       setSaving(true);
       try {
         const image_url = imageFile ? await uploadImage(imageFile) : null;
-        const { error } = await supabase.from("announcements").insert({
+        const { data: created, error } = await supabase.from("announcements").insert({
           author_profile_id: user.id,
           title: v.title,
           body: v.body,
           audience: audience.length ? audience : null,
           image_url,
           published_at: publish ? new Date().toISOString() : null,
-        });
+        }).select("id").single();
         if (error) throw error;
         reset();
         setAudience([]);
@@ -379,11 +218,18 @@ export default function AnnouncementsPage() {
           let q = supabase.from("profiles").select("id").eq("is_active", true);
           if (audience.length) q = q.in("role", audience);
           const { data: targets } = await q.limit(500);
-          await notifyStaff(((targets ?? []) as { id: string }[]).map((t) => t.id), {
+          // Fire-and-forget: publish success reflects the DB write, not delivery.
+          void notifyStaff(((targets ?? []) as { id: string }[]).map((t) => t.id), {
             type: "announcement",
             title: v.title,
             body: v.body.length > 180 ? `${v.body.slice(0, 180)}…` : v.body,
-            link: "/announcements",
+            link: ((created as { id?: string } | null)?.id)
+              ? `/announcements#focus-${(created as { id: string }).id}`
+              : "/announcements",
+            ...(((created as { id?: string } | null)?.id)
+              ? { dedupeKey: `announcement:${(created as { id: string }).id}:published` }
+              : {}),
+            tone: "info",
           });
           toast.success("Published to the newsfeed.");
         } else {
@@ -397,38 +243,60 @@ export default function AnnouncementsPage() {
     });
 
   const setPublished = async (a: Announcement, at: string | null, tag: string) => {
-    setBusyId(tag);
-    try {
-      const { error } = await createClient().from("announcements").update({ published_at: at }).eq("id", a.id);
-      if (error) throw error;
-      await refetch();
-      toast.success(at ? "Post published." : "Post unpublished.");
-    } catch {
-      toast.error("Couldn't update that post — please try again.");
-    } finally {
-      setBusyId(null);
+    const result = await runMutation(
+      tag,
+      async () => {
+        const { error } = await createClient().from("announcements").update({ published_at: at }).eq("id", a.id);
+        if (error) throw error;
+      },
+      { label: "update that post" }
+    );
+    if (!result.ok) return;
+    await refetch();
+    if (at) {
+      // Toggling a draft live notifies the same role-filtered audience as a
+      // fresh publish — fire-and-forget, success reflects the DB write.
+      try {
+        const supabase = createClient();
+        let q = supabase.from("profiles").select("id").eq("is_active", true);
+        if (a.audience?.length) q = q.in("role", a.audience as AudienceValue[]);
+        const { data: targets } = await q.limit(500);
+        void notifyStaff(((targets ?? []) as { id: string }[]).map((t) => t.id), {
+          type: "announcement",
+          title: a.title,
+          body: a.body.length > 180 ? `${a.body.slice(0, 180)}…` : a.body,
+          link: `/announcements#focus-${a.id}`,
+          dedupeKey: `announcement:${a.id}:published`,
+          tone: "info",
+        });
+      } catch {
+        // Audience lookup failed — the post is still published; skip the ping.
+      }
+      toast.success("Post published.");
+    } else {
+      toast.success("Post unpublished.");
     }
   };
 
   const removePost = async (a: Announcement) => {
     setConfirmDelete(null);
-    setBusyId(a.id);
-    try {
-      const { error } = await createClient().from("announcements").delete().eq("id", a.id);
-      if (error) throw error;
-      if (a.image_url?.includes("/announcement-images/")) {
-        const path = a.image_url.split("/announcement-images/")[1];
-        if (path) {
-          await createClient().storage.from("announcement-images").remove([path]).catch(() => {});
+    const result = await runMutation(
+      a.id,
+      async () => {
+        const { error } = await createClient().from("announcements").delete().eq("id", a.id);
+        if (error) throw error;
+        if (a.image_url?.includes("/announcement-images/")) {
+          const path = a.image_url.split("/announcement-images/")[1];
+          if (path) {
+            await createClient().storage.from("announcement-images").remove([path]).catch(() => {});
+          }
         }
-      }
-      await refetch();
-      toast.success("Post deleted.");
-    } catch {
-      toast.error("Couldn't delete that post — please try again.");
-    } finally {
-      setBusyId(null);
-    }
+      },
+      { label: "delete that post" }
+    );
+    if (!result.ok) return;
+    await refetch();
+    toast.success("Post deleted.");
   };
 
   const statCards = [
@@ -540,94 +408,20 @@ export default function AnnouncementsPage() {
           <div className="mx-auto max-w-2xl space-y-4">
             {/* Composer (head only — publishing is head-only per rbac + RLS) */}
             {isHead && (
-            <Card>
-              <div className="flex items-center gap-3">
-                <span
-                  aria-hidden
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-600 font-display text-sm font-bold text-white"
-                >
-                  {initials(myName)}
-                </span>
-                <p className="min-w-0 text-sm font-semibold text-ink-soft">
-                  Share an update, {myName.split(" ")[0]}…
-                </p>
-              </div>
-              <form className="mt-3 space-y-3" onSubmit={save(true)}>
-                <div>
-                  <Input placeholder="Post title — e.g. Booking opens for finals week" {...register("title")} />
-                  <FieldError message={formState.errors.title?.message} />
-                </div>
-                <div>
-                  <Textarea rows={3} placeholder="What's happening? Keep it short and warm." {...register("body")} />
-                  <FieldError message={formState.errors.body?.message} />
-                </div>
-                {imagePreview ? (
-                  <div className="relative overflow-hidden rounded-2xl border border-ink/10">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={imagePreview} alt="Attached preview" className="max-h-64 w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={clearImage}
-                      aria-label="Remove image"
-                      className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-ink/60 text-white transition hover:bg-ink/80"
-                    >
-                      <X className="h-4 w-4" aria-hidden />
-                    </button>
-                  </div>
-                ) : null}
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  aria-label="Attach a photo"
-                  onChange={(e) => pickImage(e.target.files?.[0])}
-                />
-                <div>
-                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Audience (none ticked means everyone)">
-                    {AUDIENCES.map((a) => {
-                      const on = audience.includes(a.value);
-                      return (
-                        <button
-                          key={a.value}
-                          type="button"
-                          aria-pressed={on}
-                          onClick={() => toggleAudience(a.value)}
-                          className={
-                            on
-                              ? "rounded-full bg-primary-600 px-3 py-1.5 text-xs font-bold text-white shadow-soft"
-                              : "rounded-full bg-cream px-3 py-1.5 text-xs font-bold text-ink-soft hover:bg-cream-dark"
-                          }
-                        >
-                          {a.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-1 text-[11px] font-medium text-ink-faint">None ticked = everyone sees it.</p>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fileRef.current?.click()}
-                    className="px-4"
-                  >
-                    <ImagePlus className="h-4 w-4" aria-hidden />
-                    Photo
-                  </Button>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => void save(false)()}>
-                      Save draft
-                    </Button>
-                    <Button size="sm" disabled={saving}>
-                      {saving ? "Posting…" : "Post now"}
-                    </Button>
-                  </div>
-                </div>
-              </form>
-            </Card>
+            <AnnouncementForm
+              myName={myName}
+              register={register}
+              errors={formState.errors}
+              audience={audience}
+              onToggleAudience={toggleAudience}
+              imagePreview={imagePreview}
+              fileRef={fileRef}
+              onPickFile={pickImage}
+              onClearImage={clearImage}
+              onSubmit={save(true)}
+              onSaveDraft={() => void save(false)()}
+              saving={saving}
+            />
             )}
 
             {/* Feed */}
@@ -642,57 +436,20 @@ export default function AnnouncementsPage() {
                 </div>
               ))}
             {!loading &&
-              visibleRows.map((a) => {
-                const st = statusOf(a, now);
-                const name = authors.get(a.author_profile_id) ?? "Staff";
-                return (
-                  <article key={a.id} className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-                    <div className="flex items-center gap-3">
-                      <span
-                        aria-hidden
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-600 font-display text-sm font-bold text-white"
-                      >
-                        {initials(name)}
-                      </span>
-                      <div className="min-w-0 flex-1 leading-tight">
-                        <p className="truncate text-sm font-bold text-ink">{name}</p>
-                        <p className="truncate text-xs font-medium text-ink-muted">
-                          {timeAgo(a.published_at ?? a.created_at)} · {audienceLabel(a.audience)}
-                        </p>
-                      </div>
-                      {st !== "published" && <Badge tone={statusTone(st)}>{st === "draft" ? "Draft" : "Scheduled"}</Badge>}
-                    </div>
-                    <h2 className="mt-3 font-display text-base font-bold text-ink">{a.title}</h2>
-                    <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-ink-soft">{a.body}</p>
-                    {a.image_url && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={a.image_url}
-                        alt=""
-                        loading="lazy"
-                        className="mt-3 max-h-96 w-full rounded-2xl border border-ink/10 object-cover"
-                      />
-                    )}
-                    {isHead && (
-                    <div className="mt-3 flex flex-wrap gap-1.5 border-t border-ink/10 pt-3">
-                      {st !== "published" && (
-                        <Button size="sm" variant="accent" disabled={busyId === `pub-${a.id}`} onClick={() => void setPublished(a, new Date().toISOString(), `pub-${a.id}`)}>
-                          Publish
-                        </Button>
-                      )}
-                      {st === "published" && (
-                        <Button size="sm" variant="outline" disabled={busyId === `unpub-${a.id}`} onClick={() => void setPublished(a, null, `unpub-${a.id}`)}>
-                          Unpublish
-                        </Button>
-                      )}
-                      <Button size="sm" variant="outline" disabled={busyId === a.id} onClick={() => setConfirmDelete(a)}>
-                        Delete
-                      </Button>
-                    </div>
-                    )}
-                  </article>
-                );
-              })}
+              visibleRows.map((a) => (
+                <AnnouncementCard
+                  key={a.id}
+                  a={a}
+                  now={now}
+                  authorName={authors.get(a.author_profile_id) ?? "Staff"}
+                  isHead={isHead}
+                  busyId={busyId}
+                  focused={focusedId === a.id}
+                  onPublish={(x) => void setPublished(x, new Date().toISOString(), `pub-${x.id}`)}
+                  onUnpublish={(x) => void setPublished(x, null, `unpub-${x.id}`)}
+                  onDelete={(x) => setConfirmDelete(x)}
+                />
+              ))}
             {!loading && !visibleRows.length && (
               <Card><p className="text-center text-sm text-ink-muted">{isHead ? "Nothing posted yet — write the first update above." : "No announcements for you yet."}</p></Card>
             )}

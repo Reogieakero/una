@@ -14,6 +14,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { CHART_PRIMARY } from "@/lib/report-palette";
 
 export type TrendPoint = { day: string; sessions: number };
 export type DonutSlice = { name: string; value: number; color: string };
@@ -35,7 +36,7 @@ export function ReportTrendChart({ data }: { data: TrendPoint[] }) {
           <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
           <YAxis allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
           <Tooltip cursor={{ fill: "rgba(37,99,235,0.08)" }} contentStyle={{ ...TOOLTIP_STYLE }} />
-          <Bar dataKey="sessions" name="Sessions" fill="#2563EB" radius={[8, 8, 0, 0]} maxBarSize={28} />
+          <Bar dataKey="sessions" name="Sessions" fill={CHART_PRIMARY} radius={[8, 8, 0, 0]} maxBarSize={28} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -79,7 +80,7 @@ export function ReportDonut({ data }: { data: DonutSlice[] }) {
 }
 
 /** Generic vertical bars (rating distribution, referrals by priority…). */
-export function ReportBars({ data, barColor = "#2563EB" }: { data: BarPoint[]; barColor?: string }) {
+export function ReportBars({ data, barColor = CHART_PRIMARY }: { data: BarPoint[]; barColor?: string }) {
   return (
     <div className="mt-4 h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -100,7 +101,7 @@ export function ReportBars({ data, barColor = "#2563EB" }: { data: BarPoint[]; b
 }
 
 /** Generic line trend (posts over time, sessions over time…). */
-export function ReportLines({ data, stroke = "#2563EB" }: { data: BarPoint[]; stroke?: string }) {
+export function ReportLines({ data, stroke = CHART_PRIMARY }: { data: BarPoint[]; stroke?: string }) {
   return (
     <div className="mt-4 h-[240px]">
       <ResponsiveContainer width="100%" height="100%">

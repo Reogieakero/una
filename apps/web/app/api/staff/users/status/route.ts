@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { logEvent } from "@/lib/log-event";
 
 /**
  * POST /api/staff/users/status — head/admin activates or deactivates an
@@ -40,11 +41,62 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
+  const { data: before } = await admin
+    .from("profiles")
+    .select("is_active")
+    .eq("id", parsed.data.userId)
+    .single();
+  const wasActive = (before as { is_active: boolean } | null)?.is_active ?? null;
   const { error } = await admin
     .from("profiles")
     .update({ is_active: parsed.data.isActive })
     .eq("id", parsed.data.userId);
-  if (error) return NextResponse.json({ error: "Couldn't update that account." }, { status: 500 });
+  if (error) {
+    logEvent("MUTATION_FAILED", {
+      label: "users.status",
+      rowId: parsed.data.userId,
+      code: (error as { code?: string }).code ?? null,
+    });
+    return NextResponse.json({ error: "Couldn't update that account." }, { status: 500 });
+  }
+
+  // Service-role writes carry no auth.uid(), so the audit trigger would log
+  // 'system' — this route knows the real caller, so it writes its own row
+  // with actor + IP. Best-effort: the account change itself already committed.
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    request.headers.get("x-real-ip");
+  try {
+    const { error: auditError } = await admin.from("audit_events").insert({
+      actor_profile_id: caller.id,
+      actor_role: "guidance_head",
+      action: parsed.data.isActive ? "users.activate" : "users.deactivate",
+      entity: "profiles",
+      entity_id: parsed.data.userId,
+      status_before: wasActive === null ? null : wasActive ? "active" : "inactive",
+      status_after: parsed.data.isActive ? "active" : "inactive",
+      diff: { is_active: { from: wasActive, to: parsed.data.isActive } },
+      source: "web",
+      result: "success",
+      ip: ip && /^[0-9a-fA-F.:]+$/.test(ip) ? ip : null,
+    });
+    if (auditError) {
+      // Committed fact, missing audit row — the §4 nightmare case. Loud log;
+      // the change stands, investigation follows.
+      logEvent("AUDIT_FAILED", {
+        action: "users.status",
+        entityId: parsed.data.userId,
+        actorId: caller.id,
+        code: (auditError as { code?: string }).code ?? null,
+      });
+    }
+  } catch {
+    logEvent("AUDIT_FAILED", {
+      action: "users.status",
+      entityId: parsed.data.userId,
+      actorId: caller.id,
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

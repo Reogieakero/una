@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Bell, ChevronDown, Menu } from "lucide-react";
 import { ChekieMark } from "@/components/Logo";
-import { createClient } from "@/lib/supabase/client";
+import { useRealtime } from "./realtime-provider";
 import { useRoutePending } from "./route-pending";
 import { SignOutButton } from "./sign-out-button";
 import { cn } from "@/lib/utils";
@@ -42,9 +42,9 @@ export const STAFF_NAV_GROUPS: StaffNavGroup[] = [
   {
     label: "Overview",
     links: [
-      { href: "/dashboard", label: "Dashboard", desc: "Office overview", roles: ["counselor", "guidance_head"] },
-      { href: "/reports", label: "Reports", desc: "Session and referral reports", roles: ["counselor", "guidance_head"] },
-      { href: "/about", label: "About", desc: "How each page works", roles: ["counselor", "guidance_head"] },
+      { href: "/dashboard", label: "Dashboard", desc: "Office overview", roles: ["counselor", "guidance_head", "faculty"] },
+      { href: "/reports", label: "Reports", desc: "Session and referral reports", roles: ["counselor", "guidance_head", "faculty"] },
+      { href: "/about", label: "About", desc: "How each page works", roles: ["counselor", "guidance_head", "faculty"] },
     ],
   },
   {
@@ -53,26 +53,27 @@ export const STAFF_NAV_GROUPS: StaffNavGroup[] = [
       { href: "/sessions", label: "Session calendar", desc: "Month, week, day schedule", roles: ["counselor", "guidance_head"] },
       { href: "/appointments", label: "Appointments", desc: "Upcoming sessions", roles: ["counselor", "guidance_head"] },
       { href: "/availability", label: "Availability", desc: "Counselor open slots", roles: ["counselor", "guidance_head"] },
-      { href: "/chat", label: "Chat", desc: "Message students", roles: ["counselor", "guidance_head", "faculty"] },
+      { href: "/chat", label: "Chat", desc: "Direct messages", roles: ["counselor", "guidance_head", "faculty"] },
     ],
   },
   {
     label: "People",
     links: [
       { href: "/users", label: "Users", desc: "Manage accounts", roles: ["guidance_head"] },
-      { href: "/students", label: "Students", desc: "Student directory", roles: ["counselor", "guidance_head", "faculty"] },
-      { href: "/referrals", label: "Referrals", desc: "Student referrals inbox", roles: ["counselor", "guidance_head", "faculty"] },
+      { href: "/students", label: "Students", desc: "Student directory", roles: ["counselor", "guidance_head"] },
+      { href: "/referrals", label: "Referrals", desc: "Student referrals inbox", roles: ["counselor", "guidance_head"] },
     ],
   },
   {
     label: "Manage",
     links: [
-      { href: "/emergency", label: "Emergency access", desc: "Reveal identity in a crisis", roles: ["counselor", "guidance_head", "faculty"] },
+      { href: "/refer-student", label: "Refer Student", desc: "Flag a student for counseling", roles: ["faculty"] },
+      { href: "/emergency", label: "Emergency access", desc: "Reveal identity in a crisis", roles: ["counselor", "guidance_head"] },
       { href: "/users/new", label: "Add staff", desc: "Create counselor or faculty accounts", roles: ["guidance_head"] },
       { href: "/announcements", label: "Announcements", desc: "News and updates", roles: ["counselor", "guidance_head", "faculty"] },
       { href: "/feedback", label: "Feedback", desc: "Student feedback", roles: ["counselor", "guidance_head"] },
       { href: "/security", label: "Security", desc: "Access and safety logs", roles: ["guidance_head"] },
-      { href: "/settings", label: "Settings", desc: "Profile and preferences", roles: ["counselor", "guidance_head", "admin"] },
+      { href: "/settings", label: "Settings", desc: "Profile and preferences", roles: ["counselor", "guidance_head", "faculty", "admin"] },
     ],
   },
 ];
@@ -99,60 +100,13 @@ export function filterNavGroups(groups: StaffNavGroup[], role?: string | null): 
 }
 
 /**
- * Per-link unread counts from the notifications inbox, grouped by the
- * notification `link` (every transaction fan-out already carries one:
- * /appointments, /referrals, /chat, /announcements, /security, /feedback).
- * Same realtime pipe as the bell and chat messages — inserts AND read
- * receipts stream in, so badges rise and clear live.
+ * Per-link unread counts from the shared realtime provider — one channel per
+ * session, no per-component subscription, no resubscribe on navigation.
+ * (Every transaction fan-out already carries a link: /appointments,
+ * /referrals, /chat, /announcements, /security, /feedback.)
  */
 export function useNavCounts() {
-  const [counts, setCounts] = useState<Map<string, number>>(new Map());
-  const pathname = usePathname();
-
-  useEffect(() => {
-    let alive = true;
-    const supabase = createClient();
-    let ch: ReturnType<typeof supabase.channel> | null = null;
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !alive) return;
-      const refresh = async () => {
-        const { data } = await supabase
-          .from("notifications")
-          .select("link")
-          .eq("profile_id", user.id)
-          .eq("is_read", false)
-          .limit(200);
-        if (!alive) return;
-        const m = new Map<string, number>();
-        for (const n of ((data ?? []) as { link: string | null }[])) {
-          if (!n.link) continue;
-          const key = n.link.split("?")[0];
-          m.set(key, (m.get(key) ?? 0) + 1);
-        }
-        setCounts(m);
-      };
-      await refresh();
-      ch = supabase
-        .channel(`nav-counts-${user.id}`)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "notifications", filter: `profile_id=eq.${user.id}` },
-          () => {
-            refresh().catch(() => {});
-          }
-        )
-        .subscribe();
-    })().catch(() => {});
-    return () => {
-      alive = false;
-      if (ch) supabase.removeChannel(ch);
-    };
-    // Re-runs on navigation too — same staleness guard as the bell.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
-
-  return counts;
+  return useRealtime().linkCounts;
 }
 
 /**
@@ -281,8 +235,6 @@ function ProfileMenu({ profile }: { profile: NavProfile }) {
   );
 }
 
-type BellItem = { id: string; title: string; created_at: string };
-
 function timeShort(iso: string): string {
   const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
   if (mins < 1) return "now";
@@ -294,57 +246,26 @@ function timeShort(iso: string): string {
 
 /**
  * Notifications bell — right side of the bar. Live unread badge plus a
- * hover/focus dropdown with the latest unread items. Clicking through lands
+ * hover/focus dropdown with the latest unread items, all from the shared
+ * realtime provider (no own subscription). Clicking through lands
  * on the full /notifications inbox.
  */
 function NotifBell() {
-  const [count, setCount] = useState(0);
-  const [items, setItems] = useState<BellItem[]>([]);
+  const { unreadCount: count, latestUnread: items } = useRealtime();
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { startNavigation } = useRoutePending();
-  const start = () => startNavigation("/notifications");
+  // Hash deep-links (#focus-id) don't change the pathname — strip the hash
+  // for pending-state so the overlay never sticks on same-page jumps.
+  const start = (href = "/notifications") => startNavigation(href.split("#")[0]);
   const pathname = usePathname();
 
+  // Close the dropdown on navigation so it never lingers over the next page.
   useEffect(() => {
-    let alive = true;
-    const supabase = createClient();
-    let ch: ReturnType<typeof supabase.channel> | null = null;
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !alive) return;
-      const refresh = async () => {
-        const { data, count: c } = await supabase
-          .from("notifications")
-          .select("id, title, created_at", { count: "exact" })
-          .eq("profile_id", user.id)
-          .eq("is_read", false)
-          .order("created_at", { ascending: false })
-          .limit(5);
-        if (!alive) return;
-        setCount(c ?? 0);
-        setItems(((data ?? []) as BellItem[]));
-      };
-      await refresh();
-      ch = supabase
-        .channel(`nav-notif-${user.id}`)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "notifications", filter: `profile_id=eq.${user.id}` },
-          () => {
-            refresh().catch(() => {});
-          }
-        )
-        .subscribe();
-    })().catch(() => {});
+    setOpen(false);
     return () => {
-      alive = false;
-      if (ch) supabase.removeChannel(ch);
       if (closeTimer.current) clearTimeout(closeTimer.current);
     };
-    // Re-runs on navigation too — the shell outlives page changes, so this
-    // keeps a stale badge from surviving when realtime misses a beat.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
   const peek = () => {
@@ -360,7 +281,7 @@ function NotifBell() {
     <div className="relative" onMouseEnter={peek} onMouseLeave={hide}>
       <Link
         href="/notifications"
-        onClick={start}
+        onClick={() => start()}
         onFocus={peek}
         onBlur={hide}
         aria-label={count ? `Notifications, ${count} unread` : "Notifications"}
@@ -386,10 +307,10 @@ function NotifBell() {
               {items.map((n) => (
                 <li key={n.id}>
                   <Link
-                    href="/notifications"
+                    href={n.link ?? "/notifications"}
                     onClick={() => {
                       setOpen(false);
-                      start();
+                      start(n.link ?? "/notifications");
                     }}
                     className="flex items-center gap-2.5 px-4 py-2.5 transition-colors hover:bg-cream"
                   >

@@ -1,6 +1,6 @@
 import type { DbClient } from "../platform";
 import { createReferralSchema, updateReferralSchema } from "@dorsu/shared-schemas";
-import { isMeetUrl } from "../appointments/mutations";
+import { isMeetUrl, isMissingEndsAtColumn, validateCounselorSchedule } from "../appointments/mutations";
 
 /**
  * Referral lifecycle (role-separated, mirrors appointments in
@@ -66,13 +66,21 @@ const REFERRAL_TRANSITIONS: Record<string, string[]> = {
   rejected: [],
 };
 
-/** Faculty/personnel flags a student; at least one referrer side required. */
+/** Faculty/personnel flags a student; at least one referrer side required.
+ * Walk-ins (no account yet) file with typed name/number instead of studentId. */
 export async function createReferral(
   db: DbClient,
   input: {
-    studentId: string;
+    studentId?: string;
+    studentNameText?: string;
+    studentNoText?: string;
     reason: string;
     priority?: "low" | "medium" | "high" | "urgent";
+    studentGender?: string;
+    studentAge?: string;
+    relationToClient?: string;
+    caseClassification: string[];
+    classificationOther?: string;
     referringFacultyId?: string;
     referringPersonnelId?: string;
     assignedCounselorId?: string;
@@ -83,8 +91,15 @@ export async function createReferral(
   }
   const parsed = createReferralSchema.parse({
     studentId: input.studentId,
+    studentNameText: input.studentNameText || undefined,
+    studentNoText: input.studentNoText || undefined,
     reason: input.reason,
     priority: input.priority ?? "medium",
+    studentGender: input.studentGender || undefined,
+    studentAge: input.studentAge || undefined,
+    relationToClient: input.relationToClient || undefined,
+    caseClassification: input.caseClassification,
+    classificationOther: input.classificationOther || undefined,
     assignedCounselorId: input.assignedCounselorId,
   });
   const { data, error } = await db
@@ -92,9 +107,16 @@ export async function createReferral(
     .insert({
       referring_faculty_id: input.referringFacultyId ?? null,
       referring_personnel_id: input.referringPersonnelId ?? null,
-      student_id: parsed.studentId,
+      student_id: parsed.studentId ?? null,
+      student_name_text: parsed.studentNameText || null,
+      student_no_text: parsed.studentNoText || null,
       reason: parsed.reason,
       priority: parsed.priority,
+      student_gender: parsed.studentGender || null,
+      student_age: parsed.studentAge || null,
+      relation_to_client: parsed.relationToClient || null,
+      case_classification: parsed.caseClassification,
+      classification_other: parsed.classificationOther || null,
       assigned_counselor_id: parsed.assignedCounselorId ?? null,
       status: "pending",
     })
@@ -131,22 +153,23 @@ export async function triageReferral(
     assignedCounselorId: input.assignedCounselorId ?? undefined,
     actionNote: input.actionNote,
   });
-  const { data: current, error: curErr } = await db
-    .from("referrals")
-    .select("status, student_id, assigned_counselor_id")
-    .eq("id", parsed.referralId)
-    .single();
+  const [curR, actorR] = await Promise.allSettled([
+    db.from("referrals").select("status, student_id, assigned_counselor_id").eq("id", parsed.referralId).single(),
+    // Own profile row is always readable — full_name rides along free so the
+    // trail row can stamp the actor's display name (faculty cannot resolve
+    // names via profiles RLS, so the stamp is their only channel).
+    db.from("profiles").select("role, full_name").eq("id", input.actorProfileId).single(),
+  ]);
+  if (curR.status === "rejected") throw curR.reason ?? new Error("Referral not found.");
+  const { data: current, error: curErr } = curR.value;
   if (curErr || !current) throw curErr ?? new Error("Referral not found.");
-  const cur = current as { status: string; student_id: string; assigned_counselor_id: string | null };
+  const cur = current as { status: string; student_id: string | null; assigned_counselor_id: string | null };
   // Role gate — who may move a referral TO the target status. Checked
   // before the transition gate so a head can never resolve (or confirm /
   // escalate) and a counselor can never assign / reject, UI or not.
-  const { data: actor } = await db
-    .from("profiles")
-    .select("role")
-    .eq("id", input.actorProfileId)
-    .single();
+  const actor = actorR.status === "fulfilled" ? actorR.value.data : null;
   const actorRole = (actor as { role: string } | null)?.role ?? null;
+  const actorName = (actor as { full_name: string | null } | null)?.full_name ?? null;
   if (!(REFERRAL_MOVE_ROLES[parsed.status] ?? []).includes(actorRole ?? "")) {
     throw new Error(REFERRAL_MOVE_ROLE_ERRORS[parsed.status] ?? `Can't move a referral to ${parsed.status}.`);
   }
@@ -169,14 +192,32 @@ export async function triageReferral(
     throw new Error(`Can't move a referral from ${cur.status} to ${parsed.status}.`);
   }
   if (parsed.status === "resolved") {
-    const { data: session } = await db
-      .from("appointments")
-      .select("id")
-      .eq("student_id", cur.student_id)
-      .in("status", ["confirmed", "completed"])
-      .not("scheduled_at", "is", null)
-      .limit(1)
-      .maybeSingle();
+    // A confirmed session with a schedule unlocks resolve. Linked students
+    // match any of their sessions; walk-ins (NULL student) match the session
+    // minted from this referral.
+    let session: { id: string } | null = null;
+    if (cur.student_id) {
+      const { data } = await db
+        .from("appointments")
+        .select("id")
+        .eq("student_id", cur.student_id)
+        .in("status", ["confirmed", "completed"])
+        .not("scheduled_at", "is", null)
+        .limit(1)
+        .maybeSingle();
+      session = (data as { id: string } | null) ?? null;
+    }
+    if (!session) {
+      const { data } = await db
+        .from("appointments")
+        .select("id")
+        .eq("source_referral_id", parsed.referralId)
+        .in("status", ["confirmed", "completed"])
+        .not("scheduled_at", "is", null)
+        .limit(1)
+        .maybeSingle();
+      session = (data as { id: string } | null) ?? null;
+    }
     if (!session) {
       throw new Error(
         "Resolve needs a confirmed session first — confirm the student's appointment with its schedule before closing this referral."
@@ -198,6 +239,8 @@ export async function triageReferral(
   const { error: actErr } = await db.from("referral_actions").insert({
     referral_id: parsed.referralId,
     actor_profile_id: input.actorProfileId,
+    actor_name: actorName,
+    actor_role: actorRole,
     action: parsed.status,
     note: parsed.actionNote ?? null,
   });
@@ -262,10 +305,11 @@ export async function confirmReferral(db: DbClient, referralId: string, actorPro
 }
 
 /**
- * Structured trail note carrying the counselor-set session time. Referrals
- * has no scheduled_at column, so the confirm action stores
- * "Session scheduled for <ISO>" — boards parse it back (same schedule
- * discipline as appointment confirm, different storage).
+ * Structured trail note carrying the counselor-set session time AND mode.
+ * Referrals has no scheduled_at column, so the confirm action stores
+ * "Session scheduled for <ISO> (<mode>)" — boards parse it back (same
+ * schedule discipline as appointment confirm, different storage). Older
+ * notes without the mode suffix still parse (mode reads as unknown).
  */
 export const REFERRAL_SCHEDULE_NOTE_PREFIX = "Session scheduled for ";
 
@@ -292,6 +336,7 @@ export async function confirmReferralWithSession(
     scheduledAt: Date;
     mode: "in_person" | "online";
     meetingUrl?: string | null;
+    endsAt?: Date | null;
   },
 ) {
   if (input.mode !== "in_person" && input.mode !== "online") {
@@ -315,26 +360,39 @@ export async function confirmReferralWithSession(
     throw new Error("Meeting links must start with https://");
   }
 
-  const { data: mine } = await db
-    .from("counselors")
-    .select("id")
-    .eq("profile_id", input.actorProfileId)
-    .maybeSingle();
-  const myCounselorId = (mine as { id: string } | null)?.id ?? null;
-
-  const { data: ref, error: refErr } = await db
-    .from("referrals")
-    .select("id, status, student_id, reason, assigned_counselor_id")
-    .eq("id", input.referralId)
-    .single();
+  // Independent reads — one round-trip batch instead of three sequential hops.
+  // allSettled preserves the old precedence: a missing referral reports
+  // "Referral not found." even if a companion read also fails.
+  const [mineR, refR, existingR] = await Promise.allSettled([
+    db.from("counselors").select("id").eq("profile_id", input.actorProfileId).maybeSingle(),
+    db
+      .from("referrals")
+      .select("id, status, student_id, reason, assigned_counselor_id")
+      .eq("id", input.referralId)
+      .single(),
+    db
+      .from("appointments")
+      .select("id, status")
+      .eq("source_referral_id", input.referralId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (refR.status === "rejected") throw refR.reason ?? new Error("Referral not found.");
+  const myCounselorId =
+    ((mineR.status === "fulfilled" ? mineR.value.data : null) as { id: string } | null)?.id ?? null;
+  const { data: ref, error: refErr } = refR.value;
+  const existing = existingR.status === "fulfilled" ? existingR.value.data : null;
   if (refErr || !ref) throw refErr ?? new Error("Referral not found.");
   const referral = ref as {
     id: string;
     status: string;
-    student_id: string;
+    student_id: string | null;
     reason: string;
     assigned_counselor_id: string | null;
   };
+  // Walk-ins (no account yet) confirm with a scheduled session exactly like
+  // linked students — the minted appointment simply carries a NULL student.
   if (referral.status !== "assigned" && referral.status !== "escalated") {
     throw new Error(`Can't confirm a referral from ${referral.status} — only assigned referrals can be confirmed.`);
   }
@@ -342,7 +400,21 @@ export async function confirmReferralWithSession(
     throw new Error("Can't confirm a referral — only the assigned counselor can confirm it.");
   }
 
-  const iso = input.scheduledAt.toISOString();
+  const active = (existing as { id: string; status: string } | null)?.status ?? null;
+  const refreshingId =
+    existing && ["pending", "assigned", "confirmed"].includes(active ?? "")
+      ? (existing as { id: string }).id
+      : null;
+  // Same availability scope + overlap gate as appointment confirm — the
+  // minted session must sit inside the counselor's slots.
+  const { startMs, endMs } = await validateCounselorSchedule(
+    db,
+    myCounselorId,
+    input.scheduledAt,
+    input.endsAt ?? null,
+    refreshingId,
+  );
+  const iso = new Date(startMs).toISOString();
   const nowIso = new Date().toISOString();
   const sessionPatch = {
     counselor_id: myCounselorId,
@@ -352,35 +424,36 @@ export async function confirmReferralWithSession(
     status: "confirmed",
     confirmed_datetime: nowIso,
     meeting_url: input.mode === "online" ? link : link || null,
+    ...(input.endsAt !== undefined && input.endsAt !== null ? { ends_at: new Date(endMs).toISOString() } : {}),
   };
-  const { data: existing } = await db
-    .from("appointments")
-    .select("id, status")
-    .eq("source_referral_id", input.referralId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const active = (existing as { id: string; status: string } | null)?.status ?? null;
-  if (existing && ["pending", "assigned", "confirmed"].includes(active ?? "")) {
-    const { error: upErr } = await db
-      .from("appointments")
-      .update(sessionPatch)
-      .eq("id", (existing as { id: string }).id);
-    if (upErr) throw upErr;
+  if (refreshingId) {
+    const runUpdate = () => db.from("appointments").update(sessionPatch).eq("id", refreshingId);
+    let upRes = await runUpdate();
+    if (upRes.error && "ends_at" in sessionPatch && isMissingEndsAtColumn(upRes.error)) {
+      delete (sessionPatch as Record<string, unknown>).ends_at;
+      upRes = await runUpdate();
+    }
+    if (upRes.error) throw upRes.error;
   } else {
-    const { error: insErr } = await db.from("appointments").insert({
-      student_id: referral.student_id,
-      concern: referral.reason,
-      source_referral_id: input.referralId,
-      ...sessionPatch,
-    });
-    if (insErr) throw insErr;
+    const runInsert = () =>
+      db.from("appointments").insert({
+        student_id: referral.student_id,
+        concern: referral.reason,
+        source_referral_id: input.referralId,
+        ...sessionPatch,
+      });
+    let insRes = await runInsert();
+    if (insRes.error && "ends_at" in sessionPatch && isMissingEndsAtColumn(insRes.error)) {
+      delete (sessionPatch as Record<string, unknown>).ends_at;
+      insRes = await runInsert();
+    }
+    if (insRes.error) throw insRes.error;
   }
 
   return triageReferral(db, {
     referralId: input.referralId,
     actorProfileId: input.actorProfileId,
     status: "confirmed",
-    actionNote: `${REFERRAL_SCHEDULE_NOTE_PREFIX}${iso}`,
+    actionNote: `${REFERRAL_SCHEDULE_NOTE_PREFIX}${iso} (${input.mode})`,
   });
 }

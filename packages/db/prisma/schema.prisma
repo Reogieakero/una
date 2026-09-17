@@ -331,8 +331,9 @@ model CounselorAvailability {
 /// dictionary's identity guarantee.
 model Appointment {
   id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  studentId         String            @map("student_id") @db.Uuid
-  student           Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  // Nullable for walk-in sessions confirmed from typed-identity referrals.
+  studentId         String?           @map("student_id") @db.Uuid
+  student           Student?          @relation(fields: [studentId], references: [id], onDelete: Cascade)
   counselorId       String?           @map("counselor_id") @db.Uuid
   counselor         Counselor?        @relation(fields: [counselorId], references: [id], onDelete: SetNull)
   // Dictionary: selected by student at booking. Legacy stored free-text
@@ -347,6 +348,8 @@ model Appointment {
   requestedDatetime DateTime?         @map("requested_datetime") @db.Timestamptz(6)
   confirmedDatetime DateTime?         @map("confirmed_datetime") @db.Timestamptz(6)
   scheduledAt       DateTime?         @map("scheduled_at") @db.Timestamptz(6)
+  // Counselor-picked session end inside an availability slot (00051, nullable for older rows).
+  endsAt            DateTime?         @map("ends_at") @db.Timestamptz(6)
   // Google Meet link for online sessions — set by the counselor on confirm.
   meetingUrl        String?           @map("meeting_url") @db.Text
   isAnonymous       Boolean           @default(false) @map("is_anonymous")
@@ -601,8 +604,12 @@ model Announcement {
 /// Faculty has no other FK to the student — this row is the entry point.
 model Referral {
   id                   String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  studentId            String                  @map("student_id") @db.Uuid
-  student              Student                 @relation("ReferralStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  // Nullable for walk-ins: referred student has no account yet — typed
+  // paper identity (studentNameText/studentNoText) is used instead.
+  studentId            String?                 @map("student_id") @db.Uuid
+  student              Student?                @relation("ReferralStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  studentNameText      String?                 @map("student_name_text")
+  studentNoText        String?                 @map("student_no_text")
   // Dictionary `faculty_id` → faculty_members maps to the legacy
   // `referring_faculty_id` column (same person; `.id` is the FK everywhere —
   // dictionary text says `profile_id` but `profile_id` is UNIQUE on the same

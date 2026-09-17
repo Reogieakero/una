@@ -14,6 +14,7 @@ import {
   Megaphone,
   Settings,
   ShieldCheck,
+  Send,
   Siren,
   Star,
   UserPlus,
@@ -76,6 +77,7 @@ const LINK_ICONS: Record<string, LucideIcon> = {
   "/users": Users,
   "/users/new": UserPlus,
   "/students": GraduationCap,
+  "/refer-student": Send,
   "/referrals": Inbox,
   "/emergency": Siren,
   "/announcements": Megaphone,
@@ -228,7 +230,7 @@ export function SidebarNavGroups({
 
   // Warm the cached settings board so opening /settings feels instant.
   const prefetchSettings = () => {
-    if (role !== "guidance_head" && role !== "counselor" && role !== "admin") return;
+    if (role !== "guidance_head" && role !== "counselor" && role !== "faculty" && role !== "admin") return;
     qc.prefetchQuery({
       queryKey: [...SETTINGS_BOARD_KEY],
       queryFn: fetchSettingsBoard,

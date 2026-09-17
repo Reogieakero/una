@@ -49,6 +49,8 @@ export function StaffShell({
   // and kill pending state mid-transition.
   return (
     <div className="min-h-screen">
+      {/* Global toasts + bell counts live in RealtimeProvider (root layout) —
+          no per-shell subscription here. */}
       <div className="flex min-h-screen items-stretch">
         <Suspense fallback={<StaffSidebarSkeleton />}>
           <StaffSidebar groups={resolved} role={role} />

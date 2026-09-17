@@ -3,16 +3,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { BarChart3, ChevronDown } from "lucide-react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { type AvailabilityInput } from "@dorsu/shared-schemas";
+import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import { useAvailabilityBoard } from "@/lib/hooks/use-availability-board";
+import {
+  AVAILABILITY_BOARD_KEY,
+  useAvailabilityBoard,
+  type AvailabilityAppt,
+  type AvailabilityBoardData,
+  type AvailabilityCounselor,
+  type AvailabilitySlot,
+} from "@/lib/hooks/use-availability-board";
+import { useMutationAction } from "@/lib/hooks/use-mutation-action";
+import { patchBoard } from "@/lib/patch-board";
+import { useManagedCounselor } from "@/lib/hooks/use-managed-counselor";
+import { fmtHours, slotMinutes } from "@/lib/availability";
 import { cn } from "@/lib/utils";
-import { Badge, Button, Card, FieldError, Input } from "@/components/ui/primitives";
-import { Dropdown } from "@/components/shared/dropdown";
-import { TimePicker } from "@/components/shared/time-picker";
+import { Badge, Card, Input } from "@/components/ui/primitives";
+import { CoverageGrid } from "@/components/availability/coverage-grid";
+import { SLOT_ADD_BUSY_ID, SlotForm, type PendingSlots } from "@/components/availability/slot-form";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -22,96 +30,37 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-type Counselor = { id: string; name: string; spec: string | null; available: boolean };
-type Slot = {
-  id: string;
-  counselor_id: string;
-  weekday: number;
-  start_time: string;
-  end_time: string;
-  is_recurring: boolean;
-};
-type ApptLite = { counselor_id: string | null; scheduled_at: string; status: string };
-
-const EMPTY_COUNSELORS: Counselor[] = [];
-const EMPTY_SLOTS: Slot[] = [];
-const EMPTY_APPTS: ApptLite[] = [];
-
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MON_FIRST = [1, 2, 3, 4, 5, 6, 0];
-
-function hhmm(t: string): string {
-  return t.slice(0, 5);
-}
-
-function slotMinutes(s: Slot): number {
-  const toMin = (t: string) => {
-    const [h, m] = t.split(":").map(Number);
-    return h * 60 + (m || 0);
-  };
-  return Math.max(0, toMin(s.end_time) - toMin(s.start_time));
-}
-
-function fmtHours(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m ? `${h}h ${m}m` : `${h}h`;
-}
+const EMPTY_COUNSELORS: AvailabilityCounselor[] = [];
+const EMPTY_SLOTS: AvailabilitySlot[] = [];
+const EMPTY_APPTS: AvailabilityAppt[] = [];
 
 /**
  * Shared /availability — one URL, role-aware UI (same pattern as /appointments).
  * Counselors manage their own weekly slots; the head sees office coverage,
  * toggle counselor availability, and manage any counselor's slots.
  */
+const byWeekday = (a: AvailabilitySlot, b: AvailabilitySlot) =>
+  a.weekday - b.weekday || a.start_time.localeCompare(b.start_time);
+
 export default function AvailabilityPage() {
+  const qc = useQueryClient();
   const { data: board, isLoading, isError, refetch } = useAvailabilityBoard();
+  const { busyId, run: runMutation } = useMutationAction();
   const role = board?.role ?? null;
   const ownId = board?.ownId ?? null;
   const counselors = board?.counselors ?? EMPTY_COUNSELORS;
   const slots = board?.slots ?? EMPTY_SLOTS;
   const appts = board?.appts ?? EMPTY_APPTS;
   const loading = isLoading && !board;
-  const [busy, setBusy] = useState(false);
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
-  const [managedId, setManagedId] = useState<string>("");
   const [rosterQuery, setRosterQuery] = useState("");
-  const [removeTarget, setRemoveTarget] = useState<Slot | null>(null);
-  const [pendingSlots, setPendingSlots] = useState<{
-    days: number[];
-    startTime: string;
-    endTime: string;
-    isRecurring: boolean;
-  } | null>(null);
 
-  // Same time rules as the shared availabilitySchema, minus weekday
-  // (days are picked as multi-chips and submitted as one row per day).
-  const slotTimeSchema = z
-    .object({
-      startTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, "Use HH:MM"),
-      endTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, "Use HH:MM"),
-      isRecurring: z.boolean().default(true),
-    })
-    .refine((v) => v.startTime < v.endTime, {
-      message: "Start time must be before end time",
-      path: ["endTime"],
-    });
-  const { register, handleSubmit, formState, setValue, watch } = useForm<Omit<AvailabilityInput, "weekday" | "counselorId">>({
-    resolver: zodResolver(slotTimeSchema),
-    defaultValues: { startTime: "09:00", endTime: "12:00", isRecurring: true },
+  const { managedId, setManagedId } = useManagedCounselor({
+    ready: !!board,
+    role,
+    ownId,
+    counselors,
   });
-  const [slotDays, setSlotDays] = useState<number[]>([1]);
-
-  // Default the managed counselor from cached data — head starts at the
-  // first counselor, counselors resolve via ownId. A valid pick survives
-  // refetches; a stale one falls back instead of pointing at nobody.
-  useEffect(() => {
-    if (!board) return;
-    setManagedId((prev) => {
-      if (prev && counselors.some((c) => c.id === prev)) return prev;
-      if (role === "counselor" && ownId) return ownId;
-      return counselors[0]?.id ?? "";
-    });
-  }, [board, counselors, role, ownId]);
 
   useEffect(() => {
     if (isError) toast.error("Couldn't load availability right now.");
@@ -201,51 +150,104 @@ export default function AvailabilityPage() {
     );
   }, [counselors, rosterQuery]);
 
-  const coverage = useMemo(    () =>
-      MON_FIRST.map((d) => ({
-        day: d,
-        label: DAYS[d],
-        items: slots
-          .filter((s) => s.weekday === d)
-          .map((s) => ({
-            id: s.id,
-            name: counselors.find((c) => c.id === s.counselor_id)?.name ?? "Counselor",
-            range: `${hhmm(s.start_time)}–${hhmm(s.end_time)}`,
-          }))
-          .sort((a, b) => a.range.localeCompare(b.range)),
-      })),
-    [slots, counselors]
-  );
+  // Standard mutation lifecycle (same as /appointments): busy resolves the
+  // moment the DB write settles (inside the hook's finally) — the cache is
+  // patched in place and the full-board refetch reconciles in the background,
+  // so the spinner never waits on refetches or notification delivery.
+  // Errors map through the hook (friendly service messages pass through,
+  // everything else becomes a reload-and-retry prompt). Returns true only
+  // when the write landed, so the confirm dialog can stay open for retry.
+  const patchSlots = (fn: (prev: AvailabilitySlot[]) => AvailabilitySlot[]) =>
+    patchBoard<AvailabilityBoardData>(qc, [...AVAILABILITY_BOARD_KEY], (prev) => ({
+      ...prev,
+      slots: fn(prev.slots),
+    }));
 
-  // Confirm dialogs: Escape closes, background stays put while open.
-  useEffect(() => {
-    if (!pendingSlots && !removeTarget) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setPendingSlots(null);
-        setRemoveTarget(null);
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [pendingSlots, removeTarget]);
-
-  const mutate = async (label: string, fn: () => Promise<unknown>) => {
-    setBusy(true);
-    try {
-      await fn();
-      await refetch();
-    } catch {
-      toast.error(`Couldn't ${label} — please reload and try again.`);
-    } finally {
-      setBusy(false);
-    }
+  const addSlots = async (p: PendingSlots, cid: string): Promise<boolean> => {
+    const label = p.days.length > 1 ? `add ${p.days.length} slots` : "add this slot";
+    const result = await runMutation(
+      SLOT_ADD_BUSY_ID,
+      async () => {
+        const { data, error } = await createClient()
+          .from("counselor_availability")
+          .insert(
+            p.days.map((weekday) => ({
+              counselor_id: cid,
+              weekday,
+              start_time: p.startTime,
+              end_time: p.endTime,
+              is_recurring: p.isRecurring,
+            }))
+          )
+          .select();
+        if (error) throw error;
+        return ((data ?? []) as AvailabilitySlot[]);
+      },
+      { label, friendly: /overlap|conflict|duplicate|valid|weekday|start|end|future/i }
+    );
+    if (!result.ok) return false;
+    if (result.data.length) patchSlots((prev) => [...prev, ...result.data].sort(byWeekday));
+    // Background reconcile — never awaited, never blocks the toast.
+    void refetch().catch(() => {});
+    toast.success(p.days.length > 1 ? `${p.days.length} slots added.` : "Slot added.", { position: "top-right" });
+    return true;
   };
+
+  const removeSlot = async (id: string): Promise<boolean> => {
+    const result = await runMutation(
+      id,
+      async () => {
+        const { error } = await createClient().from("counselor_availability").delete().eq("id", id);
+        if (error) throw error;
+      },
+      { label: "remove this slot", friendly: /not found|permission|policy/i }
+    );
+    if (!result.ok) return false;
+    patchSlots((prev) => prev.filter((s) => s.id !== id));
+    // Background reconcile — never awaited, never blocks the toast.
+    void refetch().catch(() => {});
+    toast.success("Slot removed.", { position: "top-right" });
+    return true;
+  };
+
+  // Live slot sync — the same realtime pipe as chat: inserts/updates/deletes
+  // from any session patch the cached board in place, so a removal in another
+  // tab (or the head's coverage view) lands here without a reload. The board
+  // query uses keepPreviousData, so the list never flashes.
+  useEffect(() => {
+    if (role !== "counselor" && role !== "guidance_head") return;
+    const ch = createClient()
+      .channel("availability-board")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "counselor_availability" }, (p) => {
+        const row = p.new as AvailabilitySlot;
+        if (!row?.id) return;
+        patchBoard<AvailabilityBoardData>(qc, [...AVAILABILITY_BOARD_KEY], (prev) =>
+          prev.slots.some((s) => s.id === row.id)
+            ? prev
+            : { ...prev, slots: [...prev.slots, row].sort(byWeekday) }
+        );
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "counselor_availability" }, (p) => {
+        const row = p.new as AvailabilitySlot;
+        if (!row?.id) return;
+        patchBoard<AvailabilityBoardData>(qc, [...AVAILABILITY_BOARD_KEY], (prev) => ({
+          ...prev,
+          slots: prev.slots.map((s) => (s.id === row.id ? { ...s, ...row } : s)),
+        }));
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "counselor_availability" }, (p) => {
+        const old = p.old as { id?: string } | null;
+        if (!old?.id) return;
+        patchBoard<AvailabilityBoardData>(qc, [...AVAILABILITY_BOARD_KEY], (prev) => ({
+          ...prev,
+          slots: prev.slots.filter((s) => s.id !== old.id),
+        }));
+      })
+      .subscribe();
+    return () => {
+      createClient().removeChannel(ch);
+    };
+  }, [role, qc]);
 
   if (!loading && (!role || !["counselor", "guidance_head"].includes(role))) {
     return (
@@ -336,44 +338,7 @@ export default function AvailabilityPage() {
       </div>
 
       {/* Weekly coverage board */}
-      <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-        <h2 className="font-display text-base font-bold text-ink">Weekly coverage</h2>
-        <p className="mt-0.5 text-[13px] text-ink-muted">Who holds open slots each day. Empty days can&apos;t take bookings.</p>
-        {loading ? (
-          <div className="mt-4 grid animate-pulse grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7" aria-hidden>
-            {Array.from({ length: 7 }).map((_, i) => (
-              <div key={i} className="h-28 rounded-xl bg-ink/10" />
-            ))}
-          </div>
-        ) : (
-          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-            {coverage.map((d) => (
-              <div
-                key={d.day}
-                className={
-                  d.items.length
-                    ? "rounded-xl border border-ink/10 bg-cream px-3 py-2.5"
-                    : "rounded-xl border-2 border-dashed border-red-300 bg-red-50 px-3 py-2.5"
-                }
-              >
-                <p className="text-xs font-bold uppercase tracking-wider text-ink-muted">{d.label}</p>
-                {d.items.length ? (
-                  <ul className="mt-1.5 space-y-1.5">
-                    {d.items.map((it) => (
-                      <li key={it.id} className="text-[13px] leading-snug">
-                        <span className="block truncate font-bold text-ink">{it.name}</span>
-                        <span className="font-medium text-ink-muted">{it.range}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-1.5 text-[13px] font-bold text-red-600">No coverage</p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      <CoverageGrid slots={slots} counselors={counselors} loading={loading} />
 
       {/* Counselor roster (office view — read-only) */}
       {isOffice && (
@@ -440,231 +405,22 @@ export default function AvailabilityPage() {
 
       {/* Slot manager — counselor only (head never sees this section) */}
       {canManage && (
-        <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="font-display text-base font-bold text-ink">
-                {role === "counselor" ? "My weekly slots" : "Manage slots"}
-              </h2>
-              <p className="mt-0.5 text-[13px] text-ink-muted">
-                {managed
-                  ? `${managed.name} · ${managedSlots.length} slot${managedSlots.length === 1 ? "" : "s"} · ${fmtHours(managedSlots.reduce((a, s) => a + slotMinutes(s), 0))}/week · ${upcomingBy.get(managed.id) ?? 0} upcoming`
-                  : "Pick a counselor to manage their slots."}
-              </p>
-            </div>
-            {isOffice && (
-              <div className="w-full max-w-xs">
-                <Dropdown
-                  menuKey="managed-counselor"
-                  openMenuKey={openMenuKey}
-                  onOpenChange={setOpenMenuKey}
-                  value={managedId}
-                  onChange={setManagedId}
-                  ariaLabel="Choose counselor to manage"
-                  options={counselors.map((c) => ({ value: c.id, label: c.name }))}
-                />
-              </div>
-            )}
-          </div>
-
-          <ul className="mt-3 divide-y divide-ink/10">
-            {managedSlots.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="shrink-0 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800">
-                    {DAYS[s.weekday]}
-                  </span>
-                  <span className="truncate text-sm font-semibold text-ink">
-                    {hhmm(s.start_time)}–{hhmm(s.end_time)}
-                  </span>
-                  <span className="shrink-0 text-xs font-medium text-ink-faint">
-                    {s.is_recurring ? "Weekly" : "One-off"}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setRemoveTarget(s)}
-                  className="shrink-0 text-[13px] font-bold text-red-600 hover:underline disabled:opacity-50"
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-          {!managedSlots.length && (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">
-              No slots yet — {managed ? "add the first one below." : "pick a counselor above first."}
-            </p>
-          )}
-
-          {managed && (
-            <form
-              className="mt-4 flex flex-wrap items-end gap-3 border-t border-ink/10 pt-4"
-              onSubmit={handleSubmit(async (v) => {
-                if (!slotDays.length) {
-                  toast.error("Choose at least one day for the slot.");
-                  return;
-                }
-                setPendingSlots({
-                  days: [...slotDays].sort((a, b) => MON_FIRST.indexOf(a) - MON_FIRST.indexOf(b)),
-                  startTime: v.startTime,
-                  endTime: v.endTime,
-                  isRecurring: v.isRecurring,
-                });
-              })}
-            >
-              <div className="min-w-[220px] flex-1">
-                <span className="mb-1 block text-xs font-bold text-ink-muted">Days</span>
-                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Slot days">
-                  {MON_FIRST.map((d) => {
-                    const on = slotDays.includes(d);
-                    return (
-                      <button
-                        key={d}
-                        type="button"
-                        aria-pressed={on}
-                        onClick={() =>
-                          setSlotDays((prev) =>
-                            prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]
-                          )
-                        }
-                        className={
-                          on
-                            ? "rounded-full bg-primary-600 px-3 py-1.5 text-xs font-bold text-white shadow-soft"
-                            : "rounded-full bg-cream px-3 py-1.5 text-xs font-bold text-ink-soft hover:bg-cream-dark"
-                        }
-                      >
-                        {DAYS[d]}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="mt-1 text-[11px] font-medium text-ink-faint">Tick multiple days to repeat the slot.</p>
-              </div>
-              <div>
-                <span className="mb-1 block text-xs font-bold text-ink-muted">Start</span>
-                <TimePicker
-                  id="slot-start"
-                  value={watch("startTime")}
-                  onChange={(v) => setValue("startTime", v, { shouldValidate: true })}
-                  ariaLabel="Start time"
-                />
-              </div>
-              <div>
-                <span className="mb-1 block text-xs font-bold text-ink-muted">End</span>
-                <TimePicker
-                  id="slot-end"
-                  value={watch("endTime")}
-                  onChange={(v) => setValue("endTime", v, { shouldValidate: true })}
-                  ariaLabel="End time"
-                />
-                <FieldError message={formState.errors.endTime?.message} />
-              </div>
-              <label className="flex items-center gap-2 pb-2.5 text-sm font-semibold text-ink-soft">
-                <input type="checkbox" className="h-4 w-4 accent-[#2563EB]" {...register("isRecurring")} />
-                Repeats weekly
-              </label>
-              <Button disabled={busy} className="mb-0.5">
-                {slotDays.length > 1 ? `Add ${slotDays.length} slots` : "Add slot"}
-              </Button>
-            </form>
-          )}
-        </section>
-      )}
-
-      {/* Add-slots confirm */}
-      {pendingSlots && managed && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="slot-add-title"
-          aria-describedby="slot-add-desc"
-        >
-          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => setPendingSlots(null)} />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-card">
-            <h2 id="slot-add-title" className="font-display text-lg font-bold text-ink">
-              Add {pendingSlots.days.length} slot{pendingSlots.days.length === 1 ? "" : "s"}?
-            </h2>
-            <p id="slot-add-desc" className="mt-1 text-sm leading-relaxed text-ink-muted">
-              This opens new bookings for {managed.name}.
-            </p>
-            <div className="mt-3 space-y-1.5 rounded-xl bg-cream px-3 py-2.5 text-[13px] font-semibold text-ink-soft">
-              <p>{pendingSlots.days.map((d) => DAYS[d]).join(", ")}</p>
-              <p>
-                {pendingSlots.startTime}–{pendingSlots.endTime} · {pendingSlots.isRecurring ? "Repeats weekly" : "One-off"}
-              </p>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => setPendingSlots(null)} autoFocus>
-                Back
-              </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={async () => {
-                  const p = pendingSlots;
-                  const cid = managed.id;
-                  setPendingSlots(null);
-                  await mutate(p.days.length > 1 ? `add ${p.days.length} slots` : "add this slot", async () => {
-                    const { error } = await createClient().from("counselor_availability").insert(
-                      p.days.map((weekday) => ({
-                        counselor_id: cid,
-                        weekday,
-                        start_time: p.startTime,
-                        end_time: p.endTime,
-                        is_recurring: p.isRecurring,
-                      }))
-                    );
-                    if (error) throw error;
-                  });
-                }}
-              >
-                {pendingSlots.days.length > 1 ? `Add ${pendingSlots.days.length} slots` : "Add slot"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Remove-slot confirm */}
-      {removeTarget && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="slot-remove-title"
-          aria-describedby="slot-remove-desc"
-        >
-          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => setRemoveTarget(null)} />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-card">
-            <h2 id="slot-remove-title" className="font-display text-lg font-bold text-ink">Remove this slot?</h2>
-            <p id="slot-remove-desc" className="mt-1 text-sm leading-relaxed text-ink-muted">
-              {DAYS[removeTarget.weekday]} · {hhmm(removeTarget.start_time)}–{hhmm(removeTarget.end_time)} will stop
-              accepting new bookings. This can&apos;t be undone.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => setRemoveTarget(null)} autoFocus>
-                Back
-              </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={async () => {
-                  const id = removeTarget.id;
-                  setRemoveTarget(null);
-                  await mutate("remove this slot", async () => {
-                    const { error } = await createClient().from("counselor_availability").delete().eq("id", id);
-                    if (error) throw error;
-                  });
-                }}
-              >
-                Remove slot
-              </Button>
-            </div>
-          </div>
-        </div>
+        <SlotForm
+          role={role}
+          isOffice={isOffice}
+          counselors={counselors}
+          managed={managed}
+          managedId={managedId}
+          onManagedChange={setManagedId}
+          managedSlots={managedSlots}
+          upcomingCount={managed ? (upcomingBy.get(managed.id) ?? 0) : 0}
+          busyId={busyId}
+          addBusy={busyId === SLOT_ADD_BUSY_ID}
+          openMenuKey={openMenuKey}
+          onOpenMenuChange={setOpenMenuKey}
+          onAdd={addSlots}
+          onRemove={removeSlot}
+        />
       )}
     </div>
   );

@@ -6,9 +6,12 @@ import { listCounselorAppointments, listOfficeAppointments } from "@dorsu/shared
 
 export type BoardAppointment = {
   id: string;
-  student_id: string;
+  /** Null for walk-in sessions confirmed from typed-identity referrals. */
+  student_id: string | null;
   counselor_id: string | null;
   scheduled_at: string;
+  /** Counselor-picked end inside an availability slot; null on older rows. */
+  ends_at: string | null;
   mode: string;
   status: string;
   concern: string;
@@ -16,6 +19,16 @@ export type BoardAppointment = {
 };
 
 export type BoardCounselor = { id: string; name: string };
+
+/** Counselor availability window driving the confirm/reschedule dropdowns. */
+export type BoardSlot = {
+  weekday: number;
+  start_time: string;
+  end_time: string;
+  is_recurring: boolean;
+  valid_from: string | null;
+  valid_to: string | null;
+};
 
 export type AppointmentsBoardData = {
   role: string | null;
@@ -25,6 +38,8 @@ export type AppointmentsBoardData = {
   studentProfiles: Map<string, string>;
   counselors: BoardCounselor[];
   headIds: string[];
+  /** Own availability slots (counselor role only) — confirm/reschedule scope. */
+  slots: BoardSlot[];
 };
 
 export const APPOINTMENTS_BOARD_KEY = ["appointments", "board"] as const;
@@ -56,6 +71,7 @@ export async function fetchAppointmentsBoard(): Promise<AppointmentsBoardData> {
       studentProfiles: EMPTY_MAP,
       counselors: [],
       headIds: [],
+      slots: [],
     };
   }
 
@@ -71,6 +87,7 @@ export async function fetchAppointmentsBoard(): Promise<AppointmentsBoardData> {
       studentProfiles: EMPTY_MAP,
       counselors: [],
       headIds: [],
+      slots: [],
     };
   }
 
@@ -80,7 +97,7 @@ export async function fetchAppointmentsBoard(): Promise<AppointmentsBoardData> {
       : await listOfficeAppointments(supabase);
   const appointments = ((data ?? []) as BoardAppointment[]);
 
-  const studentIds = [...new Set(appointments.map((a) => a.student_id))];
+  const studentIds = [...new Set(appointments.map((a) => a.student_id).filter((id): id is string => !!id))];
   let aliases = EMPTY_MAP;
   let studentProfiles = EMPTY_MAP;
   if (studentIds.length) {
@@ -107,7 +124,19 @@ export async function fetchAppointmentsBoard(): Promise<AppointmentsBoardData> {
   const { data: headRows } = await supabase.from("profiles").select("id").eq("role", "guidance_head").eq("is_active", true);
   const headIds = ((headRows ?? []) as { id: string }[]).map((h) => h.id);
 
-  return { role: r, counselorId: cid, appointments, aliases, studentProfiles, counselors, headIds };
+  // Own availability windows power the counselor's confirm/reschedule
+  // dropdowns (the schedule must sit inside these slots). The head never
+  // schedules, so only the counselor branch fetches them.
+  let slots: BoardSlot[] = [];
+  if (r === "counselor" && cid) {
+    const { data: slotRows } = await supabase
+      .from("counselor_availability")
+      .select("weekday, start_time, end_time, is_recurring, valid_from, valid_to")
+      .eq("counselor_id", cid);
+    slots = ((slotRows ?? []) as BoardSlot[]);
+  }
+
+  return { role: r, counselorId: cid, appointments, aliases, studentProfiles, counselors, headIds, slots };
 }
 
 /**

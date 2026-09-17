@@ -10,7 +10,7 @@ export function homeForRole(role: UserRole | string | null | undefined): string 
     case "counselor":
       return "/dashboard";
     case "faculty":
-      return "/referrals";
+      return "/dashboard";
     case "guidance_head":
       return "/dashboard";
     case "admin":
