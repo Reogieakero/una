@@ -328,8 +328,8 @@ export default function EmergencyPage() {
         <h2 className="font-display text-base font-bold text-ink">1 · Log emergency access</h2>
         {loading ? (
           <div className="animate-pulse space-y-3 pt-3" aria-hidden>
-            <div className="h-10 rounded-xl bg-ink/10" />
-            <div className="h-20 rounded-xl bg-ink/10" />
+            <div className="h-10 rounded-lg bg-ink/10" />
+            <div className="h-20 rounded-lg bg-ink/10" />
           </div>
         ) : (
           <form className="mt-3 space-y-3" onSubmit={logAccess}>
@@ -374,7 +374,7 @@ export default function EmergencyPage() {
           {!identity ? (
             needsReview ? (
               <div className="mt-3 space-y-3">
-                <div className="rounded-xl bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-800 ring-1 ring-amber-200">
+                <div className="rounded-lg bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-800 ring-1 ring-amber-200">
                   <span className="font-bold">Waiting for head review.</span> Your access is logged
                   and the guidance head has been notified. The Reveal button appears here once they
                   review it — this page checks automatically.

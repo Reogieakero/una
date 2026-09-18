@@ -15,6 +15,14 @@ export type CounselorDashboardPayload = {
   };
   today: { id: string; scheduledAt: string; status: string; concern: string; studentAlias: string }[];
   actionQueue: { id: string; scheduledAt: string; status: string; concern: string; studentAlias: string }[];
+  actionReferrals: {
+    id: string;
+    reason: string;
+    status: string;
+    priority: string;
+    studentAlias: string;
+    createdAt: string;
+  }[];
   myReferrals: {
     id: string;
     reason: string;
@@ -62,6 +70,7 @@ export async function GET() {
         kpis: { sessionsToday: null, awaitingConfirmation: null, openReferrals: null, openChats: null },
         today: [],
         actionQueue: [],
+        actionReferrals: [],
         myReferrals: [],
         unlinked: true,
         fetchedAt: new Date().toISOString(),
@@ -73,7 +82,7 @@ export async function GET() {
   const today = startOfTodayUTC();
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
 
-  const [todayRes, confirmRes, referralsRes, chatsRes, todayRows, actionRows, refRows] =
+  const [todayRes, confirmRes, referralsRes, chatsRes, todayRows, actionRows, refRows, confirmRefsRes, actionRefRows] =
     await Promise.all([
       supabase
         .from("appointments")
@@ -109,7 +118,7 @@ export async function GET() {
         .from("appointments")
         .select("id, scheduled_at, status, concern, student_id")
         .eq("counselor_id", counselorId)
-        .in("status", ["assigned", "confirmed"])
+        .eq("status", "assigned")
         .gte("scheduled_at", new Date().toISOString())
         .order("scheduled_at", { ascending: true })
         .limit(5),
@@ -120,11 +129,27 @@ export async function GET() {
         .in("status", ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"])
         .order("created_at", { ascending: false })
         .limit(5),
+      // Assigned-only referrals needing confirmation (dashboard action queue).
+      supabase
+        .from("referrals")
+        .select("id", { count: "exact", head: true })
+        .eq("assigned_counselor_id", counselorId)
+        .eq("status", "assigned"),
+      supabase
+        .from("referrals")
+        .select("id, reason, priority, status, student_id, created_at")
+        .eq("assigned_counselor_id", counselorId)
+        .eq("status", "assigned")
+        .order("created_at", { ascending: false })
+        .limit(5),
     ]);
 
   type SessionRow = { id: string; scheduled_at: string; status: string; concern: string; student_id: string };
   const sessionRows = [...((todayRows.data ?? []) as SessionRow[]), ...((actionRows.data ?? []) as SessionRow[])];
-  const refList = ((refRows.data ?? []) as { id: string; student_id: string }[]).map((r) => r.student_id);
+  const refList = [
+    ...(((refRows.data ?? []) as { id: string; student_id: string }[]).map((r) => r.student_id)),
+    ...(((actionRefRows.data ?? []) as { id: string; student_id: string }[]).map((r) => r.student_id)),
+  ];
   const aliasIds = [...new Set([...sessionRows.map((r) => r.student_id), ...refList])];
   let aliasById = new Map<string, string>();
   if (aliasIds.length) {
@@ -135,7 +160,10 @@ export async function GET() {
   const payload: CounselorDashboardPayload = {
     kpis: {
       sessionsToday: todayRes.error ? null : (todayRes.count ?? 0),
-      awaitingConfirmation: confirmRes.error ? null : (confirmRes.count ?? 0),
+      awaitingConfirmation:
+        confirmRes.error || confirmRefsRes.error
+          ? null
+          : ((confirmRes.count ?? 0) + (confirmRefsRes.count ?? 0)),
       openReferrals: referralsRes.error ? null : (referralsRes.count ?? 0),
       openChats: chatsRes.error ? null : (chatsRes.count ?? 0),
     },
@@ -152,6 +180,16 @@ export async function GET() {
       status: a.status,
       concern: a.concern,
       studentAlias: aliasById.get(a.student_id) ?? "Student",
+    })),
+    actionReferrals: (
+      (actionRefRows.data ?? []) as { id: string; reason: string; priority: string; status: string; student_id: string; created_at: string }[]
+    ).map((r) => ({
+      id: r.id,
+      reason: r.reason,
+      status: r.status,
+      priority: r.priority,
+      studentAlias: aliasById.get(r.student_id) ?? "Student",
+      createdAt: r.created_at,
     })),
     myReferrals: (
       (refRows.data ?? []) as { id: string; reason: string; priority: string; status: string; student_id: string; created_at: string }[]

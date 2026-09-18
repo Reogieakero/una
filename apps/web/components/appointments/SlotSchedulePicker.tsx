@@ -187,7 +187,7 @@ export function SlotSchedulePicker({
 
   if (!dates.length) {
     return (
-      <div className="rounded-2xl border border-ink/15 bg-white p-4 shadow-card">
+      <div className="rounded-lg border border-ink/15 bg-white p-4 shadow-card">
         <p className="text-sm font-bold text-ink">No availability windows</p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-muted">
           You have no slots in the next {SCHEDULE_WINDOW_DAYS} days — sessions must fall inside your
@@ -209,7 +209,7 @@ export function SlotSchedulePicker({
   const win = start ? slotWindowsForDate(slots, date).find((w) => hhmmToMins(start) >= w.start && hhmmToMins(start) + STEP_MINS <= w.end) : null;
 
   return (
-    <div role="group" aria-label="Session schedule inside your availability" className="rounded-2xl border border-ink/15 bg-white p-4 shadow-card">
+    <div role="group" aria-label="Session schedule inside your availability" className="rounded-lg border border-ink/15 bg-white p-4 shadow-card">
       <p className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-ink-muted">
         <Clock className="h-3.5 w-3.5" aria-hidden /> Date, start and end — inside your availability only
       </p>

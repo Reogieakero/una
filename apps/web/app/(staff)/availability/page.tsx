@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { BarChart3, ChevronDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -17,6 +16,7 @@ import { useMutationAction } from "@/lib/hooks/use-mutation-action";
 import { patchBoard } from "@/lib/patch-board";
 import { useManagedCounselor } from "@/lib/hooks/use-managed-counselor";
 import { fmtHours, slotMinutes } from "@/lib/availability";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge, Card, Input } from "@/components/ui/primitives";
 import { CoverageGrid } from "@/components/availability/coverage-grid";
@@ -300,20 +300,16 @@ export default function AvailabilityPage() {
             onBlur={scheduleStatsClose}
             aria-haspopup="dialog"
             aria-expanded={statsOpen}
-            className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
           >
-            <BarChart3 className="h-4 w-4" aria-hidden />
             Stats
-            <ChevronDown
-              aria-hidden
-              className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
-            />
+            <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
           </button>
           {statsOpen && (
             <div
               role="dialog"
               aria-label="Availability stats"
-              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
             >
               {loading ? (
                 <div className="animate-pulse px-4 py-3" aria-hidden>

@@ -26,6 +26,8 @@ import {
   type AppointmentsBoardData,
   type BoardAppointment,
 } from "@/lib/hooks/use-appointments-board";
+import { SESSIONS_CALENDAR_KEY } from "@/lib/hooks/use-sessions-calendar";
+import { COUNSELOR_DASHBOARD_KEY } from "@/lib/hooks/use-counselor-dashboard";
 import { REFERRALS_BOARD_KEY, upsertReferralRow, type ReferralsRow } from "@/lib/hooks/use-referrals-board";
 import {
   ANNOUNCEMENTS_BOARD_KEY,
@@ -80,6 +82,10 @@ const COALESCE_LABEL: Record<string, string> = {
 /** Board cache to refresh in the background when an event link points at it. */
 const BOARD_BY_LINK: { prefix: string; key: readonly unknown[] }[] = [
   { prefix: "/appointments", key: APPOINTMENTS_BOARD_KEY },
+  // Session outcomes (complete / no-show) also move the /sessions calendar
+  // and the counselor's dashboard KPIs — same event, same background refresh.
+  { prefix: "/appointments", key: SESSIONS_CALENDAR_KEY },
+  { prefix: "/appointments", key: COUNSELOR_DASHBOARD_KEY },
   { prefix: "/referrals", key: REFERRALS_BOARD_KEY },
   { prefix: "/announcements", key: ANNOUNCEMENTS_BOARD_KEY },
   { prefix: "/chat", key: CHAT_BOARD_KEY },
@@ -179,6 +185,14 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     },
     [fetchUnread, applySnapshot]
   );
+
+  // Facebook-style tab title — the signed-in user's unread message count.
+  // "Chekie Message (3)" while DMs/threads sit unread, plain "Chekie" else.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const chatUnread = linkCounts.get("/chat") ?? 0;
+    document.title = chatUnread > 0 ? `Chekie Message (${chatUnread})` : "Chekie";
+  }, [linkCounts]);
 
   useEffect(() => {
     let alive = true;

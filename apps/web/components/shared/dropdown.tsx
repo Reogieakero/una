@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type DropdownOption = { value: string; label: string };
@@ -113,12 +113,15 @@ export function Dropdown({
         onMouseEnter={openOnHover ? openMenu : undefined}
         onMouseLeave={openOnHover ? scheduleClose : undefined}
         className={cn(
-          "flex w-full items-center justify-between gap-2 rounded-2xl border border-ink/15 bg-white px-4 py-2.5 text-sm font-semibold text-ink focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:opacity-50",
+          "flex h-8 w-full items-center justify-between gap-2 rounded border border-ink/15 bg-white px-3 text-sm font-semibold text-ink focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:opacity-50",
           buttonClassName
         )}
       >
         <span className="truncate">{selected?.label ?? "Select…"}</span>
-        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-muted transition-transform", open && "rotate-180")} />
+        <ChevronDown
+          aria-hidden
+          className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", open && "rotate-180")}
+        />
       </button>
       {open &&
         pos &&
@@ -132,7 +135,7 @@ export function Dropdown({
               style={{ top: pos.top, left: pos.left, width: pos.width }}
               onMouseEnter={openOnHover ? clearCloseTimer : undefined}
               onMouseLeave={openOnHover ? scheduleClose : undefined}
-              className="menu-scroll fixed z-50 max-h-60 overflow-y-auto rounded-2xl border border-ink/10 bg-white p-1.5 shadow-card"
+              className="menu-scroll fixed z-50 max-h-60 overflow-y-auto rounded-lg border border-ink/10 bg-white p-1.5 shadow-card"
             >
               {options.map((o) => {
                 const active = o.value === value;
@@ -145,12 +148,11 @@ export function Dropdown({
                         onOpenChange(null);
                       }}
                       className={cn(
-                        "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors",
+                        "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                         active ? "bg-blue-50 font-bold text-primary-700" : "font-medium text-ink hover:bg-cream"
                       )}
                     >
                       <span className="truncate">{o.label}</span>
-                      {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
                     </button>
                   </li>
                 );

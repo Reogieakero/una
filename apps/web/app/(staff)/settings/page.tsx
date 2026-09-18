@@ -254,7 +254,7 @@ export default function SettingsPage() {
           <div
             role="tablist"
             aria-label="Profile sections"
-            className="inline-flex rounded-xl border border-ink/10 bg-white p-1 shadow-card"
+            className="inline-flex rounded-lg border border-ink/10 bg-white p-1 shadow-card"
           >
             {(
               [
@@ -272,7 +272,7 @@ export default function SettingsPage() {
                   role="tab"
                   aria-selected={selected}
                   onClick={() => setTab(t.value)}
-                  className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 ${
+                  className={`h-8 rounded px-4 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 ${
                     selected ? "bg-primary-600 text-white shadow-soft" : "text-ink-muted hover:bg-cream hover:text-ink"
                   }`}
                 >

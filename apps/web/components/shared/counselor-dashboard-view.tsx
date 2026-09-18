@@ -11,7 +11,6 @@ import {
   Clock,
   Inbox,
   MessagesSquare,
-  RefreshCw,
 } from "lucide-react";
 import {
   Breadcrumb,
@@ -23,27 +22,28 @@ import {
 } from "@/components/ui/breadcrumb";
 import { useCounselorDashboard } from "@/lib/hooks/use-counselor-dashboard";
 import type { CounselorDashboardPayload } from "@/lib/hooks/use-counselor-dashboard";
+import { statusLabel } from "@/components/referrals/status";
 import { cn } from "@/lib/utils";
 import { formatWhen, timeAgoLong } from "@/lib/format";
 import { EmptyState, PanelShell, ListSkeleton } from "@/components/shared/panel-shell";
 
 const APPT_TONE: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-800",
-  assigned: "bg-indigo-100 text-indigo-800",
-  confirmed: "bg-blue-100 text-blue-800",
-  completed: "bg-green-100 text-green-800",
+  pending: "bg-accent-100 text-accent-700",
+  assigned: "bg-accent-100 text-accent-700",
+  confirmed: "bg-primary-100 text-primary-800",
+  completed: "bg-primary-700 text-white",
   cancelled: "bg-ink/10 text-ink-muted",
-  rejected: "bg-red-100 text-red-800",
-  no_show: "bg-red-100 text-red-800",
+  rejected: "bg-accent-700 text-white",
+  no_show: "bg-accent-700 text-white",
 };
 
 const COUNSELOR_QUICK_LINKS = [
-  { href: "/appointments", label: "My appointments", hint: "Confirm & complete", icon: CalendarCheck, chip: "bg-blue-50 text-primary-700" },
-  { href: "/referrals", label: "Referrals inbox", hint: "Triage your queue", icon: Inbox, chip: "bg-amber-50 text-amber-700" },
-  { href: "/chat", label: "Chat", hint: "Message students", icon: MessagesSquare, chip: "bg-blue-50 text-primary-700" },
-  { href: "/availability", label: "Availability", hint: "Manage open slots", icon: Clock, chip: "bg-green-50 text-green-800" },
-  { href: "/sessions", label: "Today's sessions", hint: "Month, week, day calendar", icon: CalendarDays, chip: "bg-blue-50 text-primary-700" },
-  { href: "/reports", label: "Reports", hint: "Review my work", icon: BarChart3, chip: "bg-green-50 text-green-800" },
+  { href: "/appointments", label: "My appointments", hint: "Confirm & complete", icon: CalendarCheck, chip: "bg-primary-50 text-primary-700" },
+  { href: "/referrals", label: "Referrals inbox", hint: "Triage your queue", icon: Inbox, chip: "bg-accent-50 text-accent-700" },
+  { href: "/chat", label: "Chat", hint: "Message students", icon: MessagesSquare, chip: "bg-primary-50 text-primary-700" },
+  { href: "/availability", label: "Availability", hint: "Manage open slots", icon: Clock, chip: "bg-accent-50 text-accent-700" },
+  { href: "/sessions", label: "Today's sessions", hint: "Month, week, day calendar", icon: CalendarDays, chip: "bg-primary-50 text-primary-700" },
+  { href: "/reports", label: "Reports", hint: "Review my work", icon: BarChart3, chip: "bg-accent-50 text-accent-700" },
 ] as const;
 
 function SessionRows({
@@ -133,6 +133,12 @@ export function CounselorDashboardView({ name }: { name: string | null }) {
   }, [statsOpen]);
 
   const unlinked = !loading && (data as { unlinked?: boolean } | undefined)?.unlinked === true;
+  // Assigned-only action queue — appointments + referrals waiting for
+  // confirmation. Filtered client-side too so stale caches never leak a
+  // confirmed/resolved record into the queue.
+  const actionAppts = (data?.actionQueue ?? []).filter((a) => a.status === "assigned");
+  const actionRefs = (data?.actionReferrals ?? []).filter((r) => r.status === "assigned");
+  const queueEmpty = !actionAppts.length && !actionRefs.length;
 
   return (
     <div className="space-y-6">
@@ -164,20 +170,16 @@ export function CounselorDashboardView({ name }: { name: string | null }) {
               onBlur={scheduleStatsClose}
               aria-haspopup="dialog"
               aria-expanded={statsOpen}
-              className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+              className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
             >
-              <BarChart3 className="h-4 w-4" aria-hidden />
               Stats
-              <ChevronDown
-                aria-hidden
-                className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
-              />
+              <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
             </button>
             {statsOpen && (
               <div
                 role="dialog"
                 aria-label="Key numbers"
-                className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+                className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
               >
                 {loading || !data ? (
                   <div className="animate-pulse px-4 py-3" aria-hidden>
@@ -210,9 +212,9 @@ export function CounselorDashboardView({ name }: { name: string | null }) {
       </div>
 
       {unlinked ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-card">
-          <p className="text-sm font-bold text-amber-800">Counselor record not linked yet</p>
-          <p className="mt-1 text-[13px] text-amber-700">
+        <div className="rounded-lg border border-accent-200 bg-accent-50 p-5 shadow-card">
+          <p className="text-sm font-bold text-accent-700">Counselor record not linked yet</p>
+          <p className="mt-1 text-[13px] text-accent-700">
             Your login works, but no counselor row is linked to your account. Ask the guidance head to finish setup.
           </p>
         </div>
@@ -225,9 +227,8 @@ export function CounselorDashboardView({ name }: { name: string | null }) {
           <button
             type="button"
             onClick={() => refetch()}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-red-600 px-4 py-2 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
           >
-            <RefreshCw className="h-4 w-4" aria-hidden />
             Try again
           </button>
         </div>
@@ -235,26 +236,26 @@ export function CounselorDashboardView({ name }: { name: string | null }) {
         <>
           <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="min-w-0 space-y-4">
-              <PanelShell title="Needs your action" viewAllHref="/appointments">
+              <PanelShell
+                title="Needs confirmation"
+                hint="Assigned appointments and referrals waiting for your confirmation."
+              >
                 {loading || !data ? (
                   <ListSkeleton />
-                ) : !data.actionQueue.length ? (
-                  <EmptyState icon={CalendarCheck} title="Queue clear" hint="Nothing needs confirm / complete right now." />
+                ) : queueEmpty ? (
+                  <EmptyState icon={CalendarCheck} title="All confirmed" hint="No assigned appointments or referrals waiting for confirmation." />
                 ) : (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {data.actionQueue.map((a) => (
+                    {actionAppts.map((a) => (
                       <Link
-                        key={a.id}
-                        href="/appointments"
+                        key={`appt-${a.id}`}
+                        href={`/appointments#confirm-${a.id}`}
                         className="group flex min-w-0 flex-col gap-2.5 rounded-lg border border-ink/10 bg-white p-4 shadow-card transition hover:border-primary-300 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
                       >
                         <span className="flex items-center gap-2.5">
                           <span
                             aria-hidden
-                            className={cn(
-                              "flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-display text-[13px] font-bold text-white",
-                              a.status === "assigned" ? "bg-indigo-500" : "bg-blue-600"
-                            )}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-500 font-display text-[13px] font-bold text-white"
                           >
                             {a.studentAlias.trim().charAt(0).toUpperCase() || "S"}
                           </span>
@@ -266,18 +267,50 @@ export function CounselorDashboardView({ name }: { name: string | null }) {
                               {formatWhen(a.scheduledAt)}
                             </span>
                           </span>
-                          <span
-                            className={cn(
-                              "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold capitalize",
-                              APPT_TONE[a.status] ?? "bg-ink/10 text-ink-muted"
-                            )}
-                          >
-                            {a.status}
+                          <span className="shrink-0 rounded-full bg-accent-100 px-2 py-0.5 text-[11px] font-bold capitalize text-accent-700">
+                            Assigned
                           </span>
                         </span>
                         <span className="line-clamp-2 text-[13px] leading-relaxed text-ink-muted">{a.concern}</span>
                         <span className="mt-auto inline-flex items-center gap-1 pt-0.5 text-[12px] font-bold text-primary-600 group-hover:underline">
-                          {a.status === "assigned" ? "Needs confirmation" : "Confirmed — mark complete after the session"}
+                          Needs confirmation — tap to review & confirm
+                          <ChevronRight aria-hidden className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                        </span>
+                      </Link>
+                    ))}
+                    {actionRefs.map((r) => (
+                      <Link
+                        key={`ref-${r.id}`}
+                        href={`/referrals#triage-${r.id}`}
+                        className="group flex min-w-0 flex-col gap-2.5 rounded-lg border border-ink/10 bg-white p-4 shadow-card transition hover:border-primary-300 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <span
+                            aria-hidden
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-600 font-display text-[13px] font-bold text-white"
+                          >
+                            {r.studentAlias.trim().charAt(0).toUpperCase() || "S"}
+                          </span>
+                          <span className="min-w-0 flex-1 leading-tight">
+                            <span className="block truncate text-sm font-bold text-ink group-hover:text-primary-700">
+                              {r.studentAlias}
+                            </span>
+                            <span className="mt-0.5 block text-[11px] font-medium text-ink-faint">
+                              Referred {timeAgoLong(r.createdAt)}
+                            </span>
+                          </span>
+                          <span className="flex shrink-0 flex-col items-end gap-1">
+                            <span className="rounded-full bg-accent-100 px-2 py-0.5 text-[11px] font-bold capitalize text-accent-700">
+                              Assigned
+                            </span>
+                            <span className="rounded-full bg-primary-100 px-2 py-0.5 text-[11px] font-bold capitalize text-primary-800">
+                              {statusLabel(r.priority)}
+                            </span>
+                          </span>
+                        </span>
+                        <span className="line-clamp-2 text-[13px] leading-relaxed text-ink-muted">{r.reason}</span>
+                        <span className="mt-auto inline-flex items-center gap-1 pt-0.5 text-[12px] font-bold text-primary-600 group-hover:underline">
+                          Needs confirmation — tap to triage & confirm
                           <ChevronRight aria-hidden className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                         </span>
                       </Link>
@@ -294,17 +327,22 @@ export function CounselorDashboardView({ name }: { name: string | null }) {
                 ) : (
                   <ul className="mt-3 divide-y divide-ink/10">
                     {data.myReferrals.map((r) => (
-                      <li key={r.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-ink">
-                            {r.studentAlias}
-                            <span className="ml-2 text-[11px] font-medium text-ink-faint">{timeAgoLong(r.createdAt)}</span>
-                          </p>
-                          <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">{r.reason}</p>
-                        </div>
-                        <span className="shrink-0 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold capitalize text-blue-800">
-                          {r.status.replace(/_/g, " ")}
-                        </span>
+                      <li key={r.id}>
+                        <Link
+                          href={`/referrals#focus-${r.id}`}
+                          className="group flex items-start justify-between gap-3 rounded-md py-2.5 first:pt-0 last:pb-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-ink group-hover:text-primary-700">
+                              {r.studentAlias}
+                              <span className="ml-2 text-[11px] font-medium text-ink-faint">{timeAgoLong(r.createdAt)}</span>
+                            </p>
+                            <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">{r.reason}</p>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-primary-100 px-2.5 py-0.5 text-[11px] font-bold capitalize text-primary-800">
+                            {r.status.replace(/_/g, " ")}
+                          </span>
+                        </Link>
                       </li>
                     ))}
                   </ul>

@@ -5,7 +5,7 @@ import type { PageDoc } from "@/lib/about-content";
 export function PageAccordion({ doc }: { doc: PageDoc }) {
   const Icon = doc.icon;
   return (
-    <details className="group rounded-2xl border border-ink/10 bg-white shadow-card">
+    <details className="group rounded-lg border border-ink/10 bg-white shadow-card">
       <summary className="flex cursor-pointer items-center gap-3 px-5 py-4">
         <span aria-hidden className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cream text-ink">
           <Icon className="h-4 w-4" />
@@ -33,7 +33,7 @@ export function PageAccordion({ doc }: { doc: PageDoc }) {
             ))}
           </ul>
         </div>
-        <p className="rounded-xl bg-cream px-4 py-2.5 text-[13px] leading-relaxed text-ink-soft">
+        <p className="rounded-lg bg-cream px-4 py-2.5 text-[13px] leading-relaxed text-ink-soft">
           <span className="font-bold text-ink">Then what: </span>
           {doc.handoff}
         </p>

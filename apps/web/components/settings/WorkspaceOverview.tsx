@@ -81,10 +81,10 @@ export function WorkspaceOverview({
         <h2 className="font-display text-base font-bold text-ink">Office at a glance</h2>
         {loading ? (
           <div className="mt-3 grid animate-pulse grid-cols-2 gap-3" aria-hidden>
-            <div className="h-16 rounded-xl bg-ink/10" />
-            <div className="h-16 rounded-xl bg-ink/10" />
-            <div className="h-16 rounded-xl bg-ink/10" />
-            <div className="h-16 rounded-xl bg-ink/10" />
+            <div className="h-16 rounded-lg bg-ink/10" />
+            <div className="h-16 rounded-lg bg-ink/10" />
+            <div className="h-16 rounded-lg bg-ink/10" />
+            <div className="h-16 rounded-lg bg-ink/10" />
           </div>
         ) : (
           <dl className="mt-3 grid grid-cols-2 gap-3">
@@ -94,7 +94,7 @@ export function WorkspaceOverview({
               ["Referrals waiting", openReferrals],
               ["Posts live", published],
             ].map(([k, v]) => (
-              <div key={k as string} className="rounded-xl bg-cream px-3 py-2.5">
+              <div key={k as string} className="rounded-lg bg-cream px-3 py-2.5">
                 <dt className="text-[11px] font-bold uppercase tracking-wide text-ink-muted">{k}</dt>
                 <dd className="font-display text-2xl font-bold text-ink">{v}</dd>
               </div>
@@ -112,8 +112,8 @@ export function WorkspaceOverview({
         </div>
         {loading ? (
           <div className="animate-pulse space-y-2 pt-3" aria-hidden>
-            <div className="h-10 rounded-xl bg-ink/10" />
-            <div className="h-10 rounded-xl bg-ink/10" />
+            <div className="h-10 rounded-lg bg-ink/10" />
+            <div className="h-10 rounded-lg bg-ink/10" />
           </div>
         ) : posts.length ? (
           <ul className="mt-3 divide-y divide-ink/10">
@@ -125,7 +125,7 @@ export function WorkspaceOverview({
             ))}
           </ul>
         ) : (
-          <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No posts yet.</p>
+          <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">No posts yet.</p>
         )}
       </section>
 

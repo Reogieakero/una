@@ -164,7 +164,7 @@ export function SlotForm({
           ))}
         </ul>
         {!managedSlots.length && (
-          <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">
+          <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">
             No slots yet — {managed ? "add the first one below." : "pick a counselor above first."}
           </p>
         )}
@@ -253,14 +253,14 @@ export function SlotForm({
           aria-describedby="slot-add-desc"
         >
           <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => { if (!addBusy) setPendingSlots(null); }} />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-card">
+          <div className="relative w-full max-w-sm rounded-lg bg-white p-6 shadow-card">
             <h2 id="slot-add-title" className="font-display text-lg font-bold text-ink">
               Add {pendingSlots.days.length} slot{pendingSlots.days.length === 1 ? "" : "s"}?
             </h2>
             <p id="slot-add-desc" className="mt-1 text-sm leading-relaxed text-ink-muted">
               This opens new bookings for {managed.name}.
             </p>
-            <div className="mt-3 space-y-1.5 rounded-xl bg-cream px-3 py-2.5 text-[13px] font-semibold text-ink-soft">
+            <div className="mt-3 space-y-1.5 rounded-lg bg-cream px-3 py-2.5 text-[13px] font-semibold text-ink-soft">
               <p>{pendingSlots.days.map((d) => DAYS[d]).join(", ")}</p>
               <p>
                 {pendingSlots.startTime}–{pendingSlots.endTime} · {pendingSlots.isRecurring ? "Repeats weekly" : "One-off"}
@@ -283,7 +283,6 @@ export function SlotForm({
                   })();
                 }}
               >
-                {addBusy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
                 {addBusy ? "Adding…" : pendingSlots.days.length > 1 ? `Add ${pendingSlots.days.length} slots` : "Add slot"}
               </Button>
             </div>
@@ -301,7 +300,7 @@ export function SlotForm({
           aria-describedby="slot-remove-desc"
         >
           <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => { if (!removing) setRemoveTarget(null); }} />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-card">
+          <div className="relative w-full max-w-sm rounded-lg bg-white p-6 shadow-card">
             <h2 id="slot-remove-title" className="font-display text-lg font-bold text-ink">Remove this slot?</h2>
             <p id="slot-remove-desc" className="mt-1 text-sm leading-relaxed text-ink-muted">
               {DAYS[removeTarget.weekday]} · {hhmm(removeTarget.start_time)}–{hhmm(removeTarget.end_time)} will stop
@@ -323,7 +322,6 @@ export function SlotForm({
                   })();
                 }}
               >
-                {removing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
                 {removing ? "Removing…" : "Remove slot"}
               </Button>
             </div>

@@ -116,7 +116,7 @@ export function DateRangeCalendar({
               aria-label={`${MONTHS[viewM]} ${c.day}${isStart ? ", range start" : ""}${isEnd ? ", range end" : ""}`}
               onClick={() => pickDay(c.day)}
               className={cn(
-                "inline-flex h-9 w-full items-center justify-center rounded-xl text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
+                "inline-flex h-8 w-full items-center justify-center rounded text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
                 isStart || isEnd
                   ? "bg-primary-600 text-white shadow-soft"
                   : inBetween

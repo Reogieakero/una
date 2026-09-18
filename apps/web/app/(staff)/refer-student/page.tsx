@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Activity, Eye, FileText, Info, ChevronDown } from "lucide-react";
+import { Activity, ChevronDown, Eye } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useReferralsBoard, type ReferralStudentOption } from "@/lib/hooks/use-referrals-board";
 import { Button, Card, Badge } from "@/components/ui/primitives";
 import { IconAction } from "@/components/shared/icon-action";
@@ -26,7 +27,7 @@ import {
   type RefAction,
   type Referral,
 } from "@/components/referrals/status";
-import { formatSessionMode, formatWhen, parseScheduleNote, parseSessionMode, timeAgo } from "@/components/referrals/format-helpers";
+import { formatSessionMode, formatWhen, hasReschedule, latestSessionSchedule, parseScheduleNote, parseSessionMode, timeAgo } from "@/components/referrals/format-helpers";
 
 const EMPTY_MAP = new Map<string, string>();
 const EMPTY_STUDENTS: ReferralStudentOption[] = [];
@@ -81,16 +82,15 @@ function WhatNextMenu() {
         onClick={toggle}
         aria-haspopup="true"
         aria-expanded={open}
-        className="inline-flex items-center gap-1.5 rounded-full border-2 border-ink/15 bg-white px-4 py-1.5 text-[13px] font-bold text-ink transition hover:border-primary-400"
+        className="inline-flex h-8 items-center gap-1.5 rounded border-2 border-ink/15 bg-white px-4 text-[13px] font-bold text-ink transition hover:border-primary-400"
       >
-        <Info className="h-4 w-4" aria-hidden />
         What happens next?
-        <ChevronDown aria-hidden className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", open && "rotate-180")} />
       </button>
       {open && pos && (
         <div
           style={{ top: pos.top, left: pos.left, width: pos.width }}
-          className="fixed z-50 rounded-2xl border border-ink/10 bg-white p-4 shadow-card"
+          className="fixed z-50 rounded-lg border border-ink/10 bg-white p-4 shadow-card"
         >
           <p className="text-sm font-bold text-ink">What happens next?</p>
           <p className="mt-1 text-[13px] leading-relaxed text-ink-muted">
@@ -125,15 +125,15 @@ export default function ReferStudentPage() {
   const [formRef, setFormRef] = useState<Referral | null>(null);
   const [trackRef, setTrackRef] = useState<Referral | null>(null);
 
-  // Counselor-set session time + mode per referral, parsed from the confirm
-  // trail notes (faculty cannot read appointments via RLS — the note is the
-  // channel). Unconfirmed referrals simply show "—".
+  // Counselor-set session time + mode per referral. The confirm trail note
+  // carries the first schedule and every later reschedule overrides it
+  // (faculty cannot read appointments via RLS — the trail is the channel).
+  // Unconfirmed referrals simply show "—".
   const trail = board?.trail ?? (EMPTY_TRAIL as Map<string, RefAction[]>);
   const sessionSchedule = useMemo(() => {
     const m = new Map<string, string>();
     for (const [refId, actions] of trail) {
-      const confirm = actions.find((a) => a.action === "confirmed" && parseScheduleNote(a.note));
-      const iso = confirm ? parseScheduleNote(confirm.note) : null;
+      const iso = latestSessionSchedule(actions, null);
       if (iso) m.set(refId, iso);
     }
     return m;
@@ -197,7 +197,6 @@ export default function ReferStudentPage() {
             </p>
             <div className="mt-4 flex justify-center">
               <Button onClick={() => setExcelOpen(true)}>
-                <FileText className="h-4 w-4" aria-hidden />
                 Fill up referral form
               </Button>
             </div>
@@ -254,7 +253,14 @@ export default function ReferStudentPage() {
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 font-semibold">
                           {sessionSchedule.get(r.id) ? (
-                            formatWhen(sessionSchedule.get(r.id)!)
+                            <span className="inline-flex flex-col items-start gap-1">
+                              <span>{formatWhen(sessionSchedule.get(r.id)!)}</span>
+                              {hasReschedule(trail.get(r.id) ?? []) && (
+                                <span className="rounded-full bg-accent-100 px-2 py-px text-[10px] font-bold uppercase tracking-wider text-accent-700">
+                                  Rescheduled
+                                </span>
+                              )}
+                            </span>
                           ) : (
                             <span className="font-medium text-ink-faint">—</span>
                           )}

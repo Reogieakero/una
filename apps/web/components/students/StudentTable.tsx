@@ -1,7 +1,7 @@
 "use client";
 
 import { HoverMenu } from "@/components/shared/hover-menu";
-import { Badge, Card, Input } from "@/components/ui/primitives";
+import { Card, Input } from "@/components/ui/primitives";
 import { formatWhen } from "@/lib/format";
 
 export type Student = {
@@ -26,10 +26,10 @@ export type StudentAgg = {
   band: string | null;
 };
 
-export function bandTone(b: string): "success" | "warning" | "danger" {
-  if (b === "high") return "danger";
-  if (b === "moderate") return "warning";
-  return "success";
+export function bandTone(b: string): string {
+  if (b === "high") return "bg-accent-700 text-white";
+  if (b === "moderate") return "bg-accent-100 text-accent-700";
+  return "bg-primary-100 text-primary-800";
 }
 
 export function bandLabel(b: string): string {
@@ -153,7 +153,7 @@ export function StudentTable({
                 </td>
                 <td className="px-4 py-3 text-center">
                   {agg && agg.openRefs > 0 ? (
-                    <span className="inline-block rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
+                    <span className="inline-block rounded-full bg-accent-100 px-2.5 py-0.5 text-[11px] font-bold text-accent-700">
                       {agg.openRefs} open
                     </span>
                   ) : (
@@ -162,7 +162,9 @@ export function StudentTable({
                 </td>
                 <td className="px-4 py-3 text-center">
                   {agg?.band ? (
-                    <Badge tone={bandTone(agg.band)}>{bandLabel(agg.band)}</Badge>
+                    <span className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold ${bandTone(agg.band)}`}>
+                      {bandLabel(agg.band)}
+                    </span>
                   ) : (
                     <span className="text-ink-faint">—</span>
                   )}
@@ -179,9 +181,9 @@ export function StudentTable({
       )}
       {loading && (
         <div className="animate-pulse space-y-3 p-4" aria-hidden>
-          <div className="h-10 rounded-xl bg-ink/10" />
-          <div className="h-10 rounded-xl bg-ink/10" />
-          <div className="h-10 rounded-xl bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
         </div>
       )}
       </div>

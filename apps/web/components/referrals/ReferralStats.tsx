@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, ChevronDown, Info } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useClampedPanel } from "@/components/shared/hover-menu";
 import { cn } from "@/lib/utils";
 import { COUNSELOR_LEGEND, HEAD_LEGEND } from "./status";
@@ -88,21 +88,17 @@ export function ReferralStatsMenu({
         onBlur={scheduleStatsClose}
         aria-haspopup="dialog"
         aria-expanded={statsOpen}
-        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+        className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
       >
-        <BarChart3 className="h-4 w-4" aria-hidden />
         Stats
-        <ChevronDown
-          aria-hidden
-          className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
-        />
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
       </button>
       {statsOpen && (
         <div
           role="dialog"
           aria-label="Referral stats"
           style={{ top: statsPos?.top, left: statsPos?.left, width: statsPos?.width ?? 288 }}
-          className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+          className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
         >
           {statCards.map((s) => (
             <button
@@ -175,21 +171,17 @@ export function ReferralActionsLegend({ role }: { role: string | null }) {
         onBlur={scheduleLegendClose}
         aria-haspopup="dialog"
         aria-expanded={legendOpen}
-        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+        className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
       >
-        <Info className="h-4 w-4" aria-hidden />
         {role === "guidance_head" ? "Admin actions" : "Counselor actions"}
-        <ChevronDown
-          aria-hidden
-          className={cn("h-4 w-4 transition-transform", legendOpen && "rotate-180")}
-        />
+        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", legendOpen && "rotate-180")} />
       </button>
       {legendOpen && (
         <div
           role="dialog"
           aria-label={role === "guidance_head" ? "Admin actions legend" : "Counselor actions legend"}
           style={{ top: legendPos?.top, left: legendPos?.left, width: legendPos?.width ?? 320 }}
-          className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-ink/10 bg-white px-4 py-3 shadow-card"
+          className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-ink/10 bg-white px-4 py-3 shadow-card"
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
             {role === "guidance_head" ? "Admin actions" : "Counselor actions"}

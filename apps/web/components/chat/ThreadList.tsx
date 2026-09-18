@@ -22,6 +22,7 @@ export function ThreadList({
   setStatusFilter,
   isOffice,
   isFaculty,
+  isCounselor,
   showThreadMobile,
   aliases,
   previews,
@@ -43,6 +44,8 @@ export function ThreadList({
   isOffice: boolean;
   /** Faculty inbox is DMs only — shows the compose button, hides thread pills. */
   isFaculty?: boolean;
+  /** Counselors get the compose button to message faculty (threads stay). */
+  isCounselor?: boolean;
   showThreadMobile: boolean;
   aliases: Map<string, { alias: string; profileId: string }>;
   previews: Map<string, ChatMsg>;
@@ -67,13 +70,13 @@ export function ThreadList({
             {convos.length}
           </span>
         </h2>
-        {(isOffice || isFaculty) && (
+        {(isOffice || isFaculty || isCounselor) && (
           <button
             type="button"
             onClick={onNewMessage}
-            title={isFaculty ? "Message the office" : "Message a counselor"}
-            aria-label={isFaculty ? "Message the office" : "Message a counselor"}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-600 text-white shadow-soft transition hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            title={isFaculty ? "Message the office" : isCounselor ? "Message faculty" : "Message a counselor"}
+            aria-label={isFaculty ? "Message the office" : isCounselor ? "Message faculty" : "Message a counselor"}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary-600 text-white shadow-soft transition hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
           >
             <Plus className="h-4 w-4" aria-hidden />
           </button>
@@ -107,7 +110,7 @@ export function ThreadList({
       <ul className="no-scrollbar mt-3 max-h-[52vh] space-y-1 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1">
         {loading &&
           Array.from({ length: 5 }).map((_, i) => (
-            <li key={i} className="flex animate-pulse items-center gap-3 rounded-xl px-2 py-2.5" aria-hidden>
+            <li key={i} className="flex animate-pulse items-center gap-3 rounded-lg px-2 py-2.5" aria-hidden>
               <div className="h-10 w-10 shrink-0 rounded-full bg-ink/10" />
               <div className="min-w-0 flex-1 space-y-1.5">
                 <div className="h-3 w-2/3 rounded-full bg-ink/10" />
@@ -129,7 +132,7 @@ export function ThreadList({
                     type="button"
                     onClick={() => openThread(t.id)}
                     aria-current={selected ? "true" : undefined}
-                    className={`flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
+                    className={`flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors ${
                       selected ? "bg-blue-50 ring-1 ring-blue-100" : "hover:bg-cream"
                     }`}
                   >
@@ -171,7 +174,7 @@ export function ThreadList({
                   type="button"
                   onClick={() => openDm(c.peer)}
                   aria-current={selected ? "true" : undefined}
-                  className={`flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
+                  className={`flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors ${
                     selected ? "bg-blue-50 ring-1 ring-blue-100" : "hover:bg-cream"
                   }`}
                 >

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Download, Loader2, Printer, Send, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import type { CreateReferralInput } from "@dorsu/shared-schemas";
 import { createReferral } from "@dorsu/shared-services";
 import { createClient } from "@/lib/supabase/client";
@@ -305,7 +305,7 @@ export function ReferralExcelModal({
       aria-labelledby="ref-excel-title"
     >
       <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={close} />
-      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-6 shadow-card sm:max-w-2xl">
+      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-6 shadow-card sm:max-w-2xl">
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 id="ref-excel-title" className="font-display text-lg font-bold text-ink">
@@ -317,7 +317,7 @@ export function ReferralExcelModal({
                 : "Check every detail below — download it as Excel or PDF, or press Refer to file it with the Guidance Office."}
             </p>
           </div>
-          <Button size="sm" variant="outline" onClick={close} aria-label="Close" className="shrink-0">
+          <Button size="sm" variant="ghost" onClick={close} aria-label="Close" className="shrink-0">
             <X className="h-4 w-4" aria-hidden />
           </Button>
         </div>
@@ -509,7 +509,7 @@ export function ReferralExcelModal({
             <FieldError message={errors.referrer} />
           </div>
 
-          <div className="rounded-2xl border border-ink/10 bg-cream/60 p-4">
+          <div className="rounded-lg border border-ink/10 bg-cream/60 p-4">
             <p className="text-xs font-bold text-ink-muted">Office routing</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
               Not on the paper form — decides how fast the head acts after you press Refer.
@@ -531,7 +531,7 @@ export function ReferralExcelModal({
               </div>
               <div>
                 <span className={labelCls}>Status on refer</span>
-                <div className="flex items-center gap-2 rounded-2xl border border-ink/15 bg-white px-4 py-2.5 text-sm">
+                <div className="flex items-center gap-2 rounded-lg border border-ink/15 bg-white px-4 py-2.5 text-sm">
                   <Badge tone="warning">Pending</Badge>
                   <span className="text-[11px] font-medium text-ink-faint">
                     Head assigns a counselor
@@ -542,7 +542,7 @@ export function ReferralExcelModal({
           </div>
         </div>
         ) : (
-        <div className="mt-4 rounded-xl border border-ink/10 p-4 sm:p-6">
+        <div className="mt-4 rounded-lg border border-ink/10 p-4 sm:p-6">
           <ReferralExcelPreview data={previewData} />
         </div>
         )}
@@ -568,23 +568,12 @@ export function ReferralExcelModal({
                 Back
               </Button>
               <Button size="sm" variant="outline" disabled={!!busy} onClick={downloadPdf}>
-                {busy === "pdf" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Printer className="h-4 w-4" aria-hidden />
-                )}
                 {busy === "pdf" ? "Building PDF…" : "Download PDF"}
               </Button>
               <Button size="sm" variant="primary" disabled={!!busy} onClick={download}>
-                {busy === "excel" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
                 {busy === "excel" ? "Building Excel…" : "Download Excel"}
               </Button>
               <Button size="sm" variant="accent" disabled={!!busy} onClick={refer}>
-                {busy === "refer" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Send className="h-4 w-4" aria-hidden />
-                )}
                 {busy === "refer" ? "Referring…" : "Refer"}
               </Button>
             </>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
@@ -11,16 +11,28 @@ import {
   type ReferralsBoardData,
 } from "@/lib/hooks/use-referrals-board";
 import { useMutationAction } from "@/lib/hooks/use-mutation-action";
+import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
 import { patchBoard } from "@/lib/patch-board";
 import {
   assignReferral,
   completeAppointment,
   confirmReferralWithSession,
+  isMeetUrl,
   rejectReferral,
+  rescheduleAppointmentByCounselor,
   triageReferral,
 } from "@dorsu/shared-services";
 import { APPOINTMENTS_BOARD_KEY } from "@/lib/hooks/use-appointments-board";
+import { SESSIONS_CALENDAR_KEY } from "@/lib/hooks/use-sessions-calendar";
 import type { Appt } from "@/components/appointments/status";
+import { ACTION_DEFS, formatScheduleRange } from "@/components/appointments/status";
+import { AppointmentConfirmDialogs } from "@/components/appointments/AppointmentConfirmDialogs";
+import {
+  composeLocal,
+  defaultSchedule,
+  selectionFitsScope,
+  type ScheduleSelection,
+} from "@/components/appointments/SlotSchedulePicker";
 import { Card } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
 import {
@@ -32,7 +44,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { NO_SESSION_MSG, classificationSummary, referralStudentName, statusLabel, type RefAction, type Referral, type TriageKind } from "@/components/referrals/status";
-import { formatWhen, isSessionUpcoming, parseScheduleNote, parseSessionMode } from "@/components/referrals/format-helpers";
+import { formatWhen, isSessionUpcoming, latestSessionSchedule, parseScheduleNote, parseSessionMode } from "@/components/referrals/format-helpers";
 import { ReferralActionsLegend, ReferralStatsMenu } from "@/components/referrals/ReferralStats";
 import { ReferralsBoard } from "@/components/referrals/ReferralsBoard";
 import { ReferralFormModal } from "@/components/referrals/ReferralFormModal";
@@ -84,12 +96,143 @@ export default function ReferralsPage() {
   // referrals may resolve (same flow as appointment sessions).
   const readyStudents = board?.readyStudents ?? EMPTY_READY;
   const loading = isLoading && !board;
+  // Visiting the section clears its sidebar badge (badges count unread
+  // notification rows, not page views).
+  useClearSectionBadge("/referrals", !loading && !!board);
+
+  const slots = board?.slots ?? [];
+
+  // Counselor reschedule of the referral's upcoming linked session — resolves
+  // the minted appointment, verifies it is still movable, and opens the same
+  // schedule dialog as /appointments (slots-scoped, Meet link for online).
+  const askReschedule = async (ref: Referral) => {
+    if (!isCounselor || !counselorId) return;
+    try {
+      const { data } = await createClient()
+        .from("appointments")
+        .select("id,student_id,counselor_id,scheduled_at,ends_at,mode,status,concern,meeting_url,is_follow_up,follow_up_of")
+        .eq("source_referral_id", ref.id)
+        .order("scheduled_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const row = (data ?? null) as Appt | null;
+      if (
+        !row ||
+        row.counselor_id !== counselorId ||
+        !["assigned", "confirmed"].includes(row.status) ||
+        !isSessionUpcoming(row.scheduled_at)
+      ) {
+        toast.message("No upcoming session to reschedule for this referral.");
+        return;
+      }
+      setSched(defaultSchedule(slots, new Date(row.scheduled_at)));
+      setScheduleError(null);
+      setMeetingInput(row.meeting_url ?? "");
+      setMeetingError(null);
+      setRescheduling({ ref, appt: row });
+    } catch {
+      toast.error("Couldn't load that session — please try again.");
+    }
+  };
+
+  const closeRescheduling = () => {
+    if (reschedBusyRef.current) return;
+    setRescheduling(null);
+    setMeetingInput("");
+    setMeetingError(null);
+    setScheduleError(null);
+  };
+
+  const runReschedule = async () => {
+    if (!rescheduling || reschedBusyRef.current) return;
+    const { ref, appt } = rescheduling;
+    if (!sched) { setScheduleError("Pick a date and time inside your availability slots."); return; }
+    if (!selectionFitsScope(slots, sched)) { setScheduleError("That window is outside your availability slots — pick one inside."); return; }
+    const scheduledAt = composeLocal(sched.date, sched.start);
+    const endsAt = composeLocal(sched.date, sched.end);
+    if (Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() <= Date.now()) { setScheduleError("Sessions must be scheduled in the future."); return; }
+    if (Number.isNaN(endsAt.getTime()) || endsAt.getTime() <= scheduledAt.getTime()) { setScheduleError("The end time must be after the start time."); return; }
+    const when = formatScheduleRange(scheduledAt.toISOString(), endsAt.toISOString());
+    let meetingUrl: string | null = null;
+    if (appt.mode === "online") {
+      const link = meetingInput.trim();
+      if (!link) { setMeetingError("Paste the Google Meet link for this online session."); return; }
+      if (!isMeetUrl(link)) { setMeetingError("That doesn't look like a Google Meet link — paste a meet.google.com link."); return; }
+      meetingUrl = link;
+    }
+    reschedBusyRef.current = true;
+    setReschedBusy(true);
+    try {
+      const result = await runMutation(
+        ref.id,
+        () => rescheduleAppointmentByCounselor(createClient(), appt.id, scheduledAt, endsAt),
+        {
+          label: "reschedule that session",
+          friendly: /future|valid session|valid date|valid end|after the start|meet link|only assigned|assigned or confirmed|availability|slot|overlap|free window/i,
+        }
+      );
+      if (!result.ok) return;
+      const def = ACTION_DEFS.reschedule;
+      const studentBody = meetingUrl ? `${def.doneBody(when)} Join here: ${meetingUrl}` : def.doneBody(when);
+      const studentProfile = appt.student_id ? studentProfiles.get(appt.student_id) : undefined;
+      void notifyStaff([studentProfile], {
+        type: "appointment",
+        title: def.doneTitle,
+        body: studentBody,
+        link: "/appointments",
+        dedupeKey: `appt:${appt.id}:rescheduled`,
+        tone: "success",
+      });
+      const alias = referralStudentName(ref, aliases);
+      void notifyStaff(headIds, {
+        type: "appointment",
+        title: `Session rescheduled — ${alias}`,
+        body: `${alias} · ${when}`,
+        link: `/appointments#focus-${appt.id}`,
+        dedupeKey: `appt:${appt.id}:rescheduled`,
+        tone: "success",
+      });
+      // The referring faculty hears the move on the referral itself (their
+      // channel — the reschedule also lands in the trail + schedule log).
+      const referrer = ref.referring_faculty_id ? facultyProfiles.get(ref.referring_faculty_id) : null;
+      void notifyStaff([referrer], {
+        type: "referral",
+        title: "Session rescheduled",
+        body: `"${shortReason(ref.reason)}" — ${alias} · new session ${when}.`,
+        link: `/referrals#focus-${ref.id}`,
+        dedupeKey: `referral:${ref.id}:rescheduled`,
+        tone: "info",
+      });
+      // The trail gains the reschedule entry — reconcile every surface that
+      // reads it, plus the moved session's boards.
+      void refetch().catch(() => {});
+      void qc.invalidateQueries({ queryKey: [...APPOINTMENTS_BOARD_KEY] }).catch(() => {});
+      void qc.invalidateQueries({ queryKey: [...SESSIONS_CALENDAR_KEY] }).catch(() => {});
+      toast.success(def.doneTitle, { description: def.okBody(when), position: "top-right" });
+    } finally {
+      reschedBusyRef.current = false;
+      setReschedBusy(false);
+      setRescheduling(null);
+      setMeetingInput("");
+      setMeetingError(null);
+      setScheduleError(null);
+    }
+  };
   const { busyId, run: runMutation } = useMutationAction();
   const filters = useReferralFilters();
   const { statusFilter, priorityFilter, assigneeFilter, query, resetFilters } = filters;
   const [confirming, setConfirming] = useState<{ ref: Referral; to: TriageKind } | null>(null);
   const [formRef, setFormRef] = useState<Referral | null>(null);
   const [trackRef, setTrackRef] = useState<Referral | null>(null);
+  // Counselor reschedule of the referral's upcoming linked session — same
+  // confirm dialog + slot scoping as /appointments.
+  const [rescheduling, setRescheduling] = useState<{ ref: Referral; appt: Appt } | null>(null);
+  const [sched, setSched] = useState<ScheduleSelection | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [meetingInput, setMeetingInput] = useState("");
+  const [meetingError, setMeetingError] = useState<string | null>(null);
+  const [reschedBusy, setReschedBusy] = useState(false);
+  const reschedBusyRef = useRef(false);
   // Linked session opened for optional confidential documentation after a
   // counselor resolve (notes + images + follow-up — all skippable).
   const [notesAppt, setNotesAppt] = useState<Appt | null>(null);
@@ -147,12 +290,12 @@ export default function ReferralsPage() {
       });
   }, [mine, isCounselor, statusFilter, priorityFilter, assigneeFilter, query, aliases]);
 
-  // Counselor-set session time per referral, parsed from confirm notes.
+  // Counselor-set session time per referral — confirm note, overridden by
+  // every later reschedule in the trail.
   const sessionSchedule = useMemo(() => {
     const m = new Map<string, string>();
     for (const [refId, actions] of trail) {
-      const confirm = actions.find((a) => a.action === "confirmed" && parseScheduleNote(a.note));
-      const iso = confirm ? parseScheduleNote(confirm.note) : null;
+      const iso = latestSessionSchedule(actions, null);
       if (iso) m.set(refId, iso);
     }
     return m;
@@ -208,6 +351,28 @@ export default function ReferralsPage() {
     }
     setConfirming({ ref, to });
   };
+
+  // Deep-link from the dashboard: /referrals#triage-<id> opens the confirm
+  // dialog straight on the record so counselors never hunt for the row.
+  // Consumed once — the hash is handed to the row highlighter (#focus-) so
+  // the record stays visible behind/after the dialog.
+  const triageLinkRef = useRef(false);
+  useEffect(() => {
+    if (triageLinkRef.current || loading || !board) return;
+    const m = window.location.hash.match(/^#triage-(.+)$/);
+    if (!m) return;
+    triageLinkRef.current = true;
+    let id: string | null = null;
+    try { id = decodeURIComponent(m[1]); } catch { id = null; }
+    if (!id) return;
+    const ref = mine.find((r) => r.id === id) ?? rows.find((r) => r.id === id) ?? null;
+    if (ref && ref.status === "assigned" && canTriage) {
+      askConfirm(ref, "confirmed");
+    }
+    window.history.replaceState(null, "", `#focus-${id}`);
+    window.dispatchEvent(new Event("hashchange"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, board]);
 
   const patchRow = (id: string, patch: { status?: string; assigned_counselor_id?: string | null }) =>
     patchBoard<ReferralsBoardData>(qc, [...REFERRALS_BOARD_KEY], (prev) => ({
@@ -440,9 +605,39 @@ export default function ReferralsPage() {
 
   const closeConfirming = useCallback(() => setConfirming(null), []);
   const closeForm = useCallback(() => setFormRef(null), []);
+
+  useEffect(() => {
+    if (!rescheduling) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !reschedBusyRef.current) closeRescheduling();
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [rescheduling]);
   const openForm = useCallback((r: Referral) => {
     setFormRef(r);
   }, []);
+
+  // Deep-link from other pages: /referrals#focus-<id> auto-opens the
+  // official-form overlay for that record (consumed once) so nobody hunts
+  // rows. The hash stays so the row ring still highlights behind it.
+  // Counselors resolve within their own queue; other roles use all rows.
+  const focusLinkRef = useRef(false);
+  useEffect(() => {
+    if (focusLinkRef.current || loading || !board) return;
+    const m = window.location.hash.match(/^#focus-(.+)$/);
+    if (!m) return;
+    focusLinkRef.current = true;
+    let id: string | null = null;
+    try { id = decodeURIComponent(m[1]); } catch { id = null; }
+    if (!id) return;
+    const pool = isCounselor ? mine : rows;
+    const found = pool.find((r) => r.id === id) ?? rows.find((r) => r.id === id) ?? null;
+    if (found) openForm(found);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, board]);
 
   if (!loading && (!role || !["counselor", "guidance_head", "faculty"].includes(role))) {
     return (
@@ -544,6 +739,7 @@ export default function ReferralsPage() {
           referrerLabel={referrerLabel}
           onAssign={(ref, id) => void assign(ref, id)}
           onAskConfirm={askConfirm}
+          onReschedule={(ref) => void askReschedule(ref)}
           // Every view opens the official Counseling Referral Form directly.
           onViewReason={openForm}
           onTrack={setTrackRef}
@@ -558,8 +754,6 @@ export default function ReferralsPage() {
           headIds={headIds}
           rows={rows}
           aliases={aliases}
-          openMenuKey={filters.openMenuKey}
-          onOpenMenuChange={filters.setOpenMenuKey}
           myName={board?.myName ?? "Faculty"}
           onViewForm={openForm}
           onSubmitted={() => {
@@ -579,6 +773,22 @@ export default function ReferralsPage() {
         canResolve={canResolve}
         onClose={closeConfirming}
         onSubmit={act}
+      />
+
+      {/* Counselor reschedule of the linked upcoming session */}
+      <AppointmentConfirmDialogs
+        confirming={rescheduling ? { appt: rescheduling.appt, kind: "reschedule" } : null}
+        aliases={aliases}
+        slots={slots}
+        sched={sched}
+        onSchedChange={(v) => { setSched(v); setScheduleError(null); }}
+        scheduleError={scheduleError}
+        meetingInput={meetingInput}
+        onMeetingChange={(v) => { setMeetingInput(v); setMeetingError(null); }}
+        meetingError={meetingError}
+        confirmBusy={reschedBusy}
+        onClose={closeRescheduling}
+        onSubmit={() => void runReschedule()}
       />
 
       {/* Official-form record (modal + print/PDF) */}

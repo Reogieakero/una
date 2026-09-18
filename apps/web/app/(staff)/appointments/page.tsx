@@ -11,6 +11,7 @@ import {
   type AppointmentsBoardData,
 } from "@/lib/hooks/use-appointments-board";
 import { useMutationAction } from "@/lib/hooks/use-mutation-action";
+import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
 import { patchBoard } from "@/lib/patch-board";
 import { Card } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
@@ -65,6 +66,9 @@ export default function AppointmentsPage() {
   const counselors = board?.counselors ?? EMPTY_COUNSELORS;
   const slots = board?.slots ?? [];
   const loading = isLoading && !board;
+  // Visiting the section clears its sidebar badge (badges count unread
+  // notification rows, not page views).
+  useClearSectionBadge("/appointments", !loading && !!board);
   const [confirming, setConfirming] = useState<{ appt: Appt; kind: ActionKind } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const confirmBusyRef = useRef(false);
@@ -183,6 +187,27 @@ export default function AppointmentsPage() {
     document.body.style.overflow = "hidden";
     return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
   }, [detail, confirming]);
+
+  // Deep-link from the dashboard: /appointments#confirm-<id> opens the
+  // confirm dialog straight on the record so counselors never hunt for the
+  // row. Consumed once — the hash is handed to the row highlighter (#focus-)
+  // so the record stays visible behind/after the dialog.
+  const confirmLinkRef = useRef(false);
+  useEffect(() => {
+    if (confirmLinkRef.current || loading || !board) return;
+    const m = window.location.hash.match(/^#confirm-(.+)$/);
+    if (!m) return;
+    confirmLinkRef.current = true;
+    let id: string | null = null;
+    try { id = decodeURIComponent(m[1]); } catch { id = null; }
+    if (!id) return;
+    const appt = rows.find((a) => a.id === id);
+    if (appt && appt.status === "assigned" && isCounselor) {
+      setConfirming({ appt, kind: "confirm" });
+    }
+    window.history.replaceState(null, "", `#focus-${id}`);
+    window.dispatchEvent(new Event("hashchange"));
+  }, [loading, board, rows, isCounselor]);
 
   const runConfirming = async () => {
     if (!confirming || confirmBusyRef.current) return;

@@ -12,10 +12,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     <button
       ref={ref}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-full font-display font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50 disabled:pointer-events-none",
-        size === "sm" && "px-4 py-1.5 text-sm",
-        size === "md" && "px-6 py-2.5 text-sm",
-        size === "lg" && "px-8 py-3.5 text-base",
+        "inline-flex h-8 items-center justify-center whitespace-nowrap rounded px-4 font-display text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50 disabled:pointer-events-none",
+        // Single 32px height spec — sm/md/lg aliases kept for API compat.
+        size === "sm" && "h-8 px-4 text-sm",
+        size === "md" && "h-8 px-4 text-sm",
+        size === "lg" && "h-8 px-4 text-sm",
         variant === "primary" && "bg-primary-600 text-white shadow-soft hover:bg-primary-700",
         variant === "secondary" && "bg-white text-ink shadow-card hover:bg-cream-dark",
         variant === "accent" && "bg-accent-400 text-ink hover:bg-accent-300",

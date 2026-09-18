@@ -9,7 +9,6 @@ import {
   Inbox,
   Megaphone,
   MessagesSquare,
-  RefreshCw,
   ShieldAlert,
   UserPlus,
 } from "lucide-react";
@@ -127,9 +126,8 @@ export function FacultyDashboardView({ name }: { name: string | null }) {
           <button
             type="button"
             onClick={() => refetch()}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-red-600 px-4 py-2 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
           >
-            <RefreshCw className="h-4 w-4" aria-hidden />
             Try again
           </button>
         </div>
@@ -163,7 +161,7 @@ export function FacultyDashboardView({ name }: { name: string | null }) {
           >
             {loading || !data ? (
               <div className="animate-pulse pt-4" aria-hidden>
-                <div className="h-[180px] rounded-xl bg-ink/10" />
+                <div className="h-[180px] rounded-lg bg-ink/10" />
               </div>
             ) : !data.trend.some((b) => b.referrals > 0) ? (
               <EmptyState
@@ -185,19 +183,24 @@ export function FacultyDashboardView({ name }: { name: string | null }) {
               ) : (
                 <ul className="mt-3 divide-y divide-ink/10">
                   {data.attention.map((r) => (
-                    <li key={r.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-ink">
-                          {r.studentAlias}
-                          <span className="ml-2 text-[11px] font-medium text-ink-faint">{timeAgoLong(r.createdAt)}</span>
-                        </p>
-                        <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">
-                          {classificationSummary(r.classification)} · {r.reason}
-                        </p>
-                      </div>
-                      <span className={cn("shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize", STATUS_TONE[r.status] ?? "bg-ink/10 text-ink-muted")}>
-                        {r.status.replace(/_/g, " ")}
-                      </span>
+                    <li key={r.id}>
+                      <Link
+                        href={`/referrals#focus-${r.id}`}
+                        className="group flex items-start justify-between gap-3 rounded-md py-2.5 first:pt-0 last:pb-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-ink group-hover:text-primary-700">
+                            {r.studentAlias}
+                            <span className="ml-2 text-[11px] font-medium text-ink-faint">{timeAgoLong(r.createdAt)}</span>
+                          </p>
+                          <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">
+                            {classificationSummary(r.classification)} · {r.reason}
+                          </p>
+                        </div>
+                        <span className={cn("shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize", STATUS_TONE[r.status] ?? "bg-ink/10 text-ink-muted")}>
+                          {r.status.replace(/_/g, " ")}
+                        </span>
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -212,24 +215,29 @@ export function FacultyDashboardView({ name }: { name: string | null }) {
               ) : (
                 <ul className="mt-3 divide-y divide-ink/10">
                   {data.recent.map((r) => (
-                    <li key={r.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-ink">
-                          {r.studentAlias}
-                          <span className="ml-2 text-[11px] font-medium text-ink-faint">{timeAgoLong(r.createdAt)}</span>
-                        </p>
-                        <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">
-                          {classificationSummary(r.classification)} · {r.reason}
-                        </p>
-                      </div>
-                      <span className="flex shrink-0 items-center gap-1.5">
-                        <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold capitalize", PRIORITY_TONE[r.priority] ?? "bg-ink/10 text-ink-muted")}>
-                          {r.priority}
+                    <li key={r.id}>
+                      <Link
+                        href={`/referrals#focus-${r.id}`}
+                        className="group flex items-start justify-between gap-3 rounded-md py-2.5 first:pt-0 last:pb-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-ink group-hover:text-primary-700">
+                            {r.studentAlias}
+                            <span className="ml-2 text-[11px] font-medium text-ink-faint">{timeAgoLong(r.createdAt)}</span>
+                          </p>
+                          <p className="mt-0.5 line-clamp-1 text-[13px] text-ink-muted">
+                            {classificationSummary(r.classification)} · {r.reason}
+                          </p>
+                        </div>
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold capitalize", PRIORITY_TONE[r.priority] ?? "bg-ink/10 text-ink-muted")}>
+                            {r.priority}
+                          </span>
+                          <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize", STATUS_TONE[r.status] ?? "bg-ink/10 text-ink-muted")}>
+                            {r.status.replace(/_/g, " ")}
+                          </span>
                         </span>
-                        <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize", STATUS_TONE[r.status] ?? "bg-ink/10 text-ink-muted")}>
-                          {r.status.replace(/_/g, " ")}
-                        </span>
-                      </span>
+                      </Link>
                     </li>
                   ))}
                 </ul>

@@ -15,16 +15,46 @@ export const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-/** Status → pill colors (same language as dashboard + appointments). */
+/** Status → pill colors (primary blue + secondary accent only). */
 export const STATUS_PILL: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-800",
-  assigned: "bg-indigo-100 text-indigo-800",
-  confirmed: "bg-blue-100 text-blue-800",
-  completed: "bg-green-100 text-green-800",
+  pending: "bg-accent-100 text-accent-700",
+  assigned: "bg-accent-100 text-accent-700",
+  confirmed: "bg-primary-100 text-primary-800",
+  completed: "bg-primary-700 text-white",
   cancelled: "bg-ink/10 text-ink-muted",
-  rejected: "bg-red-100 text-red-700",
-  no_show: "bg-red-100 text-red-700",
+  rejected: "bg-accent-700 text-white",
+  no_show: "bg-accent-700 text-white",
 };
+
+/** Assumed length when a session has no counselor-picked end time. */
+export const DEFAULT_SESSION_MINUTES = 60;
+
+/** End-of-session epoch ms — counselor-picked end, else start + default length. */
+export function sessionEndMs(scheduledAt: string, endsAt: string | null): number {
+  const start = new Date(scheduledAt).getTime();
+  if (Number.isNaN(start)) return Number.NaN;
+  const end = endsAt ? new Date(endsAt).getTime() : Number.NaN;
+  if (!Number.isNaN(end) && end > start) return end;
+  return start + DEFAULT_SESSION_MINUTES * 60_000;
+}
+
+/** Live window: start time reached, end not yet passed. */
+export function isSessionLive(scheduledAt: string, endsAt: string | null, now: number = Date.now()): boolean {
+  const start = new Date(scheduledAt).getTime();
+  if (Number.isNaN(start) || start > now) return false;
+  return now < sessionEndMs(scheduledAt, endsAt);
+}
+
+/** Session phase relative to now — drives live badges, banners, and action unlocks. */
+export function sessionPhase(
+  scheduledAt: string,
+  endsAt: string | null,
+  now: number = Date.now()
+): "upcoming" | "live" | "past" {
+  const start = new Date(scheduledAt).getTime();
+  if (Number.isNaN(start) || start > now) return "upcoming";
+  return now < sessionEndMs(scheduledAt, endsAt) ? "live" : "past";
+}
 
 export function dayKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;

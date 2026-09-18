@@ -200,13 +200,13 @@ function ProfileMenu({ profile }: { profile: NavProfile }) {
         >
           {initial}
         </span>
-        <ChevronDown aria-hidden className={cn("h-4 w-4 text-ink-muted transition-transform", open && "rotate-180")} />
+        <ChevronDown aria-hidden className={cn("h-4 w-4 text-ink-muted transition-transform duration-200", open && "rotate-180")} />
       </button>
       {open && (
         <div
           role="menu"
           aria-label="Account"
-          className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-card"
+          className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-lg border border-ink/10 bg-white shadow-card"
         >
           <div className="flex items-center gap-3 px-4 py-3">
             <span
@@ -299,7 +299,7 @@ function NotifBell() {
         )}
       </Link>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-card">
+        <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-lg border border-ink/10 bg-white shadow-card">
           <p className="border-b border-ink/10 px-4 py-2.5 font-display text-sm font-bold text-ink">
             Notifications {count > 0 && <span className="text-ink-muted">· {count} unread</span>}
           </p>

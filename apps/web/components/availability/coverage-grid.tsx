@@ -38,7 +38,7 @@ export function CoverageGrid({
       {loading ? (
         <div className="mt-4 grid animate-pulse grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7" aria-hidden>
           {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="h-28 rounded-xl bg-ink/10" />
+            <div key={i} className="h-28 rounded-lg bg-ink/10" />
           ))}
         </div>
       ) : (
@@ -48,8 +48,8 @@ export function CoverageGrid({
               key={d.day}
               className={
                 d.items.length
-                  ? "rounded-xl border border-ink/10 bg-cream px-3 py-2.5"
-                  : "rounded-xl border-2 border-dashed border-red-300 bg-red-50 px-3 py-2.5"
+                  ? "rounded-lg border border-ink/10 bg-cream px-3 py-2.5"
+                  : "rounded-lg border-2 border-dashed border-red-300 bg-red-50 px-3 py-2.5"
               }
             >
               <p className="text-xs font-bold uppercase tracking-wider text-ink-muted">{d.label}</p>

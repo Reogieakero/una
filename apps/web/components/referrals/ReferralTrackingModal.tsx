@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { Badge, Button } from "@/components/ui/primitives";
 import { classificationSummary, referralStudentName, statusLabel, statusTone } from "./status";
-import { formatSessionMode, formatWhen, timeAgo } from "./format-helpers";
+import { formatSessionMode, formatWhen, latestSessionSchedule, sessionScheduleLog, timeAgo } from "./format-helpers";
 import type { Referral } from "./status";
 import type { RefAction } from "./status";
 
@@ -92,6 +92,12 @@ export function ReferralTrackingModal({
     (a, b) => +new Date(b.created_at) - +new Date(a.created_at)
   );
 
+  // Effective schedule: the confirm ISO overridden by every later reschedule
+  // in the trail — stays correct after session moves (faculty cannot read
+  // appointments via RLS, so the trail is the channel).
+  const effectiveIso = latestSessionSchedule(trail, sessionIso);
+  const scheduleLog = sessionScheduleLog(trail);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -117,7 +123,7 @@ export function ReferralTrackingModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-soft transition hover:bg-cream-dark hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-soft transition hover:bg-cream-dark hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
@@ -135,22 +141,63 @@ export function ReferralTrackingModal({
           <p className="flex items-center justify-between gap-2">
             <span className="font-medium text-ink-muted">Session</span>
             <span className="font-bold text-ink">
-              {sessionIso ? formatWhen(sessionIso) : "Not scheduled yet"}
+              {effectiveIso ? formatWhen(effectiveIso) : "Not scheduled yet"}
             </span>
           </p>
           <p className="flex items-center justify-between gap-2">
             <span className="font-medium text-ink-muted">Mode</span>
             <span className="font-bold text-ink">
-              {sessionIso ? formatSessionMode(sessionMode) : "—"}
+              {effectiveIso ? formatSessionMode(sessionMode) : "—"}
             </span>
           </p>
           <p className="flex items-center justify-between gap-2">
             <span className="font-medium text-ink-muted">Countdown</span>
             <span className="font-bold text-primary-700">
-              {sessionIso ? timeRemaining(sessionIso, now) : "Waiting for schedule"}
+              {effectiveIso ? timeRemaining(effectiveIso, now) : "Waiting for schedule"}
             </span>
           </p>
         </div>
+
+        {scheduleLog.length > 0 && (
+          <>
+            <h3 className="mt-5 font-display text-sm font-bold text-ink">Session schedule log</h3>
+            <ol className="mt-2 space-y-0">
+              {scheduleLog.map((e, i) => (
+                <li key={`${e.kind}-${e.at}-${i}`} className="relative flex gap-3 pb-4 last:pb-0">
+                  {i < scheduleLog.length - 1 && (
+                    <span aria-hidden className="absolute left-[5px] top-4 h-full w-px bg-ink/15" />
+                  )}
+                  <span
+                    aria-hidden
+                    className={`mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full ring-2 ring-white ${
+                      e.kind === "rescheduled" ? "bg-accent-500" : "bg-primary-600"
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-bold text-ink">
+                      {e.kind === "rescheduled" ? "Rescheduled" : "Scheduled"}
+                      <span className="ml-2 font-medium text-ink-faint">{timeAgo(e.at)}</span>
+                    </p>
+                    <p className="mt-0.5 text-[13px] font-semibold text-ink-soft">
+                      {e.kind === "rescheduled" && e.from
+                        ? `${formatWhen(e.from)} → ${formatWhen(e.iso)}`
+                        : formatWhen(e.iso)}
+                    </p>
+                    <p className="text-xs font-medium text-ink-muted">
+                      {(() => {
+                        const name = e.actorName ?? actorNames.get(e.actorId) ?? null;
+                        const role = e.actorRole ? (ROLE_LABEL[e.actorRole] ?? e.actorRole) : null;
+                        if (role && name) return `by ${role}: ${name}`;
+                        if (name) return `by ${name}`;
+                        return "by Guidance office";
+                      })()}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
 
         <h3 className="mt-5 font-display text-sm font-bold text-ink">Progress trail</h3>
         {ordered.length ? (

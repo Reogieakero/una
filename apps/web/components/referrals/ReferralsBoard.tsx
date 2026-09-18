@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Eye, LayoutGrid, List, Loader2, X } from "lucide-react";
+import { Activity, CalendarClock, Eye, Loader2, X } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
 import { HoverMenu } from "@/components/shared/hover-menu";
@@ -52,6 +52,7 @@ export function ReferralsBoard({
   referrerLabel,
   onAssign,
   onAskConfirm,
+  onReschedule,
   onViewReason,
   onTrack,
 }: {
@@ -77,6 +78,7 @@ export function ReferralsBoard({
   referrerLabel: (r: Referral) => string;
   onAssign: (ref: Referral, counselorId: string) => void;
   onAskConfirm: (ref: Referral, to: TriageKind) => void;
+  onReschedule: (ref: Referral) => void;
   onViewReason: (ref: Referral) => void;
   onTrack: (ref: Referral) => void;
 }) {
@@ -114,10 +116,10 @@ export function ReferralsBoard({
             </div>
           </div>
           <div className="mt-4 animate-pulse space-y-3">
-            <div className="h-12 rounded-xl bg-ink/10" />
-            <div className="h-12 rounded-xl bg-ink/10" />
-            <div className="h-12 rounded-xl bg-ink/10" />
-            <div className="h-12 rounded-xl bg-ink/10" />
+            <div className="h-12 rounded-lg bg-ink/10" />
+            <div className="h-12 rounded-lg bg-ink/10" />
+            <div className="h-12 rounded-lg bg-ink/10" />
+            <div className="h-12 rounded-lg bg-ink/10" />
           </div>
         </div>
       ) : (
@@ -171,24 +173,23 @@ export function ReferralsBoard({
                   onPick={setAssigneeFilter}
                 />
               )}
-              <div className="flex rounded-full border border-ink/15 bg-white p-1 shadow-card" role="group" aria-label="Board layout">
+              <div className="flex rounded border border-ink/15 bg-white p-1 shadow-card" role="group" aria-label="Board layout">
                 {(
                   [
-                    { v: "list", label: "List", Icon: List },
-                    { v: "grid", label: "Grid", Icon: LayoutGrid },
+                    { v: "list", label: "List" },
+                    { v: "grid", label: "Grid" },
                   ] as const
-                ).map(({ v, label, Icon }) => (
+                ).map(({ v, label }) => (
                   <button
                     key={v}
                     type="button"
                     aria-pressed={view === v}
                     onClick={() => setView(v)}
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[13px] font-bold transition-colors",
+                      "inline-flex h-8 items-center gap-1.5 rounded px-4 text-[13px] font-bold transition-colors",
                       view === v ? "bg-primary-600 text-white shadow-soft" : "text-ink-soft hover:bg-cream"
                     )}
                   >
-                    <Icon className="h-3.5 w-3.5" aria-hidden />
                     {label}
                   </button>
                 ))}
@@ -264,7 +265,7 @@ export function ReferralsBoard({
                                     value={r.assigned_counselor_id ?? ""}
                                     onChange={(v) => void onAssign(r, v)}
                                     ariaLabel={`Assign counselor for referral from ${referralStudentName(r, aliases)}`}
-                                    buttonClassName="max-w-[170px] rounded-xl px-2.5 py-1.5 text-[13px]"
+                                    buttonClassName="max-w-[170px] rounded px-2.5 text-[13px]"
                                     disabled={busyId === r.id}
                                     options={[
                                       { value: "", label: "Unassigned" },
@@ -284,9 +285,10 @@ export function ReferralsBoard({
                                 <span className="text-xs font-medium text-ink-faint">Assigned — unassign to reject</span>
                               )}
                               {/* Counselor: assigned → confirmed → resolved / escalated (resolve after session time). */}
-                              {isCounselor && r.status === "confirmed" && upcoming && (
-                                <span className="text-xs font-medium text-ink-faint">Upcoming session</span>
-                              )}
+                    {/* Counselor: reschedule the upcoming linked session; resolve/escalate after session time. */}
+                    {isCounselor && r.status === "confirmed" && upcoming && (
+                      <IconAction label="Reschedule session" variant="outline" icon={CalendarClock} disabled={busyId === r.id} onClick={() => onReschedule(r)} />
+                    )}
                               {isCounselor &&
                                 !(r.status === "confirmed" && upcoming) &&
                                 actions.map((s) => {
@@ -385,7 +387,7 @@ export function ReferralsBoard({
                               value={r.assigned_counselor_id ?? ""}
                               onChange={(v) => void onAssign(r, v)}
                               ariaLabel={`Assign counselor for referral from ${referralStudentName(r, aliases)}`}
-                              buttonClassName="rounded-xl px-2.5 py-1.5 text-[13px]"
+                              buttonClassName="rounded px-2.5 text-[13px]"
                               disabled={busyId === r.id}
                               options={[
                                 { value: "", label: "Unassigned" },
@@ -422,7 +424,9 @@ export function ReferralsBoard({
                       </div>
                     </div>
                     {showUpcoming ? (
-                      <p className="text-xs font-medium text-ink-faint">Upcoming session</p>
+                      <Button size="sm" variant="outline" disabled={busyId === r.id} onClick={() => onReschedule(r)}>
+                        Reschedule session
+                      </Button>
                     ) : actions.length > 0 || (canReject && r.status === "pending") ? (
                       <div className="flex flex-wrap gap-2">
                         {/* Admin: assign happens in the Handling row; reject lives here (pending only). */}
@@ -460,7 +464,7 @@ export function ReferralsBoard({
                       </p>
                     )}
                     {history.length > 0 && (
-                      <details className="rounded-xl bg-cream px-4 py-2.5 text-[13px]">
+                      <details className="rounded-lg bg-cream px-4 py-2.5 text-[13px]">
                         <summary className="cursor-pointer font-bold text-ink-soft">
                           Trail · {history.length} entr{history.length === 1 ? "y" : "ies"}
                         </summary>

@@ -92,7 +92,7 @@ export function StaffShell({
                 type="button"
                 onClick={() => setMenuOpen(false)}
                 aria-label="Close navigation menu"
-                className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft transition hover:bg-cream-dark hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                className="flex h-8 w-8 items-center justify-center rounded text-ink-soft transition hover:bg-cream-dark hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
               >
                 <X className="h-5 w-5" aria-hidden />
               </button>

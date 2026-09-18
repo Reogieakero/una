@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ImagePlus, Loader2, Lock, RefreshCw, X } from "lucide-react";
+import { Loader2, Lock, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, Button } from "@/components/ui/primitives";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
@@ -114,7 +114,8 @@ export function SessionNotesModal({
   slots = [],
   onClose,
 }: {
-  appt: Appt | null;
+  /** Minimal record the modal reads — full board rows satisfy this. */
+  appt: Pick<Appt, "id" | "scheduled_at" | "ends_at"> | null;
   studentLabel: string;
   /** Student profile id — notified when a follow-up session is scheduled/moved/cancelled. */
   studentProfileId: string | null;
@@ -368,7 +369,7 @@ export function SessionNotesModal({
   const renderThumbs = (items: { key: string; src: string | undefined; label: string; onRemove?: () => void; removing?: boolean }[]) => (
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
       {items.map((item) => (
-        <div key={item.key} className="group relative aspect-square overflow-hidden rounded-xl border border-ink/10 bg-cream">
+        <div key={item.key} className="group relative aspect-square overflow-hidden rounded-lg border border-ink/10 bg-cream">
           {item.src ? (
             <button
               type="button"
@@ -390,7 +391,7 @@ export function SessionNotesModal({
               onClick={item.onRemove}
               disabled={item.removing || busy}
               aria-label={`Remove ${item.label}`}
-              className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink/70 text-white transition hover:bg-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50"
+              className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded bg-white/90 text-ink shadow-card transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50"
             >
               {item.removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <X className="h-3.5 w-3.5" aria-hidden />}
             </button>
@@ -408,7 +409,7 @@ export function SessionNotesModal({
       aria-labelledby="session-notes-title"
     >
       <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => !busy && !removingId && onClose()} />
-      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white shadow-card sm:max-w-lg">
+      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white shadow-card sm:max-w-lg">
         <div className="flex items-start justify-between gap-3 border-b border-ink/10 px-6 pb-4 pt-5">
           <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">Confidential record</p>
@@ -431,7 +432,7 @@ export function SessionNotesModal({
               aria-label="Close session notes"
               onClick={onClose}
               disabled={busy || !!removingId}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-cream hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded text-ink-muted transition-colors hover:bg-cream hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50"
             >
               <X className="h-4 w-4" aria-hidden />
             </button>
@@ -439,7 +440,7 @@ export function SessionNotesModal({
         </div>
 
         <div className="space-y-4 px-6 py-5">
-          <p className="flex items-start gap-2 rounded-2xl bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
+          <p className="flex items-start gap-2 rounded-lg bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             {editable
               ? "Only you and the guidance head can read this — notes and images never appear in notifications, exports, or the audit trail."
@@ -452,7 +453,7 @@ export function SessionNotesModal({
               Loading session notes…
             </div>
           ) : isError && !data ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4" role="alert">
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4" role="alert">
               <p className="text-sm font-bold text-red-800">Couldn&apos;t load the notes</p>
               <p className="mt-1 text-[13px] text-red-700">
                 {(error as Error)?.message ?? "Something went wrong."}
@@ -460,9 +461,8 @@ export function SessionNotesModal({
               <button
                 type="button"
                 onClick={() => refetch()}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-red-600 px-4 py-2 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
               >
-                <RefreshCw className="h-4 w-4" aria-hidden />
                 Try again
               </button>
             </div>
@@ -480,7 +480,7 @@ export function SessionNotesModal({
                   maxLength={10000}
                   disabled={busy}
                   placeholder="Observations, interventions used, student response, plan… (at least 10 characters)"
-                  className="mt-1.5 w-full rounded-2xl border border-ink/15 bg-white px-4 py-3 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-60"
+                  className="mt-1.5 w-full rounded-lg border border-ink/15 bg-white px-4 py-3 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-60"
                 />
                 <div className="mt-1 flex items-center justify-between text-xs font-medium">
                   <span className={tooShort ? "text-red-600" : "text-ink-faint"}>
@@ -490,7 +490,7 @@ export function SessionNotesModal({
                 </div>
               </div>
 
-              <div className="space-y-3 rounded-2xl border border-ink/10 p-4">
+              <div className="space-y-3 rounded-lg border border-ink/10 p-4">
                 <label className="flex cursor-pointer items-center gap-2.5 text-sm font-bold text-ink">
                   <input
                     type="checkbox"
@@ -525,7 +525,7 @@ export function SessionNotesModal({
                         />
                       </div>
                     ) : (
-                      <p className="mt-1.5 rounded-2xl border border-ink/15 bg-white px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
+                      <p className="mt-1.5 rounded-lg border border-ink/15 bg-white px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
                         You have no availability windows in the next 28 days — follow-ups must fall inside them.{" "}
                         <Link href="/availability" className="font-bold text-primary-700 hover:underline">
                           Set your slots first
@@ -544,7 +544,7 @@ export function SessionNotesModal({
                 )}
               </div>
 
-              <div className="space-y-2 rounded-2xl border border-ink/10 p-4">
+              <div className="space-y-2 rounded-lg border border-ink/10 p-4">
                 <div className="flex items-center justify-between">
                   <p className="text-[13px] font-bold text-ink">
                     Supporting images{" "}
@@ -557,9 +557,8 @@ export function SessionNotesModal({
                       type="button"
                       onClick={() => fileRef.current?.click()}
                       disabled={busy}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3 py-1.5 text-xs font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50"
+                      className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50"
                     >
-                      <ImagePlus className="h-4 w-4" aria-hidden />
                       Add images
                     </button>
                   )}
@@ -609,28 +608,28 @@ export function SessionNotesModal({
             <>
               {existing ? (
                 <>
-                  <div className="rounded-2xl border border-ink/10 p-4">
+                  <div className="rounded-lg border border-ink/10 p-4">
                     <p className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">Note</p>
                     <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">{existing.content}</p>
                   </div>
                   <ul className="space-y-2">
-                    <li className="flex items-center justify-between gap-3 rounded-xl bg-cream px-4 py-3 text-sm">
+                    <li className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-3 text-sm">
                       <span className="font-semibold text-ink-soft">Follow-up needed</span>
                       <span className="font-bold text-ink">{existing.follow_up_required ? "Yes" : "No"}</span>
                     </li>
                     {existing.follow_up_at && (
-                      <li className="flex items-center justify-between gap-3 rounded-xl bg-cream px-4 py-3 text-sm">
+                      <li className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-3 text-sm">
                         <span className="font-semibold text-ink-soft">Follow-up date and time</span>
                         <span className="font-bold text-ink">{formatFollowUp(existing.follow_up_at)}</span>
                       </li>
                     )}
-                    <li className="flex items-center justify-between gap-3 rounded-xl bg-cream px-4 py-3 text-sm">
+                    <li className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-3 text-sm">
                       <span className="font-semibold text-ink-soft">Documented</span>
                       <span className="font-bold text-ink">{timeAgoLong(existing.created_at)}</span>
                     </li>
                   </ul>
                   {savedAttachments.length > 0 && (
-                    <div className="space-y-2 rounded-2xl border border-ink/10 p-4">
+                    <div className="space-y-2 rounded-lg border border-ink/10 p-4">
                       <p className="text-[13px] font-bold text-ink">
                         Supporting images{" "}
                         <span className="font-medium text-ink-faint">({savedAttachments.length})</span>
@@ -659,7 +658,6 @@ export function SessionNotesModal({
             </Button>
             {editable && (
               <Button size="sm" variant="accent" onClick={() => void handleSave()} disabled={!canSave}>
-                {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
                 {uploading ? "Attaching images…" : existing ? "Save changes" : "Save note"}
               </Button>
             )}

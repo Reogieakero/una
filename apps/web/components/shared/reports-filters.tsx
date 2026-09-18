@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays } from "lucide-react";
 import { REPORT_SECTIONS, isCustomRangeValid, type ReportSection } from "@/lib/reports-scope";
 import { useRestoreReportScope, writeStoredScope } from "@/lib/hooks/use-report-scope";
 import { HoverMenu } from "@/components/shared/hover-menu";
@@ -112,9 +111,8 @@ export function ReportsFilters({
           type="button"
           onClick={openRangeModal}
           aria-haspopup="dialog"
-          className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+          className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
         >
-          <CalendarDays className="h-4 w-4" aria-hidden />
           {rangeLabel}
         </button>
       </div>
@@ -142,8 +140,8 @@ export function ReportsFilters({
 export function ReportsFiltersSkeleton() {
   return (
     <div aria-hidden className="flex animate-pulse items-center justify-end gap-2">
-      <div className="h-9 w-32 rounded-full bg-ink/10" />
-      <div className="h-9 w-40 rounded-full bg-ink/10" />
+      <div className="h-8 w-32 rounded bg-ink/10" />
+      <div className="h-8 w-40 rounded bg-ink/10" />
     </div>
   );
 }

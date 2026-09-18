@@ -54,7 +54,7 @@ export function NewMessageModal({
       aria-labelledby="msg-counselor-title"
     >
       <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={onClose} />
-      <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-card">
+      <div className="relative w-full max-w-sm rounded-lg bg-white p-6 shadow-card">
         <h2 id="msg-counselor-title" className="font-display text-lg font-bold text-ink">
           {title}
         </h2>

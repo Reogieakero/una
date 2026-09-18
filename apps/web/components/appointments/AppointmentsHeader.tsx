@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, ChevronDown, Info } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useClampedPanel } from "@/components/shared/hover-menu";
 import { cn } from "@/lib/utils";
 import { COUNSELOR_LEGEND, HEAD_LEGEND } from "./status";
@@ -89,11 +89,12 @@ export function AppointmentsHeader({
       </div>
       <div className="flex shrink-0 items-start gap-2">
       <div ref={statsRef} onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
-        <button type="button" onClick={toggleStats} onFocus={openStats} onBlur={scheduleStatsClose} aria-haspopup="dialog" aria-expanded={statsOpen} className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400">
-          <BarChart3 className="h-4 w-4" aria-hidden />Stats<ChevronDown aria-hidden className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")} />
+        <button type="button" onClick={toggleStats} onFocus={openStats} onBlur={scheduleStatsClose} aria-haspopup="dialog" aria-expanded={statsOpen} className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400">
+          Stats
+          <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
         </button>
         {statsOpen && (
-          <div role="dialog" aria-label="Appointment stats" style={{ top: statsPos?.top, left: statsPos?.left, width: statsPos?.width ?? 288 }} className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card">
+          <div role="dialog" aria-label="Appointment stats" style={{ top: statsPos?.top, left: statsPos?.left, width: statsPos?.width ?? 288 }} className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card">
             {loading ? (
               <div className="animate-pulse px-4 py-3" aria-hidden><div className="h-10 rounded-lg bg-ink/10" /><div className="mt-2 h-10 rounded-lg bg-ink/10" /><div className="mt-2 h-10 rounded-lg bg-ink/10" /></div>
             ) : (
@@ -109,11 +110,12 @@ export function AppointmentsHeader({
       </div>
       {canSeeActions && (
         <div ref={legendRef} onMouseEnter={openLegend} onMouseLeave={scheduleLegendClose}>
-          <button type="button" onClick={toggleLegend} onFocus={openLegend} onBlur={scheduleLegendClose} aria-haspopup="dialog" aria-expanded={legendOpen} className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400">
-            <Info className="h-4 w-4" aria-hidden />{role === "guidance_head" ? "Admin actions" : "Counselor actions"}<ChevronDown aria-hidden className={cn("h-4 w-4 transition-transform", legendOpen && "rotate-180")} />
+          <button type="button" onClick={toggleLegend} onFocus={openLegend} onBlur={scheduleLegendClose} aria-haspopup="dialog" aria-expanded={legendOpen} className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400">
+            {role === "guidance_head" ? "Admin actions" : "Counselor actions"}
+            <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", legendOpen && "rotate-180")} />
           </button>
           {legendOpen && (
-            <div role="dialog" aria-label={role === "guidance_head" ? "Admin actions legend" : "Counselor actions legend"} style={{ top: legendPos?.top, left: legendPos?.left, width: legendPos?.width ?? 320 }} className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-ink/10 bg-white px-4 py-3 shadow-card">
+            <div role="dialog" aria-label={role === "guidance_head" ? "Admin actions legend" : "Counselor actions legend"} style={{ top: legendPos?.top, left: legendPos?.left, width: legendPos?.width ?? 320 }} className="fixed z-50 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-ink/10 bg-white px-4 py-3 shadow-card">
               <p className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{role === "guidance_head" ? "Admin actions" : "Counselor actions"}</p>
               <ul className="mt-2 flex flex-col gap-2">
                 {(role === "guidance_head" ? HEAD_LEGEND : COUNSELOR_LEGEND).map((l) => (

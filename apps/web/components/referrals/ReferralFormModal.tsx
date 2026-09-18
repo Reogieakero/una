@@ -113,17 +113,16 @@ export function ReferralFormModal({
       aria-labelledby="ref-form-title"
     >
       <div aria-hidden className="absolute inset-0 bg-ink/40 print:hidden" onClick={onClose} />
-      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-4 shadow-card sm:max-w-2xl sm:p-6">
+      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-4 shadow-card sm:max-w-2xl sm:p-6">
         <div className="mb-3 flex items-center justify-between gap-2 print:hidden">
           <h2 id="ref-form-title" className="font-display text-lg font-bold text-ink">
             Counseling Referral Form
           </h2>
           <div className="flex shrink-0 items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => window.print()}>
-              <Printer className="h-4 w-4" aria-hidden />
               Print / PDF
             </Button>
-            <Button size="sm" variant="outline" onClick={onClose} aria-label="Close">
+            <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close">
               <X className="h-4 w-4" aria-hidden />
             </Button>
           </div>
@@ -135,7 +134,7 @@ export function ReferralFormModal({
             <div className="h-24 rounded bg-ink/10" />
           </div>
         ) : (
-          <div className="rounded-xl border border-ink/10 p-4 sm:p-6 print:border-0 print:p-0">
+          <div className="rounded-lg border border-ink/10 p-4 sm:p-6 print:border-0 print:p-0">
             <ReferralExcelPreview
               data={{
                 studentName: student?.alias ?? referral.student_name_text ?? "Student",

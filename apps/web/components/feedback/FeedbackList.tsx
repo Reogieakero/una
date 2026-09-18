@@ -18,7 +18,7 @@ export type FeedbackContext = { concern: string; counselor: string; when: string
 export function stars(r: number) {
   return (
     <span className="text-sm font-bold tracking-tight" aria-label={`${r} out of 5 stars`}>
-      <span className="text-amber-500">{"★".repeat(r)}</span>
+      <span className="text-accent-500">{"★".repeat(r)}</span>
       <span className="text-ink/20">{"★".repeat(Math.max(0, 5 - r))}</span>
     </span>
   );
@@ -43,16 +43,16 @@ export function FollowUpList({
   isCounselor: boolean;
 }) {
   return (
-    <section className="rounded-lg border border-red-200 bg-red-50/50 p-5 shadow-card">
+    <section className="rounded-lg border border-accent-200 bg-accent-50/50 p-5 shadow-card">
       <h2 className="font-display text-base font-bold text-ink">Needs follow-up</h2>
       <p className="mt-0.5 text-[13px] text-ink-muted">1–2★ ratings — reach out while it&apos;s fresh.</p>
       {loading ? (
         <div className="animate-pulse space-y-3 pt-3" aria-hidden>
-          <div className="h-10 rounded-xl bg-ink/10" />
-          <div className="h-10 rounded-xl bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
         </div>
       ) : low.length ? (
-        <ul className="mt-3 max-h-[260px] divide-y divide-red-100 overflow-y-auto">
+        <ul className="mt-3 max-h-[260px] divide-y divide-accent-100 overflow-y-auto">
           {low.slice(0, 8).map((f) => {
             const ctx = contexts.get(f.appointment_id);
             return (
@@ -73,7 +73,7 @@ export function FollowUpList({
           })}
         </ul>
       ) : (
-        <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">
+        <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">
           {totalCount ? "No low ratings — nothing to chase." : "No ratings yet."}
         </p>
       )}
@@ -148,8 +148,8 @@ export function FeedbackList({
       <div className="px-4 pb-4 sm:px-5">
       {loading ? (
         <div className="animate-pulse space-y-3 pt-4" aria-hidden>
-          <div className="h-16 rounded-xl bg-ink/10" />
-          <div className="h-16 rounded-xl bg-ink/10" />
+          <div className="h-16 rounded-lg bg-ink/10" />
+          <div className="h-16 rounded-lg bg-ink/10" />
         </div>
       ) : visible.length ? (
         <ul className="mt-3 divide-y divide-ink/10">
@@ -176,7 +176,7 @@ export function FeedbackList({
           })}
         </ul>
       ) : (
-        <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-center text-[13px] text-ink-muted">
+        <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-center text-[13px] text-ink-muted">
           {rowsLength ? "No feedback matches these filters." : "No feedback yet — ratings appear here after completed sessions."}
         </p>
       )}

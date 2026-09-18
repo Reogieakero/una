@@ -42,6 +42,83 @@ export function formatSessionMode(mode: "in_person" | "online" | null): string {
   return "—";
 }
 
+/** Minimal trail shape the schedule helpers read (RefAction satisfies this). */
+export type TrailActionLike = {
+  action: string;
+  note: string | null;
+  created_at: string;
+  actor_profile_id: string;
+  actor_name: string | null;
+  actor_role: string | null;
+};
+
+/**
+ * Reschedule note written by rescheduleAppointmentByCounselor
+ * ("Session rescheduled from <oldIso> to <newIso>") → normalized ISOs.
+ */
+export function parseRescheduleNote(note: string | null): { from: string; to: string } | null {
+  if (!note) return null;
+  const m = note.match(/rescheduled from (\S+) to (\S+)/);
+  if (!m) return null;
+  const from = new Date(m[1]);
+  const to = new Date(m[2]);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
+/**
+ * Current session schedule from the trail: the confirm ISO, overridden by
+ * each later reschedule in chronological order. Falls back when the trail
+ * has no schedule events (unconfirmed referrals).
+ */
+export function latestSessionSchedule(actions: TrailActionLike[], fallback: string | null): string | null {
+  let iso = fallback;
+  const ordered = [...actions].sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at));
+  for (const a of ordered) {
+    if (a.action === "confirmed") {
+      const c = parseScheduleNote(a.note);
+      if (c) iso = c;
+    } else if (a.action === "rescheduled") {
+      const r = parseRescheduleNote(a.note);
+      if (r) iso = r.to;
+    }
+  }
+  return iso;
+}
+
+/** True when the trail holds at least one reschedule entry. */
+export function hasReschedule(actions: TrailActionLike[]): boolean {
+  return actions.some((a) => a.action === "rescheduled" && parseRescheduleNote(a.note) !== null);
+}
+
+export type ScheduleLogEntry = {
+  kind: "confirmed" | "rescheduled";
+  /** Effective ISO for confirmed; the new ISO for rescheduled. */
+  iso: string;
+  /** Previous ISO — rescheduled entries only. */
+  from: string | null;
+  at: string;
+  actorName: string | null;
+  actorRole: string | null;
+  actorId: string;
+};
+
+/** Schedule history, oldest first: confirm entry + every reschedule. */
+export function sessionScheduleLog(actions: TrailActionLike[]): ScheduleLogEntry[] {
+  const ordered = [...actions].sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at));
+  const out: ScheduleLogEntry[] = [];
+  for (const a of ordered) {
+    if (a.action === "confirmed") {
+      const c = parseScheduleNote(a.note);
+      if (c) out.push({ kind: "confirmed", iso: c, from: null, at: a.created_at, actorName: a.actor_name, actorRole: a.actor_role, actorId: a.actor_profile_id });
+    } else if (a.action === "rescheduled") {
+      const r = parseRescheduleNote(a.note);
+      if (r) out.push({ kind: "rescheduled", iso: r.to, from: r.from, at: a.created_at, actorName: a.actor_name, actorRole: a.actor_role, actorId: a.actor_profile_id });
+    }
+  }
+  return out;
+}
+
 /** Session time still in the future — Resolve unlocks once it passes (mirrors /appointments). */
 export function isSessionUpcoming(iso: string | null | undefined): boolean {
   if (!iso) return false;

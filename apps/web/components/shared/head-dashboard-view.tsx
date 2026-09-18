@@ -10,7 +10,6 @@ import {
   Inbox,
   Megaphone,
   MessagesSquare,
-  RefreshCw,
   Users,
 } from "lucide-react";
 import {
@@ -104,7 +103,7 @@ function ReferralsWaitingSection({
             return (
               <Link
                 key={r.id}
-                href="/referrals"
+                href={`/referrals#focus-${r.id}`}
                 className="group flex min-w-0 flex-col gap-2.5 rounded-lg border border-ink/10 bg-white p-4 shadow-card transition hover:border-primary-300 hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
               >
                 <span className="flex items-center gap-2.5">
@@ -302,20 +301,16 @@ export function HeadDashboardView() {
             onBlur={scheduleStatsClose}
             aria-haspopup="dialog"
             aria-expanded={statsOpen}
-            className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
           >
-            <BarChart3 className="h-4 w-4" aria-hidden />
             Stats
-            <ChevronDown
-              aria-hidden
-              className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
-            />
+            <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
           </button>
           {statsOpen && (
             <div
               role="dialog"
               aria-label="Key numbers"
-              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
             >
               {loading || !data ? (
                 <div className="animate-pulse px-4 py-3" aria-hidden>
@@ -354,9 +349,8 @@ export function HeadDashboardView() {
           <button
             type="button"
             onClick={() => refetch()}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-red-600 px-4 py-2 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
           >
-            <RefreshCw className="h-4 w-4" aria-hidden />
             Try again
           </button>
         </div>

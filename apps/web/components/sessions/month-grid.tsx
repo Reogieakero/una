@@ -56,7 +56,7 @@ export function MonthGrid({
               }}
               aria-label={`${d.toLocaleDateString("en-US", { month: "long", day: "numeric" })}, ${daySessions.length} sessions`}
               className={cn(
-                "min-h-[88px] rounded-2xl border p-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
+                "min-h-[88px] rounded-lg border p-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
                 isSelected
                   ? "border-primary-500 bg-blue-50/60 ring-1 ring-primary-400"
                   : "border-ink/10 bg-white hover:border-primary-300 hover:bg-cream/60",

@@ -7,7 +7,6 @@ import {
   CalendarDays,
   ClipboardList,
   Inbox,
-  RefreshCw,
 } from "lucide-react";
 import {
   Breadcrumb,
@@ -67,7 +66,7 @@ function KpiSkeleton() {
 function ChartSkeleton() {
   return (
     <div className="animate-pulse pt-4" aria-hidden>
-      <div className="h-[240px] rounded-xl bg-ink/10" />
+      <div className="h-[240px] rounded-lg bg-ink/10" />
     </div>
   );
 }
@@ -201,7 +200,7 @@ function PipelineWatch({ data }: { data: FacultyReportsPayload }) {  const open 
   return (
     <ul className="mt-4 space-y-3">
       {rows.map((r) => (
-        <li key={r.label} className="flex items-center justify-between gap-3 rounded-xl bg-cream px-4 py-3">
+        <li key={r.label} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-3">
           <span className="text-sm font-semibold text-ink-soft">{r.label}</span>
           <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[13px] font-bold ${r.tone}`}>{r.value}</span>
         </li>
@@ -231,7 +230,7 @@ function FacultyGuide() {
           are triaged first by the office.
         </li>
       </ul>
-      <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
+      <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
         Privacy: this page shows your aggregates only. Session details stay with the counseling team —
         you&apos;ll be notified when your referrals move.
       </p>
@@ -330,9 +329,8 @@ export function FacultyReportsView({
           <button
             type="button"
             onClick={() => refetch()}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-red-600 px-4 py-2 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
           >
-            <RefreshCw className="h-4 w-4" aria-hidden />
             Try again
           </button>
         </div>
@@ -380,7 +378,7 @@ export function FacultyReportsView({
                     { label: "Assigned → confirmed", desc: "The counselor sets the session time." },
                     { label: "Confirmed → resolved", desc: "The counselor closes the case after the session." },
                   ].map((r) => (
-                    <li key={r.label} className="rounded-xl bg-cream px-4 py-3">
+                    <li key={r.label} className="rounded-lg bg-cream px-4 py-3">
                       <p className="text-sm font-bold text-ink">{r.label}</p>
                       <p className="mt-0.5 text-[13px] text-ink-muted">{r.desc}</p>
                     </li>

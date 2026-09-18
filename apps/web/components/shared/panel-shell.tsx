@@ -64,9 +64,9 @@ export function ListSkeleton() {
   return (
     <div className="animate-pulse" aria-hidden>
       <div className="space-y-3 pt-3">
-        <div className="h-10 rounded-xl bg-ink/10" />
-        <div className="h-10 rounded-xl bg-ink/10" />
-        <div className="h-10 rounded-xl bg-ink/10" />
+        <div className="h-10 rounded-lg bg-ink/10" />
+        <div className="h-10 rounded-lg bg-ink/10" />
+        <div className="h-10 rounded-lg bg-ink/10" />
       </div>
     </div>
   );

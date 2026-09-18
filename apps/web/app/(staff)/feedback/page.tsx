@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import { useFeedbackBoard } from "@/lib/hooks/use-feedback-board";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Badge, Card } from "@/components/ui/primitives";
+import { useFeedbackBoard } from "@/lib/hooks/use-feedback-board";
+import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
+import { Card } from "@/components/ui/primitives";
 import { ReportBars, ReportDonut, ReportLines } from "@/components/shared/reports-charts";
+import { CHART_PRIMARY, ratingColor } from "@/lib/report-palette";
+import { colors } from "@dorsu/ui-tokens";
 import { sentimentOf } from "@/lib/sentiment";
 import { FeedbackList, FollowUpList, type Feedback } from "@/components/feedback/FeedbackList";
 import { WordCloud } from "@/components/feedback/WordCloud";
@@ -33,6 +36,9 @@ export default function FeedbackAdminPage() {
   const role = board?.role ?? null;
   const counselorId = board?.counselorId ?? null;
   const loading = isLoading && !board;
+  // Visiting the section clears its sidebar badge (badges count unread
+  // notification rows, not page views).
+  useClearSectionBadge("/feedback", !loading && !!board);
   const [sentimentFilter, setSentimentFilter] = useState("all");
   const [query, setQuery] = useState("");
 
@@ -82,7 +88,7 @@ export default function FeedbackAdminPage() {
     const dist = [1, 2, 3, 4, 5].map((s) => ({
       label: `${s}★`,
       value: rows.filter((f) => f.rating === s).length,
-      color: s >= 4 ? "#22C55E" : s === 3 ? "#F59E0B" : "#EF4444",
+      color: ratingColor(s),
     }));
     const fiveShare = n ? Math.round((rows.filter((f) => f.rating === 5).length / n) * 100) : 0;
     const withComments = rows.filter((f) => f.comment?.trim()).length;
@@ -126,9 +132,9 @@ export default function FeedbackAdminPage() {
     const neu = rows.filter((f) => f.rating === 3).length;
     const neg = rows.filter((f) => f.rating <= 2).length;
     const donut = [
-      { name: "Positive", value: pos, color: "#22C55E" },
-      { name: "Neutral", value: neu, color: "#F59E0B" },
-      { name: "Negative", value: neg, color: "#EF4444" },
+      { name: "Positive", value: pos, color: colors.primary[600] },
+      { name: "Neutral", value: neu, color: colors.accent[500] },
+      { name: "Negative", value: neg, color: colors.accent[700] },
     ].filter((s) => s.value > 0);
 
     return { n, avg, dist, fiveShare, withComments, low, trend, leaderboard, donut };
@@ -153,6 +159,12 @@ export default function FeedbackAdminPage() {
   }, [rows, sentimentFilter, query, aliases, contexts]);
 
   const sentiment = sentimentOf(analysis.avg);
+  const sentimentTone =
+    sentiment.tone === "danger"
+      ? "bg-accent-700 text-white"
+      : sentiment.tone === "warning"
+        ? "bg-accent-100 text-accent-700"
+        : "bg-primary-100 text-primary-800";
   const isCounselor = role === "counselor";
   const statCards: { label: string; value: string; sub?: string; pick: (() => void) | null }[] = [
     { label: "Responses", value: analysis.n ? String(analysis.n) : "0", pick: () => setSentimentFilter("all") },
@@ -203,20 +215,16 @@ export default function FeedbackAdminPage() {
             onBlur={scheduleStatsClose}
             aria-haspopup="dialog"
             aria-expanded={statsOpen}
-            className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
           >
-            <BarChart3 className="h-4 w-4" aria-hidden />
             Stats
-            <ChevronDown
-              aria-hidden
-              className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
-            />
+            <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
           </button>
           {statsOpen && (
             <div
               role="dialog"
               aria-label="Feedback stats"
-              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
             >
               {loading ? (
                 <div className="animate-pulse px-4 py-3" aria-hidden>
@@ -263,9 +271,9 @@ export default function FeedbackAdminPage() {
       </div>
 
       {isCounselor && !counselorId && !loading && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-card">
-          <p className="text-sm font-bold text-amber-800">Counselor record not linked yet</p>
-          <p className="mt-1 text-[13px] text-amber-700">
+        <div className="rounded-lg border border-accent-200 bg-accent-50 p-5 shadow-card">
+          <p className="text-sm font-bold text-accent-700">Counselor record not linked yet</p>
+          <p className="mt-1 text-[13px] text-accent-700">
             Your login works, but no counselor row is linked to your account. Ask the guidance head to finish setup.
           </p>
         </div>
@@ -280,7 +288,9 @@ export default function FeedbackAdminPage() {
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-3">
-            <Badge tone={sentiment.tone}>{sentiment.label}</Badge>
+            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${sentimentTone}`}>
+              {sentiment.label}
+            </span>
             <p className="text-sm leading-relaxed text-ink-muted">
               {analysis.avg === null ? (
                 sentiment.hint
@@ -301,22 +311,22 @@ export default function FeedbackAdminPage() {
           <h2 className="font-display text-base font-bold text-ink">Rating distribution</h2>
           <p className="mt-0.5 text-[13px] text-ink-muted">How the stars stack up.</p>
           {loading ? (
-            <div className="animate-pulse pt-4" aria-hidden><div className="h-[240px] rounded-xl bg-ink/10" /></div>
+            <div className="animate-pulse pt-4" aria-hidden><div className="h-[240px] rounded-lg bg-ink/10" /></div>
           ) : analysis.n ? (
             <ReportBars data={analysis.dist} />
           ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No ratings yet.</p>
+            <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">No ratings yet.</p>
           )}
         </section>
         <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
           <h2 className="font-display text-base font-bold text-ink">Satisfaction trend</h2>
           <p className="mt-0.5 text-[13px] text-ink-muted">Daily average, last 14 days with responses.</p>
           {loading ? (
-            <div className="animate-pulse pt-4" aria-hidden><div className="h-[240px] rounded-xl bg-ink/10" /></div>
+            <div className="animate-pulse pt-4" aria-hidden><div className="h-[240px] rounded-lg bg-ink/10" /></div>
           ) : analysis.trend.length ? (
-            <ReportLines data={analysis.trend} stroke="#F59E0B" />
+            <ReportLines data={analysis.trend} stroke={CHART_PRIMARY} />
           ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">Not enough responses for a trend yet.</p>
+            <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">Not enough responses for a trend yet.</p>
           )}
         </section>
       </div>
@@ -327,11 +337,11 @@ export default function FeedbackAdminPage() {
           <h2 className="font-display text-base font-bold text-ink">Sentiment split</h2>
           <p className="mt-0.5 text-[13px] text-ink-muted">Positive 4–5★ · neutral 3★ · negative 1–2★.</p>
           {loading ? (
-            <div className="animate-pulse pt-4" aria-hidden><div className="h-[200px] rounded-xl bg-ink/10" /></div>
+            <div className="animate-pulse pt-4" aria-hidden><div className="h-[200px] rounded-lg bg-ink/10" /></div>
           ) : analysis.donut.length ? (
             <ReportDonut data={analysis.donut} />
           ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No ratings yet.</p>
+            <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">No ratings yet.</p>
           )}
         </section>
         <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
@@ -339,8 +349,8 @@ export default function FeedbackAdminPage() {
           <p className="mt-0.5 text-[13px] text-ink-muted">{isCounselor ? "How many of my completed sessions got rated." : "Average rating per counselor, by their sessions."}</p>
           {loading ? (
             <div className="animate-pulse space-y-3 pt-3" aria-hidden>
-              <div className="h-10 rounded-xl bg-ink/10" />
-              <div className="h-10 rounded-xl bg-ink/10" />
+              <div className="h-10 rounded-lg bg-ink/10" />
+              <div className="h-10 rounded-lg bg-ink/10" />
             </div>
           ) : isCounselor ? (
             <ul className="mt-3 space-y-3">
@@ -349,9 +359,9 @@ export default function FeedbackAdminPage() {
                 { label: "My completed sessions", value: String(completedTotal) },
                 { label: "Coverage", value: completedTotal ? `${Math.round((analysis.n / completedTotal) * 100)}%` : "—" },
               ].map((r) => (
-                <li key={r.label} className="flex items-center justify-between gap-3 rounded-xl bg-cream px-4 py-3">
+                <li key={r.label} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-3">
                   <span className="text-sm font-semibold text-ink-soft">{r.label}</span>
-                  <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[13px] font-bold text-amber-800">{r.value}</span>
+                  <span className="shrink-0 rounded-full bg-accent-100 px-2.5 py-0.5 text-[13px] font-bold text-accent-700">{r.value}</span>
                 </li>
               ))}
             </ul>
@@ -364,14 +374,14 @@ export default function FeedbackAdminPage() {
                     {c.name}
                     <span className="ml-2 text-[11px] font-medium text-ink-faint">{c.n} rated</span>
                   </p>
-                  <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[13px] font-bold text-amber-800">
+                  <span className="shrink-0 rounded-full bg-accent-100 px-2.5 py-0.5 text-[13px] font-bold text-accent-700">
                     {c.avg.toFixed(1)} ★
                   </span>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No rated sessions yet.</p>
+            <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">No rated sessions yet.</p>
           )}
         </section>
       </div>

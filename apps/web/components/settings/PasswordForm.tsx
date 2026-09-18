@@ -61,7 +61,7 @@ export function PasswordForm({
                 type={showPw ? "text" : "password"}
                 placeholder="8+ chars, upper, lower & number"
                 autoComplete="new-password"
-                className="pr-11"
+                className="pr-16"
                 value={newPw}
                 onChange={(e) => onNewPw(e.target.value)}
                 onBlur={onPwBlur}
@@ -70,7 +70,7 @@ export function PasswordForm({
                 type="button"
                 onClick={onShowPw}
                 aria-label={showPw ? "Hide password" : "Show password"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-ink-muted transition hover:bg-cream-dark hover:text-ink"
+                className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded text-ink-muted transition hover:bg-cream-dark hover:text-ink"
               >
                 {showPw ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
               </button>
@@ -94,7 +94,7 @@ export function PasswordForm({
                 type={showConfirm ? "text" : "password"}
                 placeholder="Repeat the password"
                 autoComplete="new-password"
-                className="pr-11"
+                className="pr-16"
                 value={confirmPw}
                 onChange={(e) => onConfirmPw(e.target.value)}
               />
@@ -102,7 +102,7 @@ export function PasswordForm({
                 type="button"
                 onClick={onShowConfirm}
                 aria-label={showConfirm ? "Hide confirmation" : "Show confirmation"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-ink-muted transition hover:bg-cream-dark hover:text-ink"
+                className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded text-ink-muted transition hover:bg-cream-dark hover:text-ink"
               >
                 {showConfirm ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
               </button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown, Check } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // SSR-safe layout effect (pages server-render, effects run on client).
@@ -114,17 +114,20 @@ export function HoverMenu({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
-        className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-1.5 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+        className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
       >
         <span className="max-w-44 truncate">{buttonLabel}</span>
-        <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
+        <ChevronDown
+          aria-hidden
+          className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", open && "rotate-180")}
+        />
       </button>
       {open && (
         <ul
           role="listbox"
           aria-label={ariaLabel}
           style={{ top: panelPos?.top, left: panelPos?.left, width: panelPos?.width ?? 224 }}
-          className="no-scrollbar fixed z-50 max-h-60 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+          className="no-scrollbar fixed z-50 max-h-60 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-ink/10 bg-white py-1 shadow-card"
         >
           {options.map((o) => {
             const active = o.value === value;
@@ -142,7 +145,6 @@ export function HoverMenu({
                   )}
                 >
                   <span className="truncate">{o.label}</span>
-                  {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
                 </button>
               </li>
             );

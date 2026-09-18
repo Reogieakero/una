@@ -26,8 +26,8 @@ export function TeamSection({
       </div>
       {loading ? (
         <div className="animate-pulse space-y-3 pt-3" aria-hidden>
-          <div className="h-12 rounded-xl bg-ink/10" />
-          <div className="h-12 rounded-xl bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
         </div>
       ) : counselors.length ? (
         <ul className="mt-3 divide-y divide-ink/10">
@@ -47,7 +47,7 @@ export function TeamSection({
           ))}
         </ul>
       ) : (
-        <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">
+        <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">
           No counselors yet — <Link href="/users/new" className="font-bold text-primary-600 hover:underline">add the first one</Link>.
         </p>
       )}
@@ -72,8 +72,8 @@ export function ActivitySection({
       <p className="mt-0.5 text-[13px] text-ink-muted">Triage moves, posts, and emergency accesses you made.</p>
       {loading ? (
         <div className="animate-pulse space-y-3 pt-3" aria-hidden>
-          <div className="h-10 rounded-xl bg-ink/10" />
-          <div className="h-10 rounded-xl bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
         </div>
       ) : feed.length ? (
         <ul className="mt-3 space-y-0">
@@ -91,7 +91,7 @@ export function ActivitySection({
           ))}
         </ul>
       ) : (
-        <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">
+        <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">
           Nothing yet — triage a referral or publish a post and it shows up here.
         </p>
       )}

@@ -53,20 +53,20 @@ export function WordCloud({
       <h2 className="font-display text-base font-bold text-ink">Comment themes</h2>
       <p className="mt-0.5 text-[13px] text-ink-muted">Most-used words across written feedback.</p>
       {loading ? (
-        <div className="animate-pulse pt-3" aria-hidden><div className="h-20 rounded-xl bg-ink/10" /></div>
+        <div className="animate-pulse pt-3" aria-hidden><div className="h-20 rounded-lg bg-ink/10" /></div>
       ) : themes.length ? (
         <ul className="mt-3 flex flex-wrap gap-2">
           {themes.map((t) => (
             <li
               key={t.word}
-              className="rounded-full bg-blue-50 px-3 py-1.5 text-[13px] font-bold text-primary-700 ring-1 ring-blue-100"
+              className="rounded-full bg-primary-50 px-3 py-1.5 text-[13px] font-bold text-primary-700 ring-1 ring-primary-100"
             >
               {t.word} <span className="font-semibold text-primary-500">· {t.count}</span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No written comments yet.</p>
+        <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">No written comments yet.</p>
       )}
     </section>
   );

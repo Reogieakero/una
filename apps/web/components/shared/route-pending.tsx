@@ -106,7 +106,7 @@ function RoutePendingOverlay() {
       aria-label="Loading page"
       className="fixed inset-0 z-30 flex items-center justify-center bg-white/60 backdrop-blur-[2px]"
     >
-      <div className="flex flex-col items-center gap-3 rounded-2xl border border-ink/10 bg-white px-8 py-6 shadow-card">
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-ink/10 bg-white px-8 py-6 shadow-card">
         <Spinner size="lg" label="Loading page" />
         <p className="text-sm font-bold text-ink-soft">Loading page…</p>
       </div>

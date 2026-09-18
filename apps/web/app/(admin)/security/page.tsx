@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { breakGlassSchema, type BreakGlassInput } from "@dorsu/shared-schemas";
 import { actionPolicy, type AppAction } from "@dorsu/shared-services";
 import { useSecurityBoard } from "@/lib/hooks/use-security-board";
+import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
 import { timeAgo } from "@/lib/format";
 import { Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
@@ -61,6 +62,9 @@ export default function SecurityPage() {
   const me = board?.me ?? null;
   const headIds = board?.headIds ?? EMPTY_IDS;
   const loading = isLoading && !board;
+  // Visiting the section clears its sidebar badge (badges count unread
+  // notification rows, not page views).
+  useClearSectionBadge("/security", !loading && !!board);
   const [entityFilter, setEntityFilter] = useState("all");
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [studentPick, setStudentPick] = useState("");

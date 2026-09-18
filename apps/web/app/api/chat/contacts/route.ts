@@ -10,11 +10,13 @@ export type ChatContact = {
 };
 
 /**
- * GET /api/chat/contacts — office contact directory for faculty chat.
+ * GET /api/chat/contacts — office contact directory for faculty + counselor chat.
  * Faculty clients cannot read other profiles (RLS intentionally excludes
- * them), so the server resolves names for the narrow set faculty may
- * message: active counselors + the active guidance head. Only profile id,
- * name, role, and specialization leave this route — no emails or rows.
+ * them), so the server resolves names for the narrow set each role may
+ * message: faculty see active counselors + the active guidance head;
+ * counselors see active faculty (e.g. to follow up on who referred a
+ * student). Only profile id, name, role, and specialization leave this
+ * route — no emails or rows.
  */
 export async function GET() {
   const supabase = await createClient();
@@ -32,11 +34,33 @@ export async function GET() {
   if ((profile as { is_active?: boolean | null } | null)?.is_active === false) {
     return NextResponse.json({ error: "Account deactivated." }, { status: 403 });
   }
-  if (role !== "faculty") {
-    return NextResponse.json({ error: "Faculty only." }, { status: 403 });
+  if (role !== "faculty" && role !== "counselor") {
+    return NextResponse.json({ error: "Faculty or counselor only." }, { status: 403 });
   }
 
   const admin = createAdminClient();
+  // Counselors message faculty (follow-ups on referrals); faculty message
+  // the office (counselors + head).
+  if (role === "counselor") {
+    const { data: faculty } = await admin
+      .from("profiles")
+      .select("id, full_name")
+      .eq("role", "faculty")
+      .eq("is_active", true)
+      .order("full_name", { ascending: true });
+    const contacts: ChatContact[] = (
+      (faculty ?? []) as { id: string; full_name: string | null }[]
+    ).map((f) => ({
+      profileId: f.id,
+      name: f.full_name ?? "Faculty",
+      role: "faculty",
+      detail: null,
+    }));
+    return NextResponse.json(
+      { contacts },
+      { headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=60" } }
+    );
+  }
   const [{ data: counselorRows }, { data: heads }] = await Promise.all([
     admin.from("counselors").select("id, profile_id, specialization"),
     admin.from("profiles").select("id, full_name").eq("role", "guidance_head").eq("is_active", true),

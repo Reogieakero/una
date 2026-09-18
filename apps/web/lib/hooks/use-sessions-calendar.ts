@@ -3,6 +3,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { listCounselorAppointments, listOfficeAppointments } from "@dorsu/shared-services";
+import type { BoardSlot } from "./use-appointments-board";
 
 export type CalendarSession = {
   id: string;
@@ -10,6 +11,8 @@ export type CalendarSession = {
   student_id: string | null;
   counselor_id: string | null;
   scheduled_at: string;
+  /** Counselor-picked end inside an availability slot; null on older rows. */
+  ends_at: string | null;
   mode: string;
   status: string;
   concern: string;
@@ -22,6 +25,12 @@ export type SessionsCalendarData = {
   sessions: CalendarSession[];
   aliases: Map<string, string>;
   counselorNames: Map<string, string>;
+  /** student_id → profile_id, for notifying the student after an outcome. */
+  studentProfiles: Map<string, string>;
+  /** Active guidance-head profile ids, for oversight notifications. */
+  headIds: string[];
+  /** Own availability windows — power the notes modal's follow-up picker. */
+  slots: BoardSlot[];
 };
 
 export const SESSIONS_CALENDAR_KEY = ["sessions", "calendar"] as const;
@@ -45,13 +54,13 @@ export async function fetchSessionsCalendar(): Promise<SessionsCalendarData> {
     cid = (data as { id: string } | null)?.id ?? null;
   }
   if (!r || !["counselor", "guidance_head"].includes(r)) {
-    return { role: r, counselorId: null, sessions: [], aliases: EMPTY_MAP, counselorNames: EMPTY_MAP };
+    return { role: r, counselorId: null, sessions: [], aliases: EMPTY_MAP, counselorNames: EMPTY_MAP, studentProfiles: EMPTY_MAP, headIds: [], slots: [] };
   }
   // Linked counselors read their own queue only; unlinked counselors get an
   // empty calendar (never the office-wide list — RLS would block it anyway,
   // but no office query is even issued).
   if (r === "counselor" && !cid) {
-    return { role: r, counselorId: null, sessions: [], aliases: EMPTY_MAP, counselorNames: EMPTY_MAP };
+    return { role: r, counselorId: null, sessions: [], aliases: EMPTY_MAP, counselorNames: EMPTY_MAP, studentProfiles: EMPTY_MAP, headIds: [], slots: [] };
   }
   const data =
     r === "counselor"
@@ -64,17 +73,15 @@ export async function fetchSessionsCalendar(): Promise<SessionsCalendarData> {
 
   const studentIds = [...new Set(list.map((a) => a.student_id).filter((id): id is string => !!id))];
   let aliases = EMPTY_MAP;
+  let studentProfiles = EMPTY_MAP;
   if (studentIds.length) {
     const { data: students } = await supabase
       .from("students")
-      .select("id, anonymous_alias")
+      .select("id, profile_id, anonymous_alias")
       .in("id", studentIds.slice(0, 500));
-    aliases = new Map(
-      ((students ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => [
-        s.id,
-        s.anonymous_alias ?? "Student",
-      ])
-    );
+    const studentRows = ((students ?? []) as { id: string; profile_id: string; anonymous_alias: string | null }[]);
+    aliases = new Map(studentRows.map((s) => [s.id, s.anonymous_alias ?? "Student"]));
+    studentProfiles = new Map(studentRows.map((s) => [s.id, s.profile_id]));
   }
 
   let counselorNames = EMPTY_MAP;
@@ -91,7 +98,21 @@ export async function fetchSessionsCalendar(): Promise<SessionsCalendarData> {
     counselorNames = new Map(cRows.map((c) => [c.id, names.get(c.profile_id) ?? "Counselor"]));
   }
 
-  return { role: r, counselorId: cid, sessions: list, aliases, counselorNames };
+  const { data: headRows } = await supabase.from("profiles").select("id").eq("role", "guidance_head").eq("is_active", true);
+  const headIds = ((headRows ?? []) as { id: string }[]).map((h) => h.id);
+
+  // Own availability windows power the notes modal's follow-up picker.
+  // The head never schedules, so only the counselor branch fetches them.
+  let slots: BoardSlot[] = [];
+  if (r === "counselor" && cid) {
+    const { data: slotRows } = await supabase
+      .from("counselor_availability")
+      .select("weekday, start_time, end_time, is_recurring, valid_from, valid_to")
+      .eq("counselor_id", cid);
+    slots = ((slotRows ?? []) as BoardSlot[]);
+  }
+
+  return { role: r, counselorId: cid, sessions: list, aliases, counselorNames, studentProfiles, headIds, slots };
 }
 
 /**

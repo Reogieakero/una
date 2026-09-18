@@ -51,10 +51,10 @@ export function MessageList({
             )}
             <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
+                className={`max-w-[75%] rounded-lg px-3.5 py-2 text-sm leading-relaxed ${
                   mine
-                    ? "rounded-br-md bg-primary-600 text-white"
-                    : "rounded-bl-md bg-cream-dark text-ink"
+                    ? "rounded-br-lg bg-primary-600 text-white"
+                    : "rounded-bl-lg bg-cream-dark text-ink"
                 }`}
               >
                 <p>{m.body}</p>
@@ -77,7 +77,7 @@ export function MessageList({
           onClick={onJump}
           title="Jump to latest"
           aria-label="Jump to latest messages"
-          className="absolute bottom-4 left-1/2 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-ink/10 bg-white text-primary-600 shadow-card transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+          className="absolute bottom-4 left-1/2 inline-flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded border border-ink/10 bg-white text-primary-600 shadow-card transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
         >
           <ArrowDown className="h-4 w-4" aria-hidden />
         </button>

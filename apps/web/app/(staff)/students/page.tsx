@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { BarChart3, ChevronDown } from "lucide-react";
 import { useStudentsBoard } from "@/lib/hooks/use-students-board";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { STRESS_META } from "@/lib/report-palette";
 import { Card } from "@/components/ui/primitives";
 import { StudentTable, type Student } from "@/components/students/StudentTable";
 import { RiskSummary } from "@/components/students/RiskSummary";
@@ -28,12 +29,6 @@ const EMPTY_SCREENS: ScreenLite[] = [];
 
 const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"];
 const URGENT_PRIORITIES = ["urgent", "high"];
-
-const STRESS_META: Record<string, { label: string; color: string }> = {
-  low: { label: "Low", color: "#22C55E" },
-  moderate: { label: "Moderate", color: "#F59E0B" },
-  high: { label: "High", color: "#EF4444" },
-};
 
 /**
  * Shared /students — one URL, role-aware UI (same pattern as /appointments).
@@ -282,20 +277,16 @@ export default function StudentsPage() {
             onBlur={scheduleStatsClose}
             aria-haspopup="dialog"
             aria-expanded={statsOpen}
-            className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
           >
-            <BarChart3 className="h-4 w-4" aria-hidden />
             Stats
-            <ChevronDown
-              aria-hidden
-              className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
-            />
+            <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
           </button>
           {statsOpen && (
             <div
               role="dialog"
               aria-label="Student stats"
-              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
             >
               {loading ? (
                 <div className="animate-pulse px-4 py-3" aria-hidden>
@@ -320,9 +311,9 @@ export default function StudentsPage() {
       </div>
 
       {role === "counselor" && !counselorId && !loading && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-card">
-          <p className="text-sm font-bold text-amber-800">Counselor record not linked yet</p>
-          <p className="mt-1 text-[13px] text-amber-700">
+        <div className="rounded-lg border border-accent-200 bg-accent-50 p-5 shadow-card">
+          <p className="text-sm font-bold text-accent-700">Counselor record not linked yet</p>
+          <p className="mt-1 text-[13px] text-accent-700">
             Your login works, but no counselor row is linked to your account. Ask the guidance head to finish setup.
           </p>
         </div>

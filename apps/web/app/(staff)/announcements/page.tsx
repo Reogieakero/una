@@ -4,13 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { BarChart3, ChevronDown } from "lucide-react";
 import { announcementSchema, type AnnouncementInput } from "@dorsu/shared-schemas";
+import { ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { useAnnouncementsBoard } from "@/lib/hooks/use-announcements-board";
 import { useFocusRow } from "@/lib/hooks/use-focus-row";
 import { useMutationAction } from "@/lib/hooks/use-mutation-action";
-import { cn } from "@/lib/utils";
+import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { Button, Card } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
@@ -39,6 +40,9 @@ export default function AnnouncementsPage() {
   const myName = board?.myName ?? "Guidance";
   const role = board?.role ?? null;
   const loading = isLoading && !board;
+  // Visiting the section clears its sidebar badge (badges count unread
+  // notification rows, not page views).
+  useClearSectionBadge("/announcements", !loading && !!board);
   const [audience, setAudience] = useState<AudienceValue[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -358,20 +362,16 @@ export default function AnnouncementsPage() {
                 onBlur={scheduleStatsClose}
                 aria-haspopup="dialog"
                 aria-expanded={statsOpen}
-                className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
               >
-                <BarChart3 className="h-4 w-4" aria-hidden />
                 Stats
-                <ChevronDown
-                  aria-hidden
-                  className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
-                />
+                <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
               </button>
               {statsOpen && (
                 <div
                   role="dialog"
                   aria-label="Announcement stats"
-                  className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+                  className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
                 >
                   {loading ? (
                     <div className="animate-pulse px-4 py-3" aria-hidden>
@@ -432,7 +432,7 @@ export default function AnnouncementsPage() {
                     <div className="h-10 w-10 rounded-full bg-ink/10" />
                     <div className="h-3.5 w-1/3 rounded-full bg-ink/10" />
                   </div>
-                  <div className="mt-3 h-16 rounded-xl bg-ink/10" />
+                  <div className="mt-3 h-16 rounded-lg bg-ink/10" />
                 </div>
               ))}
             {!loading &&
@@ -465,12 +465,12 @@ export default function AnnouncementsPage() {
                 <p className="mt-0.5 text-[13px] text-ink-muted">Publishing rhythm, drafts included.</p>
                 {loading ? (
                   <div className="animate-pulse pt-4" aria-hidden>
-                    <div className="h-[240px] rounded-xl bg-ink/10" />
+                    <div className="h-[240px] rounded-lg bg-ink/10" />
                   </div>
                 ) : rows.length ? (
                   <ReportLines data={activity} />
                 ) : (
-                  <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No posts yet.</p>
+                  <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">No posts yet.</p>
                 )}
               </section>
               <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
@@ -478,12 +478,12 @@ export default function AnnouncementsPage() {
                 <p className="mt-0.5 text-[13px] text-ink-muted">Who posts are aimed at — a post can tag several groups.</p>
                 {loading ? (
                   <div className="animate-pulse pt-4" aria-hidden>
-                    <div className="h-[200px] rounded-xl bg-ink/10" />
+                    <div className="h-[200px] rounded-lg bg-ink/10" />
                   </div>
                 ) : audienceMix.length ? (
                   <ReportDonut data={audienceMix} />
                 ) : (
-                  <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No posts yet.</p>
+                  <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">No posts yet.</p>
                 )}
               </section>
             </div>
@@ -493,8 +493,8 @@ export default function AnnouncementsPage() {
               <p className="mt-0.5 text-[13px] text-ink-muted">Who keeps the newsfeed alive.</p>
               {loading ? (
                 <div className="animate-pulse space-y-3 pt-3" aria-hidden>
-                  <div className="h-10 rounded-xl bg-ink/10" />
-                  <div className="h-10 rounded-xl bg-ink/10" />
+                  <div className="h-10 rounded-lg bg-ink/10" />
+                  <div className="h-10 rounded-lg bg-ink/10" />
                 </div>
               ) : stats.topAuthors.length ? (
                 <ul className="mt-3 divide-y divide-ink/10">
@@ -511,7 +511,7 @@ export default function AnnouncementsPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] text-ink-muted">No authors yet.</p>
+                <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] text-ink-muted">No authors yet.</p>
               )}
             </section>
           </div>
@@ -528,7 +528,7 @@ export default function AnnouncementsPage() {
           aria-describedby="ann-del-desc"
         >
           <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => setConfirmDelete(null)} />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-card">
+          <div className="relative w-full max-w-sm rounded-lg bg-white p-6 shadow-card">
             <h2 id="ann-del-title" className="font-display text-lg font-bold text-ink">Delete this post?</h2>
             <p id="ann-del-desc" className="mt-1 line-clamp-2 text-sm leading-relaxed text-ink-muted">
               “{confirmDelete.title}” disappears for everyone, photo included. This can&apos;t be undone — unpublish instead to hide it temporarily.

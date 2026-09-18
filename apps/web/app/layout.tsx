@@ -23,7 +23,7 @@ const nunito = Nunito({
 });
 
 export const metadata: Metadata = {
-  title: "Chekie — Digital Counseling & Appointment System with Analytics | DOrSU",
+  title: "Chekie",
   description:
     "Chekie is Davao Oriental State University's safe, calm counseling companion: online booking, PSS-10 check-ins, secure anonymity, real-time chat, and analytics for early intervention.",
   icons: {

@@ -1,11 +1,13 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import { Button, Input } from "@/components/ui/primitives";
 import { CONFIRM_COPY, formatWhen } from "./status";
 import type { ActionKind, Appt } from "./status";
 import { SlotSchedulePicker, type ScheduleSelection } from "./SlotSchedulePicker";
 import type { BoardSlot } from "@/lib/hooks/use-appointments-board";
+
+/** Minimal record the dialogs read — full board rows satisfy this. */
+export type ConfirmAppt = Pick<Appt, "id" | "student_id" | "scheduled_at" | "mode" | "meeting_url">;
 
 /**
  * Confirm / reschedule / complete / no-show / reject dialogs.
@@ -27,7 +29,7 @@ export function AppointmentConfirmDialogs({
   onClose,
   onSubmit,
 }: {
-  confirming: { appt: Appt; kind: ActionKind } | null;
+  confirming: { appt: ConfirmAppt; kind: ActionKind } | null;
   aliases: Map<string, string>;
   slots: BoardSlot[];
   sched: ScheduleSelection | null;
@@ -50,14 +52,14 @@ export function AppointmentConfirmDialogs({
       aria-describedby="appt-confirm-desc"
     >
       <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={onClose} />
-      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-6 shadow-card sm:max-w-md">
+      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-6 shadow-card sm:max-w-md">
         <h2 id="appt-confirm-title" className="font-display text-lg font-bold text-ink">
           {CONFIRM_COPY[confirming.kind].title}
         </h2>
         <p id="appt-confirm-desc" className="mt-1 text-sm leading-relaxed text-ink-muted">
           {CONFIRM_COPY[confirming.kind].body}
         </p>
-        <p className="mt-3 truncate rounded-xl bg-cream px-3 py-2 text-[13px] font-semibold text-ink-soft">
+        <p className="mt-3 truncate rounded-lg bg-cream px-3 py-2 text-[13px] font-semibold text-ink-soft">
           {confirming.appt.student_id ? (aliases.get(confirming.appt.student_id) ?? "Student") : "Walk-in"} · requested {formatWhen(confirming.appt.scheduled_at)}
         </p>
         {(confirming.kind === "confirm" || confirming.kind === "reschedule") && (
@@ -106,7 +108,6 @@ export function AppointmentConfirmDialogs({
             disabled={confirmBusy || ((confirming.kind === "confirm" || confirming.kind === "reschedule") && !sched)}
             onClick={onSubmit}
           >
-            {confirmBusy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
             {confirmBusy ? "Processing…" : CONFIRM_COPY[confirming.kind].ok}
           </Button>
         </div>

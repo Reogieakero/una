@@ -172,7 +172,7 @@ export function AppointmentsBoard({
                       value={a.counselor_id ?? ""}
                       onChange={(v) => onAssign(a, v || null)}
                       ariaLabel={`Assign counselor for session ${formatWhen(a.scheduled_at)}`}
-                      buttonClassName="max-w-[170px] rounded-xl px-2.5 py-1.5 text-[13px]"
+                      buttonClassName="max-w-[170px] rounded px-2.5 text-[13px]"
                       disabled={busyId === a.id}
                       options={[
                         { value: "", label: "Unassigned" },
@@ -277,9 +277,9 @@ export function AppointmentsBoard({
       )}
       {loading && (
         <div className="animate-pulse space-y-3 p-4" aria-hidden>
-          <div className="h-10 rounded-xl bg-ink/10" />
-          <div className="h-10 rounded-xl bg-ink/10" />
-          <div className="h-10 rounded-xl bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
+          <div className="h-10 rounded-lg bg-ink/10" />
         </div>
       )}
     </>

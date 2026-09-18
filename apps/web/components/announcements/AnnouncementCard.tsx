@@ -82,7 +82,7 @@ export function AnnouncementCard({
           src={a.image_url}
           alt=""
           loading="lazy"
-          className="mt-3 max-h-96 w-full rounded-2xl border border-ink/10 object-cover"
+          className="mt-3 max-h-96 w-full rounded-lg border border-ink/10 object-cover"
         />
       )}
       {isHead && (

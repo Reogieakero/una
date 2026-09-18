@@ -12,7 +12,7 @@ export { Button } from "./button";
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("rounded-3xl border border-ink/10 bg-white p-6 shadow-card", className)}
+      className={cn("rounded-lg border border-ink/10 bg-white p-6 shadow-card", className)}
       {...props}
     />
   );
@@ -23,7 +23,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
     <input
       ref={ref}
       className={cn(
-        "w-full rounded-2xl border border-ink/15 bg-white px-4 py-2.5 text-sm text-ink placeholder:text-ink-faint focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200",
+        "h-8 w-full rounded-lg border border-ink/15 bg-white px-3 text-sm text-ink placeholder:text-ink-faint focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200",
         className,
       )}
       {...props}
@@ -38,7 +38,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
     <select
       ref={ref}
       className={cn(
-        "w-full appearance-none rounded-2xl border border-ink/15 bg-white px-4 py-2.5 text-sm text-ink focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:opacity-50 [&:invalid]:text-ink-faint",
+        "h-8 w-full appearance-none rounded-lg border border-ink/15 bg-white px-3 text-sm text-ink focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:opacity-50 [&:invalid]:text-ink-faint",
         className,
       )}
       {...props}
@@ -54,7 +54,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
     <textarea
       ref={ref}
       className={cn(
-        "w-full rounded-2xl border border-ink/15 bg-white px-4 py-2.5 text-sm text-ink placeholder:text-ink-faint focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200",
+        "w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200",
         className,
       )}
       {...props}

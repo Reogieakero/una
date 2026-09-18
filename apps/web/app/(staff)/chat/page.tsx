@@ -15,13 +15,19 @@ import {
 } from "@/lib/hooks/use-chat-board";
 import {
   getThreadWithMessages,
+  markNotificationsRead,
   markStaffMessagesRead,
   sendMessage,
   sendStaffMessage,
 } from "@dorsu/shared-services";
 import { Badge, Card } from "@/components/ui/primitives";
 import { initials } from "@/lib/format";
+import { logEvent } from "@/lib/log-event";
 import { patchBoard } from "@/lib/patch-board";
+import {
+  NOTIFICATIONS_BOARD_KEY,
+  type NotificationsBoardData,
+} from "@/lib/hooks/use-notifications-board";
 import { notifyStaff } from "@/lib/notify";
 import { ThreadList, type Convo } from "@/components/chat/ThreadList";
 import { MessageList } from "@/components/chat/MessageList";
@@ -248,7 +254,9 @@ export default function ChatPage() {
   }, [msgOpen]);
 
   const openMessenger = () => {
-    const first = isFaculty
+    // Faculty + counselor pick a profile id directly; the head picks a
+    // counselor row that resolves to its profile below.
+    const first = isFaculty || isCounselor
       ? (contacts[0]?.profileId ?? "")
       : ([...counselorNames.keys()][0] ?? "");
     setMsgCounselor((prev) => prev || first);
@@ -258,9 +266,9 @@ export default function ChatPage() {
   const sendToCounselor = async () => {
     const body = msgBody.trim();
     if (!me || !msgCounselor || !body || msgBusy) return;
-    // Faculty compose is keyed by office profile id directly; the head
+    // Faculty + counselor compose is keyed by office profile id directly; the head
     // compose picks a counselor row and resolves its profile.
-    const peerProfile = isFaculty ? msgCounselor : counselorProfiles.get(msgCounselor);
+    const peerProfile = isFaculty || isCounselor ? msgCounselor : counselorProfiles.get(msgCounselor);
     if (!peerProfile) {
       toast.error("Couldn't find that counselor.");
       return;
@@ -284,7 +292,8 @@ export default function ChatPage() {
         ...(sent?.id ? { dedupeKey: `chat:${sent.id}:dm` } : {}),
         tone: "info",
       });
-    } catch {
+    } catch (e) {
+      logEvent("CHAT_SEND_FAILED", { role: role ?? "unknown", detail: e instanceof Error ? e.message : "unknown" });
       toast.error("Couldn't deliver the message — please try again.");
     } finally {
       setMsgBusy(false);
@@ -293,9 +302,10 @@ export default function ChatPage() {
 
   const isOffice = role === "guidance_head";
   const isFaculty = role === "faculty";
+  const isCounselor = role === "counselor";
   const contactOptions = contacts.map((c) => ({
     value: c.profileId,
-    label: `${c.name} · ${c.role === "guidance_head" ? "Guidance Head" : "Counselor"}`,
+    label: `${c.name} · ${c.role === "guidance_head" ? "Guidance Head" : c.role === "faculty" ? "Faculty" : "Counselor"}`,
   }));
 
   const dmGroups = useMemo(() => {
@@ -348,6 +358,43 @@ export default function ChatPage() {
       )
       .sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at));
   }, [dms, activeDm, me]);
+
+  // Clear the sidebar/bell badge for the conversation being viewed. The
+  // badge counts unread *notification* rows — opening a chat only marks the
+  // message rows read, so without this the count sticks until the inbox is
+  // visited. Matched per-conversation via dedupe_key; the DB UPDATE fans out
+  // through the realtime channel and clears the badge on every open tab.
+  const clearedNotifRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!me) return;
+    const list = activeDm ? dmHistory : activeId ? messages : [];
+    if (!list.length) return;
+    const fresh = list.filter((m) => m.sender_profile_id !== me && !clearedNotifRef.current.has(m.id));
+    if (!fresh.length) return;
+    fresh.forEach((m) => clearedNotifRef.current.add(m.id));
+    const keys = fresh.flatMap((m) => [`chat:${m.id}:dm`, `chat:${m.id}:thread`]);
+    void (async () => {
+      try {
+        const db = createClient();
+        const { data } = await db
+          .from("notifications")
+          .select("id")
+          .eq("profile_id", me)
+          .eq("type", "chat")
+          .eq("is_read", false)
+          .in("dedupe_key", keys);
+        const ids = ((data ?? []) as { id: string }[]).map((n) => n.id);
+        if (!ids.length) return;
+        await markNotificationsRead(db, ids);
+        patchBoard<NotificationsBoardData>(qc, [...NOTIFICATIONS_BOARD_KEY], (prev) => ({
+          ...prev,
+          rows: prev.rows.map((n) => (ids.includes(n.id) ? { ...n, is_read: true } : n)),
+        }));
+      } catch {
+        // Badge converges via the realtime resync + inbox fallback.
+      }
+    })();
+  }, [activeDm, activeId, dmHistory, messages, me, qc]);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
   const activeAlias = active ? (aliases.get(active.student_id)?.alias ?? "Student") : "";
@@ -489,6 +536,7 @@ export default function ChatPage() {
           setStatusFilter={setStatusFilter}
           isOffice={isOffice}
           isFaculty={isFaculty}
+          isCounselor={isCounselor}
           showThreadMobile={showThreadMobile}
           aliases={aliases}
           previews={previews}
@@ -518,7 +566,7 @@ export default function ChatPage() {
                   ? "Select a conversation from the list to read and reply. Use + to message a counselor or the guidance head about your referrals."
                   : isOffice
                     ? "Select a conversation from the list to read and reply. Use + to message a counselor directly."
-                    : "Select a conversation from the list to read and reply. Threads open from student sessions — the amber dot marks ones waiting on a counselor."}
+                    : "Select a conversation from the list to read and reply. Use + to message faculty about their referrals. Threads open from student sessions — the amber dot marks ones waiting on a counselor."}
               </p>
             </div>
           ) : active ? (
@@ -528,7 +576,7 @@ export default function ChatPage() {
                   type="button"
                   onClick={() => setShowThreadMobile(false)}
                   aria-label="Back to conversations"
-                  className="rounded-full p-1.5 text-ink-soft hover:bg-cream lg:hidden"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded text-ink-soft hover:bg-cream lg:hidden"
                 >
                   <ArrowLeft className="h-5 w-5" aria-hidden />
                 </button>
@@ -583,7 +631,7 @@ export default function ChatPage() {
                   type="button"
                   onClick={() => setShowThreadMobile(false)}
                   aria-label="Back to conversations"
-                  className="rounded-full p-1.5 text-ink-soft hover:bg-cream lg:hidden"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded text-ink-soft hover:bg-cream lg:hidden"
                 >
                   <ArrowLeft className="h-5 w-5" aria-hidden />
                 </button>
@@ -635,14 +683,16 @@ export default function ChatPage() {
         counselorNames={counselorNames}
         openMenuKey={openMenuKey}
         onOpenMenuChange={setOpenMenuKey}
-        title={isFaculty ? "Message the office" : undefined}
+        title={isFaculty ? "Message the office" : isCounselor ? "Message faculty" : undefined}
         description={
           isFaculty
             ? "Ask about your referrals — a counselor or the head will reply here."
-            : undefined
+            : isCounselor
+              ? "Coordinate with faculty about their referrals — replies land here."
+              : undefined
         }
-        options={isFaculty ? contactOptions : undefined}
-        pickerLabel={isFaculty ? "Choose who to message" : undefined}
+        options={isFaculty || isCounselor ? contactOptions : undefined}
+        pickerLabel={isFaculty ? "Choose who to message" : isCounselor ? "Choose faculty" : undefined}
       />
     </div>
   );

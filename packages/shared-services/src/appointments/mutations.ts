@@ -565,15 +565,22 @@ export async function rescheduleAppointmentByCounselor(
 ) {
   const { data: current, error: curErr } = await db
     .from("appointments")
-    .select("status, counselor_id")
+    .select("status, counselor_id, scheduled_at, source_referral_id")
     .eq("id", appointmentId)
     .single();
   if (curErr || !current) throw curErr ?? new Error("Session not found.");
-  const cur = current as { status: string; counselor_id: string | null };
+  const cur = current as { status: string; counselor_id: string | null; scheduled_at: string; source_referral_id: string | null };
   if (!["assigned", "confirmed"].includes(cur.status)) {
     throw new Error("Only assigned or confirmed sessions can be rescheduled.");
   }
   if (!cur.counselor_id) throw new Error("Session has no counselor yet.");
+  // Actor stamp for the referral trail (same pattern as triageReferral —
+  // own profile row is always readable, so the name rides along free).
+  const { data: { user } } = await db.auth.getUser();
+  if (!user) throw new Error("Sign in required.");
+  const { data: actor } = await db.from("profiles").select("role, full_name").eq("id", user.id).single();
+  const actorRole = (actor as { role: string } | null)?.role ?? null;
+  const actorName = (actor as { full_name: string | null } | null)?.full_name ?? null;
   const { startMs, endMs } = await validateCounselorSchedule(db, cur.counselor_id, scheduledAt, endsAt, appointmentId);
   const patch: Record<string, string> = { scheduled_at: new Date(startMs).toISOString() };
   if (endsAt !== undefined && endsAt !== null) patch.ends_at = new Date(endMs).toISOString();
@@ -591,6 +598,22 @@ export async function rescheduleAppointmentByCounselor(
     result = await runUpdate();
   }
   if (result.error) throw result.error;
+  // Referral-minted sessions: record the move in the referral trail so the
+  // Track modal + faculty history show the reschedule (faculty cannot read
+  // appointments via RLS — the trail note is their channel). Same
+  // fail-fast precedent as triageReferral's trail insert.
+  if (cur.source_referral_id) {
+    const newIso = (result.data as { scheduled_at: string }).scheduled_at;
+    const { error: trailErr } = await db.from("referral_actions").insert({
+      referral_id: cur.source_referral_id,
+      actor_profile_id: user.id,
+      actor_name: actorName,
+      actor_role: actorRole,
+      action: "rescheduled",
+      note: `Session rescheduled from ${cur.scheduled_at} to ${newIso}`,
+    });
+    if (trailErr) throw trailErr;
+  }
   return result.data;
 }
 

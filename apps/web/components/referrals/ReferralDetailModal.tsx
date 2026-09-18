@@ -59,7 +59,7 @@ export function ReferralDetailModal({
       aria-labelledby="ref-reason-title"
     >
       <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={onClose} />
-      <div className="no-scrollbar relative max-h-screen w-full overflow-y-auto rounded-bl-2xl bg-white p-6 shadow-card sm:max-w-md">
+      <div className="no-scrollbar relative max-h-screen w-full overflow-y-auto rounded-bl-lg bg-white p-6 shadow-card sm:max-w-md">
         <h2 id="ref-reason-title" className="font-display text-lg font-bold text-ink">
           Referral reason
         </h2>
@@ -96,11 +96,11 @@ export function ReferralDetailModal({
             </div>
           )}
         </dl>
-        <p className="mt-3 whitespace-pre-wrap rounded-xl bg-cream px-4 py-3 text-sm leading-relaxed text-ink">
+        <p className="mt-3 whitespace-pre-wrap rounded-lg bg-cream px-4 py-3 text-sm leading-relaxed text-ink">
           {referral.reason}
         </p>
         {(trail.get(referral.id) ?? []).length > 0 && (
-          <div className="mt-3 rounded-xl border border-ink/10 px-4 py-3">
+          <div className="mt-3 rounded-lg border border-ink/10 px-4 py-3">
             <p className="text-xs font-bold text-ink-muted">
               Trail · {(trail.get(referral.id) ?? []).length} entr{(trail.get(referral.id) ?? []).length === 1 ? "y" : "ies"}
             </p>

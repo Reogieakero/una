@@ -2,24 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2 } from "lucide-react";
-import { createReferralSchema, type CreateReferralInput } from "@dorsu/shared-schemas";
-import { createClient } from "@/lib/supabase/client";
-import { createReferral, isMeetUrl } from "@dorsu/shared-services";
-import { upsertReferralRow, type BoardSlot, type ReferralsRow } from "@/lib/hooks/use-referrals-board";
+import { isMeetUrl } from "@dorsu/shared-services";
+import { type BoardSlot } from "@/lib/hooks/use-referrals-board";
+import type { ReferralStudentOption } from "@/lib/hooks/use-referrals-board";
 import { Badge, Button, Card, FieldError, Input, Textarea } from "@/components/ui/primitives";
 import { SlotSchedulePicker, composeLocal, defaultSchedule, selectionFitsScope, type ScheduleSelection } from "@/components/appointments/SlotSchedulePicker";
 import { Dropdown } from "@/components/shared/dropdown";
 import { IconAction } from "@/components/shared/icon-action";
-import { notifyStaff } from "@/lib/notify";
 import { Eye } from "lucide-react";
-import { ReferralFormSheet, type SheetStudent } from "./ReferralFormSheet";
+import { ReferralExcelModal } from "./ReferralExcelModal";
 import {
   NO_SESSION_MSG,
-  PRIORITIES,
   TRIAGE_COPY,
   classificationSummary,
   priorityTone,
@@ -214,14 +207,14 @@ export function TriageConfirmDialog({
       aria-describedby="ref-confirm-desc"
     >
       <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={close} />
-      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-6 shadow-card sm:max-w-md">
+      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-6 shadow-card sm:max-w-md">
         <h2 id="ref-confirm-title" className="font-display text-lg font-bold text-ink">
           {TRIAGE_COPY[confirming.to].title}
         </h2>
         <p id="ref-confirm-desc" className="mt-1 text-sm leading-relaxed text-ink-muted">
           {TRIAGE_COPY[confirming.to].body}
         </p>
-        <p className="mt-3 line-clamp-2 rounded-xl bg-cream px-3 py-2 text-[13px] font-semibold text-ink-soft">
+        <p className="mt-3 line-clamp-2 rounded-lg bg-cream px-3 py-2 text-[13px] font-semibold text-ink-soft">
           {referralStudentName(confirming.ref, aliases)} · {confirming.ref.reason}
         </p>
         {confirming.to === "confirmed" && (
@@ -317,7 +310,6 @@ export function TriageConfirmDialog({
             disabled={busy || (confirming.to === "confirmed" && !sched)}
             onClick={run}
           >
-            {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
             {busy ? "Processing…" : TRIAGE_COPY[confirming.to].ok}
           </Button>
         </div>
@@ -327,9 +319,10 @@ export function TriageConfirmDialog({
 }
 
 /**
- * Faculty submit section — the digitized Counseling Referral Form sheet
- * plus an office-routing card (urgency), plus the faculty's own read-only
- * view of the queue below with official-form view buttons.
+ * Faculty submit section — files through the official Excel-template flow
+ * (ReferralExcelModal: fill → preview FM-DOrSU-GCTC-02 → Refer/Excel/PDF),
+ * plus the faculty's own read-only view of the queue below with
+ * official-form view buttons.
  */
 export function FacultyReferralSection({
   facultyId,
@@ -337,138 +330,50 @@ export function FacultyReferralSection({
   headIds,
   rows,
   aliases,
-  openMenuKey,
-  onOpenMenuChange,
   onSubmitted,
   showQueue = true,
   myName,
   onViewForm,
 }: {
   facultyId: string | null;
-  students: SheetStudent[];
+  students: ReferralStudentOption[];
   headIds: string[];
   rows: Referral[];
   aliases: Map<string, string>;
-  openMenuKey: string | null;
-  onOpenMenuChange: (k: string | null) => void;
   onSubmitted: () => void;
   /** Set false on the dedicated /refer-student page (tracking lives on /referrals). */
   showQueue?: boolean;
   myName: string;
   onViewForm?: (r: Referral) => void;
 }) {
-  const form = useForm<CreateReferralInput>({
-    resolver: zodResolver(createReferralSchema),
-    defaultValues: { priority: "medium", caseClassification: [] },
-  });
-  const { handleSubmit, formState, reset, setValue, watch } = form;
-  const priorityValue = watch("priority") ?? "medium";
-  const [studentPick, setStudentPick] = useState("");
-  // Same-tick double-click guard — the disabled button covers re-renders,
-  // this ref covers two submits dispatched before React flushes state.
-  const submitRef = useRef(false);
-  const submitting = formState.isSubmitting || submitRef.current;
-  const qc = useQueryClient();
-  const todayLabel = new Date().toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const [excelOpen, setExcelOpen] = useState(false);
 
   return (
     <>
-      <form
-        className="space-y-4"
-        onSubmit={handleSubmit(async (v) => {
-          if (submitRef.current) return;
-          if (!facultyId) {
-            toast.error("Your faculty record isn't linked yet — ask the guidance head to finish setup.");
-            return;
-          }
-          submitRef.current = true;
-          try {
-            const created = (await createReferral(createClient(), {
-              studentId: v.studentId,
-              reason: v.reason,
-              priority: v.priority,
-              studentGender: v.studentGender || undefined,
-              studentAge: v.studentAge || undefined,
-              relationToClient: v.relationToClient || undefined,
-              caseClassification: v.caseClassification,
-              classificationOther: v.classificationOther || undefined,
-              referringFacultyId: facultyId,
-            })) as { id?: string } | null;
-            reset();
-            setStudentPick("");
-            toast.success("Referral submitted — the guidance office will triage it.");
-            // Instant list update: prepend the created row (with its alias)
-            // so the history shows it with the toast — refetch reconciles after.
-            if (created?.id) {
-              const alias = v.studentId
-                ? (students.find((s) => s.id === v.studentId)?.alias ?? null)
-                : null;
-              upsertReferralRow(qc, created as unknown as ReferralsRow, alias);
-            }
-            const kinds = classificationSummary(v.caseClassification);
-            void notifyStaff(headIds, {
-              type: "referral",
-              title: `New ${v.priority} referral (${kinds})`,
-              body: v.reason.length > 120 ? `${v.reason.slice(0, 120)}…` : v.reason,
-              link: created?.id ? `/referrals#focus-${created.id}` : "/referrals",
-              ...(created?.id ? { dedupeKey: `referral:${created.id}:created` } : {}),
-              tone: "info",
-            });
-            onSubmitted();
-          } finally {
-            submitRef.current = false;
-          }
-        })}
-      >
-        <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-card sm:p-6">
-          <ReferralFormSheet
-            mode="fill"
-            form={form}
-            students={students}
-            studentPick={studentPick}
-            onStudentPick={(val) => {
-              setStudentPick(val);
-              setValue("studentId", val, { shouldValidate: true });
-            }}
-            openMenuKey={openMenuKey}
-            onOpenMenuChange={onOpenMenuChange}
-            referrerName={myName}
-            dateLabel={todayLabel}
-          />
+      <Card className="rounded-lg">
+        <h2 className="font-display text-lg font-bold text-ink">File a referral</h2>
+        <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
+          Flag a student with an observed academic, behavioral, or relational concern — fill
+          up one form and either submit it straight to the Guidance Office or download it
+          pre-filled on the official Excel template (FM-DOrSU-GCTC-02).
+        </p>
+        <div className="mt-4 flex justify-center">
+          <Button onClick={() => setExcelOpen(true)}>
+            Fill up referral form
+          </Button>
         </div>
-
-        <Card>
-          <h2 className="font-display font-bold">Office routing</h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">
-            Not part of the paper form — helps the office triage faster.
-          </p>
-          <div className="mt-3 grid items-end gap-3 md:grid-cols-[240px_minmax(0,1fr)]">
-            <div>
-              <label className="mb-1 block text-xs font-bold text-ink-muted">Urgency</label>
-              <Dropdown
-                menuKey="ref-new-priority"
-                openMenuKey={openMenuKey}
-                onOpenChange={onOpenMenuChange}
-                value={priorityValue}
-                onChange={(val) => setValue("priority", val as CreateReferralInput["priority"], { shouldValidate: true })}
-                ariaLabel="Referral urgency"
-                options={PRIORITIES.map((p) => ({ value: p, label: statusLabel(p) }))}
-              />
-              <FieldError message={formState.errors.priority?.message} />
-            </div>
-            <div className="md:justify-self-end">
-              <Button disabled={submitting}>
-                {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-                {submitting ? "Submitting…" : "Submit referral"}
-              </Button>
-            </div>
-          </div>
-        </Card>
-      </form>
+      </Card>
+      <ReferralExcelModal
+        open={excelOpen}
+        myName={myName}
+        students={students}
+        facultyId={facultyId}
+        headIds={headIds}
+        onSubmitted={() => {
+          onSubmitted();
+        }}
+        onClose={() => setExcelOpen(false)}
+      />
 
       {/* Faculty's own view of the queue is read-only context below the form */}
       {showQueue && !!rows.length && (

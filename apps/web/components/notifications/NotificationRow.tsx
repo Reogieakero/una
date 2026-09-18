@@ -44,7 +44,7 @@ export function NotificationRow({
   const Icon = meta.icon;
   return (
     <li
-      className={`flex items-start gap-3 rounded-xl px-3 py-3 transition-colors ${n.is_read ? "" : "bg-blue-50/60"}`}
+      className={`flex items-start gap-3 rounded-lg px-3 py-3 transition-colors ${n.is_read ? "" : "bg-blue-50/60"}`}
     >
       <span
         aria-hidden
@@ -73,7 +73,7 @@ export function NotificationRow({
             <button
               type="button"
               onClick={() => void onMarkRead(n.id)}
-              className="font-bold text-primary-600 hover:underline"
+              className="inline-flex h-8 items-center rounded px-3 text-[13px] font-bold text-primary-600 transition hover:bg-blue-50 hover:underline"
             >
               Mark read
             </button>

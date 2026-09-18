@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, X } from "lucide-react";
+import { X } from "lucide-react";
 import { DateRangeCalendar } from "@/components/ui/date-range-calendar";
 import { fmtDayCompact, isCustomRangeValid } from "@/lib/reports-scope";
 import { cn } from "@/lib/utils";
@@ -60,10 +60,10 @@ export function ReportRangeModal({
   return (
     <div role="dialog" aria-modal="true" aria-label="Choose date range" className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" aria-label="Close date range" onClick={onClose} className="absolute inset-0 bg-ink/40" />
-      <div className="relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-ink/10 bg-white p-5 shadow-card">
+      <div className="relative z-10 w-full max-w-sm overflow-hidden rounded-lg border border-ink/10 bg-white p-5 shadow-card">
         <div className="flex items-center gap-3">
           <h2 className="min-w-0 flex-1 font-display text-base font-bold text-ink">Date range</h2>
-          <div role="tablist" aria-label="Range mode" className="flex shrink-0 rounded-full bg-cream p-1">
+          <div role="tablist" aria-label="Range mode" className="flex shrink-0 rounded bg-cream p-1">
             {(
               [
                 { key: "quick", label: "Quick" },
@@ -77,7 +77,7 @@ export function ReportRangeModal({
                 aria-selected={tab === t.key}
                 onClick={() => setTab(t.key)}
                 className={cn(
-                  "rounded-full px-3 py-1 text-[13px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
+                  "h-8 rounded px-3 text-[13px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
                   tab === t.key ? "bg-white text-primary-700 shadow-card" : "text-ink-muted hover:text-ink"
                 )}
               >
@@ -90,7 +90,7 @@ export function ReportRangeModal({
             autoFocus
             onClick={onClose}
             aria-label="Close date range"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-soft transition hover:bg-cream-dark hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-soft transition hover:bg-cream-dark hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
           >
             <X className="h-5 w-5" aria-hidden />
           </button>
@@ -107,12 +107,11 @@ export function ReportRangeModal({
                     onClick={() => onPickPreset(r.key)}
                     aria-pressed={active}
                     className={cn(
-                      "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
+                      "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
                       active ? "bg-primary-50 font-bold text-primary-700" : "font-medium text-ink-soft hover:bg-cream hover:text-ink"
                     )}
                   >
                     {r.label}
-                    {active && <Check aria-hidden className="h-4 w-4 shrink-0 text-primary-600" />}
                   </button>
                 </li>
               );
@@ -133,7 +132,7 @@ export function ReportRangeModal({
               <button
                 type="button"
                 onClick={onClear}
-                className="rounded-full px-3 py-1.5 text-[13px] font-bold text-primary-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                className="inline-flex h-8 items-center rounded px-3 text-[13px] font-bold text-primary-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
               >
                 Clear
               </button>
@@ -141,7 +140,7 @@ export function ReportRangeModal({
                 type="button"
                 onClick={onApply}
                 disabled={!customValid}
-                className="rounded-full bg-primary-600 px-5 py-1.5 text-[13px] font-bold text-white shadow-soft transition hover:bg-primary-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                className="inline-flex h-8 items-center rounded bg-primary-600 px-4 text-[13px] font-bold text-white shadow-soft transition hover:bg-primary-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
               >
                 Apply
               </button>

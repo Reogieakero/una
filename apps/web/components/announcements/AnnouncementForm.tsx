@@ -2,8 +2,8 @@
 
 import type { BaseSyntheticEvent } from "react";
 import type { UseFormRegister, FieldErrors } from "react-hook-form";
-import { ImagePlus, X } from "lucide-react";
 import type { AnnouncementInput } from "@dorsu/shared-schemas";
+import { X } from "lucide-react";
 import { initials } from "@/lib/format";
 import { Button, Card, FieldError, Input, Textarea } from "@/components/ui/primitives";
 
@@ -69,14 +69,14 @@ export function AnnouncementForm({
           <FieldError message={errors.body?.message} />
         </div>
         {imagePreview ? (
-          <div className="relative overflow-hidden rounded-2xl border border-ink/10">
+          <div className="relative overflow-hidden rounded-lg border border-ink/10">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={imagePreview} alt="Attached preview" className="max-h-64 w-full object-cover" />
             <button
               type="button"
               onClick={onClearImage}
               aria-label="Remove image"
-              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-ink/60 text-white transition hover:bg-ink/80"
+              className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded bg-white/90 text-ink shadow-card transition hover:bg-white"
             >
               <X className="h-4 w-4" aria-hidden />
             </button>
@@ -102,8 +102,8 @@ export function AnnouncementForm({
                   onClick={() => onToggleAudience(a.value)}
                   className={
                     on
-                      ? "rounded-full bg-primary-600 px-3 py-1.5 text-xs font-bold text-white shadow-soft"
-                      : "rounded-full bg-cream px-3 py-1.5 text-xs font-bold text-ink-soft hover:bg-cream-dark"
+                      ? "inline-flex h-8 items-center rounded bg-primary-600 px-3 text-xs font-bold text-white shadow-soft"
+                      : "inline-flex h-8 items-center rounded bg-cream px-3 text-xs font-bold text-ink-soft hover:bg-cream-dark"
                   }
                 >
                   {a.label}
@@ -121,7 +121,6 @@ export function AnnouncementForm({
             onClick={() => fileRef.current?.click()}
             className="px-4"
           >
-            <ImagePlus className="h-4 w-4" aria-hidden />
             Photo
           </Button>
           <div className="flex gap-2">

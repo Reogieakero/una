@@ -50,7 +50,7 @@ export type ChatBoardData = {
   previews: Map<string, ChatMsg>;
   dms: ChatDm[];
   staffNames: Map<string, string>;
-  /** Office contacts (counselors + head) — populated for faculty only. */
+  /** Office contacts — faculty directory for counselors, office directory for faculty. */
   contacts: ChatContact[];
 };
 
@@ -77,18 +77,23 @@ export async function fetchChatBoard(): Promise<ChatBoardData> {
     const { data } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
     cid = (data as { id: string } | null)?.id ?? null;
   }
+  /** Office directory via /api/chat/contacts (faculty see the office, counselors see faculty). */
+  async function fetchContacts(): Promise<ChatContact[]> {
+    try {
+      const res = await fetch("/api/chat/contacts", { credentials: "same-origin" });
+      if (res.ok) return (((await res.json()) as { contacts?: ChatContact[] }).contacts ?? []);
+    } catch {
+      // Offline — inbox still renders, compose just has nobody to pick.
+    }
+    return [];
+  }
+
   // Faculty inbox is office DMs only — no student threads (participant-
   // private). Names come from /api/chat/contacts because faculty clients
   // cannot read other profiles (RLS).
   if (r === "faculty") {
     const dms = ((await listStaffMessages(supabase, user.id)) ?? []) as ChatDm[];
-    let contacts: ChatContact[] = [];
-    try {
-      const res = await fetch("/api/chat/contacts", { credentials: "same-origin" });
-      if (res.ok) contacts = (((await res.json()) as { contacts?: ChatContact[] }).contacts ?? []);
-    } catch {
-      contacts = [];
-    }
+    const contacts = await fetchContacts();
     return {
       role: r,
       me: user.id,
@@ -202,7 +207,9 @@ export async function fetchChatBoard(): Promise<ChatBoardData> {
     previews,
     dms,
     staffNames,
-    contacts: [],
+    // Counselors message faculty (follow-ups on referrals) — directory comes
+    // from the server route; heads compose from the counselor directory above.
+    contacts: r === "counselor" ? await fetchContacts() : [],
   };
 }
 
