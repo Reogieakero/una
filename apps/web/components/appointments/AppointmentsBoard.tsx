@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Check, CheckCheck, Loader2, UserX, Video, X } from "lucide-react";
+import { CalendarClock, Check, CheckCheck, FileText, Loader2, UserX, Video, X } from "lucide-react";
 import { Badge, Input } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
 import { HoverMenu } from "@/components/shared/hover-menu";
@@ -38,6 +38,8 @@ export function AppointmentsBoard({
   onAssign,
   onDetail,
   onConfirming,
+  onNotes,
+  kindFilter = "appointments",
 }: {
   visible: Appt[];
   loading: boolean;
@@ -63,6 +65,10 @@ export function AppointmentsBoard({
   onAssign: (appt: Appt, counselorId: string | null) => void;
   onDetail: (appt: Appt) => void;
   onConfirming: (v: { appt: Appt; kind: ActionKind }) => void;
+  /** Open the private session-notes record (completed sessions, counselor/head). */
+  onNotes: (appt: Appt) => void;
+  /** Active board tab — tailors the empty state. */
+  kindFilter?: "appointments" | "followups";
 }) {
   const focusedId = useFocusRow(visible);
   return (
@@ -198,7 +204,14 @@ export function AppointmentsBoard({
                 )}
               </td>
               <td className="whitespace-nowrap px-4 py-3">
-                <Badge tone={statusTone(a.status)}>{statusLabel(a.status)}</Badge>
+                <span className="inline-flex flex-wrap items-center gap-1.5">
+                  <Badge tone={statusTone(a.status)}>{statusLabel(a.status)}</Badge>
+                  {a.is_follow_up && (
+                    <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-[11px] font-bold text-purple-800">
+                      Follow-up
+                    </span>
+                  )}
+                </span>
               </td>
               <td className="max-w-[220px] truncate px-4 py-3" title={a.concern}>{a.concern}</td>
               {canSeeActions && (
@@ -231,6 +244,13 @@ export function AppointmentsBoard({
                         <IconAction label="No-show" variant="outline" icon={UserX} disabled={busyId === a.id} onClick={() => onConfirming({ appt: a, kind: "no-show" })} />
                       </>
                     )}
+                    {/* Private clinical record — ended sessions only. */}
+                    {isCounselor && a.status === "completed" && (
+                      <IconAction label="Session notes" variant="outline" icon={FileText} disabled={busyId === a.id} onClick={() => onNotes(a)} />
+                    )}
+                    {role === "guidance_head" && a.status === "completed" && (
+                      <IconAction label="View session notes" variant="outline" icon={FileText} disabled={busyId === a.id} onClick={() => onNotes(a)} />
+                    )}
                     {(a.status === "completed" || a.status === "cancelled" || a.status === "rejected" || a.status === "no_show") && (
                       <span className="text-xs font-medium text-ink-faint">Terminal</span>
                     )}
@@ -250,7 +270,9 @@ export function AppointmentsBoard({
       </div>
       {!loading && !visible.length && (
         <p className="px-4 py-8 text-center text-sm text-ink-muted">
-          No sessions match these filters. Try clearing the search or choosing another status.
+          {kindFilter === "followups"
+            ? "No follow-up sessions match these filters. Document a follow-up from a completed session's notes and it will appear here."
+            : "No sessions match these filters. Try clearing the search or choosing another status."}
         </p>
       )}
       {loading && (

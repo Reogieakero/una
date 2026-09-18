@@ -20,6 +20,7 @@ import {
 import { ReportBars, ReportDonut, ReportTrendChart } from "@/components/shared/reports-charts";
 import { CLASSIFICATIONS } from "@/components/referrals/status";
 import { ReportsFilters, ReportsFiltersSkeleton } from "@/components/shared/reports-filters";
+import { Spinner } from "@/components/ui/spinner";
 import { useFacultyReports } from "@/lib/hooks/use-faculty-reports";
 import type { FacultyReportsPayload } from "@/lib/hooks/use-faculty-reports";
 import {
@@ -259,8 +260,14 @@ export function FacultyReportsView({
     fromDay: rangeDay(range.from),
     toDay: rangeDay(range.to),
   };
-  const { data, isLoading, isError, error, isFetching, refetch } = useFacultyReports(scope);
-  const loading = isLoading && !data;
+  const { data, isPending, isError, error, isFetching, refetch } = useFacultyReports(scope);
+  // The API echoes the section it fetched for. With keepPreviousData, a filter
+  // switch keeps the previous payload while the new one loads — rendering that
+  // stale payload as if it were the new filter flashes wrong numbers or false
+  // "No X yet" empty states. Treat uncovered cached data as loading so panels
+  // show skeletons until the new filter's payload arrives.
+  const coversSection = !!data && (data.section === "all" || data.section === section);
+  const loading = isPending || (isFetching && !coversSection);
   const showAll = section === "all";
   const showReferrals = showAll || section === "referrals";
   const showOperations = showAll || section === "operations";
@@ -268,7 +275,7 @@ export function FacultyReportsView({
   const unlinked = !loading && (data as { unlinked?: boolean } | undefined)?.unlinked === true;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy={isFetching}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -290,6 +297,7 @@ export function FacultyReportsView({
           </p>
           {data && !loading && isFetching && (
             <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-ink-faint" aria-live="polite">
+              <Spinner size="xs" label="Updating reports…" />
               Updating…
             </p>
           )}
@@ -301,6 +309,7 @@ export function FacultyReportsView({
             fromDay={rangeDay(range.from)}
             toDay={rangeDay(range.to)}
             rangeLabel={range.label}
+            fetching={isFetching}
           />
         </Suspense>
       </div>

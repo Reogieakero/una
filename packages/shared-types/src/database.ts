@@ -145,6 +145,12 @@ export type AppointmentRow = {
   meeting_url: string | null;
   is_anonymous: boolean;
   pss10_id: string | null;
+  /** Draft appointments created from a referral link back here (00020). */
+  source_referral_id: string | null;
+  /** True for sessions minted as follow-ups from a session note (00054). */
+  is_follow_up: boolean;
+  /** The ended session the follow-up was documented from; null for regular bookings. */
+  follow_up_of: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -164,10 +170,46 @@ export type SessionNoteRow = {
   id: string;
   appointment_id: string;
   counselor_id: string;
-  content: string;
+  /** Legacy column (00009 NOT NULL, relaxed by 00020) — kept in sync with `notes`. */
+  content: string | null;
+  /** Canonical note text since 00020. */
+  notes: string | null;
   is_private: boolean;
+  follow_up_required: boolean;
+  follow_up_date: string | null;
+  /** Follow-up moment (date + time) since 00053; follow_up_date stays as date twin. */
+  follow_up_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** Private image attached to a session note (bytes in the private bucket). */
+export type SessionNoteAttachmentRow = {
+  id: string;
+  note_id: string;
+  counselor_id: string;
+  storage_path: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+};
+
+/** Head-managed logical backup run (00056) — artifacts in the private bucket. */
+export type BackupRunRow = {
+  id: string;
+  status: string;
+  source: string;
+  tables: Record<string, number>;
+  row_counts: Record<string, number>;
+  total_rows: number;
+  bytes: number;
+  checksum: string | null;
+  storage_path: string | null;
+  warnings: string[];
+  error: string | null;
+  initiated_by: string | null;
+  started_at: string;
+  finished_at: string | null;
 };
 
 export type FeedbackRow = {
@@ -320,6 +362,8 @@ export interface Database {
       appointments: { Row: AppointmentRow; Insert: Partial<AppointmentRow>; Update: Partial<AppointmentRow>; Relationships: [] };
       pss10_assessments: { Row: Pss10AssessmentRow; Insert: Partial<Pss10AssessmentRow>; Update: Partial<Pss10AssessmentRow>; Relationships: [] };
       session_notes: { Row: SessionNoteRow; Insert: Partial<SessionNoteRow>; Update: Partial<SessionNoteRow>; Relationships: [] };
+      session_note_attachments: { Row: SessionNoteAttachmentRow; Insert: Partial<SessionNoteAttachmentRow>; Update: Partial<SessionNoteAttachmentRow>; Relationships: [] };
+      backup_runs: { Row: BackupRunRow; Insert: Partial<BackupRunRow>; Update: Partial<BackupRunRow>; Relationships: [] };
       feedback: { Row: FeedbackRow; Insert: Partial<FeedbackRow>; Update: Partial<FeedbackRow>; Relationships: [] };
       chat_threads: { Row: ChatThreadRow; Insert: Partial<ChatThreadRow>; Update: Partial<ChatThreadRow>; Relationships: [] };
       chat_messages: { Row: ChatMessageRow; Insert: Partial<ChatMessageRow>; Update: Partial<ChatMessageRow>; Relationships: [] };

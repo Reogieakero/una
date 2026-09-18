@@ -73,6 +73,7 @@ export const STAFF_NAV_GROUPS: StaffNavGroup[] = [
       { href: "/announcements", label: "Announcements", desc: "News and updates", roles: ["counselor", "guidance_head", "faculty"] },
       { href: "/feedback", label: "Feedback", desc: "Student feedback", roles: ["counselor", "guidance_head"] },
       { href: "/security", label: "Security", desc: "Access and safety logs", roles: ["guidance_head"] },
+      { href: "/backups", label: "Backups", desc: "Data backup and recovery", roles: ["guidance_head"] },
       { href: "/settings", label: "Settings", desc: "Profile and preferences", roles: ["counselor", "guidance_head", "faculty", "admin"] },
     ],
   },

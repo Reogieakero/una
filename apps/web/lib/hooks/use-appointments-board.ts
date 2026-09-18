@@ -16,6 +16,10 @@ export type BoardAppointment = {
   status: string;
   concern: string;
   meeting_url: string | null;
+  /** True for sessions minted as follow-ups from a session note (00054). */
+  is_follow_up: boolean;
+  /** Origin session the follow-up was documented from; null for regular bookings. */
+  follow_up_of: string | null;
 };
 
 export type BoardCounselor = { id: string; name: string };

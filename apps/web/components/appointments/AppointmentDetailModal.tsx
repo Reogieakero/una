@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, MapPin, Video, X } from "lucide-react";
+import { CalendarDays, FileText, MapPin, Video, X } from "lucide-react";
 import { Badge, Button } from "@/components/ui/primitives";
 import { formatLong, formatScheduleRange, formatWhen, hasSetSchedule, statusLabel, statusTone } from "./status";
 import type { Appt } from "./status";
@@ -14,11 +14,16 @@ export function AppointmentDetailModal({
   aliases,
   counselorName,
   onClose,
+  canSeeNotes,
+  onNotes,
 }: {
   detail: Appt | null;
   aliases: Map<string, string>;
   counselorName: (id: string | null) => string;
   onClose: () => void;
+  /** Counselor (own ended sessions) or head (oversight) — shows the notes entry. */
+  canSeeNotes?: boolean;
+  onNotes?: (appt: Appt) => void;
 }) {
   if (!detail) return null;
   return (
@@ -134,6 +139,25 @@ export function AppointmentDetailModal({
             <p className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">Concern</p>
             <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">{detail.concern}</p>
           </div>
+
+          {detail.is_follow_up && (
+            <p className="mt-3 flex items-start gap-2 rounded-2xl bg-purple-50 px-4 py-3 text-[13px] leading-relaxed text-purple-900 ring-1 ring-purple-100">
+              <FileText className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              Follow-up session — scheduled from a previous session&apos;s notes. It runs the normal
+              confirm → complete lifecycle like any other session.
+            </p>
+          )}
+
+          {detail.status === "completed" && canSeeNotes && onNotes && (
+            <button
+              type="button"
+              onClick={() => onNotes(detail)}
+              className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-full border-2 border-ink/15 bg-white px-4 py-2.5 text-sm font-bold text-ink transition-colors hover:border-primary-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            >
+              <FileText className="h-4 w-4" aria-hidden />
+              Session notes (private)
+            </button>
+          )}
 
           {detail.mode === "online" && detail.meeting_url && (
             <a

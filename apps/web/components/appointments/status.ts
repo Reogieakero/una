@@ -1,4 +1,4 @@
-import { CalendarClock, Check, CheckCheck, UserX, X } from "lucide-react";
+import { CalendarClock, Check, CheckCheck, FileText, UserX, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   completeAppointment,
@@ -68,6 +68,7 @@ export const COUNSELOR_LEGEND: { icon: typeof Check; label: string; desc: string
   { icon: CalendarClock, label: "Reschedule", desc: "Move an assigned/confirmed session inside your slots (student notified)", variant: "outline" },
   { icon: CheckCheck, label: "Complete", desc: "Confirmed → completed (once session time passes)", variant: "accent" },
   { icon: UserX, label: "No-show", desc: "Confirmed, student didn't arrive (once session time passes)", variant: "outline" },
+  { icon: FileText, label: "Notes", desc: "Document private session notes (completed sessions only)", variant: "outline" },
 ];
 
 export type ActionKind = "confirm" | "complete" | "no-show" | "reject" | "reschedule";

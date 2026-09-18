@@ -14,10 +14,13 @@ import { useMutationAction } from "@/lib/hooks/use-mutation-action";
 import { patchBoard } from "@/lib/patch-board";
 import {
   assignReferral,
+  completeAppointment,
   confirmReferralWithSession,
   rejectReferral,
   triageReferral,
 } from "@dorsu/shared-services";
+import { APPOINTMENTS_BOARD_KEY } from "@/lib/hooks/use-appointments-board";
+import type { Appt } from "@/components/appointments/status";
 import { Card } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
 import {
@@ -34,6 +37,7 @@ import { ReferralActionsLegend, ReferralStatsMenu } from "@/components/referrals
 import { ReferralsBoard } from "@/components/referrals/ReferralsBoard";
 import { ReferralFormModal } from "@/components/referrals/ReferralFormModal";
 import { ReferralTrackingModal } from "@/components/referrals/ReferralTrackingModal";
+import { SessionNotesModal } from "@/components/appointments/SessionNotesModal";
 import { FacultyReferralSection, TriageConfirmDialog } from "@/components/referrals/TriageDialogs";
 import { useReferralFilters } from "@/components/referrals/use-referral-filters";
 
@@ -86,6 +90,9 @@ export default function ReferralsPage() {
   const [confirming, setConfirming] = useState<{ ref: Referral; to: TriageKind } | null>(null);
   const [formRef, setFormRef] = useState<Referral | null>(null);
   const [trackRef, setTrackRef] = useState<Referral | null>(null);
+  // Linked session opened for optional confidential documentation after a
+  // counselor resolve (notes + images + follow-up — all skippable).
+  const [notesAppt, setNotesAppt] = useState<Appt | null>(null);
 
   useEffect(() => {
     if (isError) toast.error("Couldn't load referrals right now.");
@@ -207,6 +214,54 @@ export default function ReferralsPage() {
       ...prev,
       rows: prev.rows.map((r) => (r.id === id ? { ...r, ...patch } : r)),
     }));
+
+  /**
+   * After a counselor resolve, offer the optional confidential record for the
+   * linked session (notes + images + follow-up, all skippable — closing the
+   * modal documents nothing). The minted session is ended first when it is
+   * still confirmed-past, so the loop truly closes and the note (which
+   * requires a completed session) can be written. Anything unexpected fails
+   * silent — the resolve itself already succeeded.
+   */
+  const openResolveNotes = async (ref: Referral) => {
+    try {
+      const db = createClient();
+      const { data } = await db
+        .from("appointments")
+        .select("id,student_id,counselor_id,scheduled_at,ends_at,mode,status,concern,meeting_url,is_follow_up,follow_up_of")
+        .eq("source_referral_id", ref.id)
+        .order("scheduled_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      let row = (data ?? null) as Appt | null;
+      if (!row || row.counselor_id !== counselorId || !counselorId) return;
+      if (row.status === "confirmed" && !isSessionUpcoming(row.scheduled_at)) {
+        const completed = await completeAppointment(db, row.id).catch(() => null);
+        if (
+          completed &&
+          typeof completed === "object" &&
+          (completed as { id?: unknown }).id === row.id
+        ) {
+          row = { ...row, ...(completed as Partial<Appt>) };
+          // The sessions board still shows it confirmed — reconcile behind the modal.
+          void qc.invalidateQueries({ queryKey: [...APPOINTMENTS_BOARD_KEY] }).catch(() => {});
+        } else {
+          const { data: reread } = await db
+            .from("appointments")
+            .select("id,student_id,counselor_id,scheduled_at,ends_at,mode,status,concern,meeting_url,is_follow_up,follow_up_of")
+            .eq("id", row.id)
+            .maybeSingle();
+          row = (reread as Appt | null) ?? row;
+        }
+      }
+      // Only ended sessions carry the confidential record — an upcoming
+      // linked session (resolved via another session) documents nothing here.
+      if (row.status !== "completed") return;
+      setNotesAppt(row);
+    } catch {
+      // Documentation is optional — resolve already succeeded.
+    }
+  };
 
   const act = async (
     ref: Referral,
@@ -335,6 +390,9 @@ export default function ReferralsPage() {
               ? "Leadership notified."
               : "Referral closed.";
       toast.success(okTitle, { description: okDesc, position: "top-right" });
+      // Resolving a live case offers the optional confidential record for
+      // the linked session (same SessionNotes flow as completing one).
+      if (to === "resolved" && isCounselor) void openResolveNotes(ref);
   };
 
   const assign = async (ref: Referral, counselorId: string) => {
@@ -544,6 +602,17 @@ export default function ReferralsPage() {
         trail={trackRef ? (trail.get(trackRef.id) ?? []) : []}
         actorNames={actorNames}
         onClose={() => setTrackRef(null)}
+      />
+
+      {/* Optional confidential record after a counselor resolve */}
+      <SessionNotesModal
+        appt={notesAppt}
+        studentLabel={notesAppt?.student_id ? (aliases.get(notesAppt.student_id) ?? "Student") : "Walk-in"}
+        studentProfileId={notesAppt?.student_id ? (studentProfiles.get(notesAppt.student_id) ?? null) : null}
+        editable={isCounselor}
+        headIds={headIds}
+        slots={board?.slots ?? []}
+        onClose={() => setNotesAppt(null)}
       />
     </div>
   );

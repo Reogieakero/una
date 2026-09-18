@@ -277,6 +277,162 @@ export async function validateCounselorSchedule(
  * omitting it keeps the student's requested time.
  */
 
+/**
+ * Follow-up gate for session notes: a single moment (the eventual session
+ * start) must be in the future and sit inside one of the counselor's
+ * availability slots with room for at least a 15-minute start — the same
+ * validity the SlotSchedulePicker start options use, in the same Manila
+ * wall-clock the slots use. No overlap check: a follow-up is a plan, not a
+ * booking; the real session validates overlap when it is actually scheduled.
+ * Throws friendly errors the UI passes straight through.
+ */
+export async function validateFollowUpMoment(
+  db: DbClient,
+  counselorId: string,
+  at: Date,
+): Promise<{ startMs: number }> {
+  if (!(at instanceof Date) || Number.isNaN(at.getTime())) {
+    throw new Error("Pick a follow-up date and time.");
+  }
+  const startMs = at.getTime();
+  if (startMs <= Date.now()) {
+    throw new Error("Follow-ups must be in the future.");
+  }
+  const slots = await getCounselorSlots(db, counselorId);
+  if (!slots.length) {
+    throw new Error("Set your availability slots first — follow-ups must fall inside them.");
+  }
+  const m = manilaParts(startMs);
+  const ok = slots.some((slot) => {
+    if (slot.weekday !== m.weekday) return false;
+    if (m.mins < hhmmToMins(slot.start_time) || m.mins + 15 > hhmmToMins(slot.end_time)) return false;
+    if (!slot.is_recurring) {
+      const from = slot.valid_from ? ymdToDay(slot.valid_from) : null;
+      const to = slot.valid_to ? ymdToDay(slot.valid_to) : null;
+      if (from !== null && m.day < from) return false;
+      if (to !== null && m.day > to) return false;
+    }
+    return true;
+  });
+  if (!ok) {
+    throw new Error("That follow-up is outside your availability slots — pick a time inside one.");
+  }
+  return { startMs };
+}
+
+export type FollowUpSessionResult = {
+  id: string;
+  scheduled_at: string;
+  ends_at: string | null;
+  status: string;
+  /** What happened: minted new, moved to a new moment, or called off. */
+  action: "minted" | "rescheduled" | "cancelled";
+};
+
+const LIVE_FOLLOW_UP_STATUSES = ["assigned", "confirmed"] as const;
+
+/**
+ * Follow-up lifecycle for session notes. A documented follow-up is a real
+ * session (confirmed — counselor and slot already chosen by the documenting
+ * counselor), not a note-only date, so it shows on the sessions page and
+ * notifies like any other session. Exactly one LIVE follow-up per origin:
+ * - wanted + none → mint (end = start + 60m clamped to the covering slot;
+ *   the moment gate guarantees at least 15 minutes of room).
+ * - wanted + live at a new moment → move it (scope + overlap re-validated).
+ * - wanted + live at the same moment → null (no change, callers stay quiet).
+ * - unwanted + live → cancel it.
+ * Finished follow-ups (completed / cancelled / no-show / rejected) are
+ * history and never touched. Throws friendly errors the UI passes through.
+ */
+export async function syncFollowUpSession(
+  db: DbClient,
+  origin: {
+    id: string;
+    student_id: string | null;
+    counselor_id: string;
+    mode: "in_person" | "online";
+    concern: string;
+    is_anonymous: boolean;
+  },
+  at: Date | null,
+): Promise<FollowUpSessionResult | null> {
+  const { data: existing } = await db
+    .from("appointments")
+    .select("id,status,scheduled_at")
+    .eq("follow_up_of", origin.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const cur = (existing ?? null) as { id: string; status: string; scheduled_at: string } | null;
+  const live =
+    cur && (LIVE_FOLLOW_UP_STATUSES as readonly string[]).includes(cur.status) ? cur : null;
+
+  if (!at) {
+    if (!live) return null;
+    const { data: cancelled } = await db
+      .from("appointments")
+      .update({ status: "cancelled" })
+      .eq("id", live.id)
+      .in("status", [...LIVE_FOLLOW_UP_STATUSES])
+      .select("id,scheduled_at,ends_at,status")
+      .maybeSingle();
+    const c = cancelled as FollowUpSessionResult | null;
+    return c ? { ...c, action: "cancelled" } : null;
+  }
+
+  // Scope gate first (future + inside availability) — same as note save.
+  const { startMs } = await validateFollowUpMoment(db, origin.counselor_id, at);
+  const slots = await getCounselorSlots(db, origin.counselor_id);
+  const m = manilaParts(startMs);
+  const win = slots
+    .filter((s) => s.weekday === m.weekday)
+    .map((s) => ({ start: hhmmToMins(s.start_time), end: hhmmToMins(s.end_time) }))
+    .find((w) => m.mins >= w.start && m.mins + 15 <= w.end);
+  // The gate above guarantees a covering window; fall back to a full hour so
+  // a shape change can never mint a negative-length session.
+  const endMs = win
+    ? Math.min(startMs + DEFAULT_SESSION_MS, m.day + win.end * 60_000)
+    : startMs + DEFAULT_SESSION_MS;
+  const startISO = new Date(startMs).toISOString();
+  const endISO = new Date(endMs).toISOString();
+
+  if (live && new Date(live.scheduled_at).getTime() === startMs) return null;
+
+  if (live) {
+    await assertNoOverlap(db, origin.counselor_id, live.id, startMs, endMs);
+    const { data: moved } = await db
+      .from("appointments")
+      .update({ scheduled_at: startISO, ends_at: endISO })
+      .eq("id", live.id)
+      .in("status", [...LIVE_FOLLOW_UP_STATUSES])
+      .select("id,scheduled_at,ends_at,status")
+      .maybeSingle();
+    const row = moved as Omit<FollowUpSessionResult, "action"> | null;
+    if (row) return { ...row, action: "rescheduled" };
+    // It slipped terminal between the read and the write — mint fresh below.
+  }
+
+  await assertNoOverlap(db, origin.counselor_id, null, startMs, endMs);
+  const { data, error } = await db
+    .from("appointments")
+    .insert({
+      student_id: origin.student_id,
+      counselor_id: origin.counselor_id,
+      scheduled_at: startISO,
+      ends_at: endISO,
+      mode: origin.mode,
+      status: "confirmed",
+      concern: origin.concern,
+      is_anonymous: origin.is_anonymous,
+      is_follow_up: true,
+      follow_up_of: origin.id,
+    })
+    .select("id,scheduled_at,ends_at,status")
+    .single();
+  if (error || !data) throw error ?? new Error("Couldn't schedule the follow-up session.");
+  return { ...(data as Omit<FollowUpSessionResult, "action">), action: "minted" };
+}
+
 /** Google Meet links live at meet.google.com/<code>. */
 const MEET_URL_RE = /^https:\/\/meet\.google\.com\/[A-Za-z0-9-]+(?:\?.*)?\/?$/;
 

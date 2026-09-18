@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { ReportBars, ReportDonut, ReportTrendChart } from "@/components/shared/reports-charts";
 import { ReportsFilters, ReportsFiltersSkeleton } from "@/components/shared/reports-filters";
+import { Spinner } from "@/components/ui/spinner";
 import { useCounselorReports } from "@/lib/hooks/use-counselor-reports";
 import type { CounselorReportsPayload } from "@/lib/hooks/use-counselor-reports";
 import {
@@ -472,14 +473,21 @@ export function CounselorReportsView({
     fromDay: rangeDay(range.from),
     toDay: rangeDay(range.to),
   };
-  const { data, isLoading, isError, error, isFetching, refetch } = useCounselorReports(scope);
-  const loading = isLoading && !data;
+  const { data, isPending, isError, error, isFetching, refetch } = useCounselorReports(scope);
+  // The API only reads the tables the requested section needs and echoes the
+  // section it fetched for. With keepPreviousData, a section switch keeps the
+  // previous payload while the new one loads — that stale payload holds [] for
+  // the newly-visible section, which would flash false "No X yet" empty
+  // states. Treat uncovered cached data as loading so panels show skeletons
+  // until the new section's payload arrives.
+  const coversSection = !!data && (data.section === "all" || data.section === section);
+  const loading = isPending || (isFetching && !coversSection);
   const showAll = section === "all";
   const scoped = range.from !== null && range.to !== null;
   const unlinked = !loading && (data as { unlinked?: boolean } | undefined)?.unlinked === true;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy={isFetching}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -501,6 +509,7 @@ export function CounselorReportsView({
           </p>
           {data && !loading && isFetching && (
             <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-ink-faint" aria-live="polite">
+              <Spinner size="xs" label="Updating reports…" />
               Updating…
             </p>
           )}
@@ -512,6 +521,7 @@ export function CounselorReportsView({
             fromDay={rangeDay(range.from)}
             toDay={rangeDay(range.to)}
             rangeLabel={range.label}
+            fetching={isFetching}
           />
         </Suspense>
       </div>

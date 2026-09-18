@@ -7,6 +7,7 @@ import { REPORT_SECTIONS, isCustomRangeValid, type ReportSection } from "@/lib/r
 import { useRestoreReportScope, writeStoredScope } from "@/lib/hooks/use-report-scope";
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { ReportRangeModal } from "@/components/shared/report-range-modal";
+import { Spinner } from "@/components/ui/spinner";
 
 /**
  * Report scope controls — one right-aligned row, no card background:
@@ -22,12 +23,15 @@ export function ReportsFilters({
   fromDay,
   toDay,
   rangeLabel,
+  fetching = false,
 }: {
   section: ReportSection;
   preset: string;
   fromDay: string;
   toDay: string;
   rangeLabel: string;
+  /** True while the report query refetches (section/range change) — shows a loading pill. */
+  fetching?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -89,7 +93,13 @@ export function ReportsFilters({
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
+      <div className="flex flex-wrap items-center justify-end gap-2 print:hidden" aria-busy={fetching}>
+        {fetching && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3 py-1.5 text-[13px] font-bold text-ink-faint shadow-card">
+            <Spinner size="xs" label="Loading reports…" />
+            Loading…
+          </span>
+        )}
         <HoverMenu
           buttonLabel={REPORT_SECTIONS.find((s) => s.key === section)?.label ?? "All"}
           ariaLabel="Report section"

@@ -238,7 +238,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           if (!apptId) return;
           const { data } = await supabase
             .from("appointments")
-            .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url")
+            .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of")
             .eq("id", apptId)
             .single();
           const row = data as BoardAppointment | null;

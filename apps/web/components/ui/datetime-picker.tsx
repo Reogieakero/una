@@ -56,17 +56,31 @@ const HOURS_12 = Array.from({ length: 12 }, (_, i) => pad(i + 1));
  *
  * Controlled via a local `YYYY-MM-DDTHH:mm` string (same shape as the
  * datetime-local value it replaces).
+ *
+ * Optional availability gates (omit for the unconstrained behavior):
+ * `isDayEnabled` disables calendar days outside coverage (e.g. counselor
+ * availability), `isTimeEnabled` filters the hour/minute options to moments
+ * inside coverage — picking a day snaps the time to its first valid moment.
  */
 export function DateTimePicker({
   id,
   value,
   onChange,
   ariaLabel = "Session date and time",
+  isDayEnabled,
+  isTimeEnabled,
+  scopeHint,
 }: {
   id?: string;
   value: string;
   onChange: (v: string) => void;
   ariaLabel?: string;
+  /** Local YYYY-MM-DD → false disables that calendar day. */
+  isDayEnabled?: (dateISO: string) => boolean;
+  /** Local YYYY-MM-DD + 24h hour/minute → false hides that time option. */
+  isTimeEnabled?: (dateISO: string, hour24: number, minute: number) => boolean;
+  /** Hint shown under the time selects (e.g. the covering slot window). */
+  scopeHint?: string | null;
 }) {
   const parts = parseValue(value);
   const [viewY, setViewY] = useState(parts.y);
@@ -91,14 +105,50 @@ export function DateTimePicker({
 
   const { h12, period } = to12h(parts.h);
   const minute = MINUTES.includes(pad(parts.min)) ? pad(parts.min) : "00";
+  const selectedISO = `${parts.y}-${pad(parts.m + 1)}-${pad(parts.d)}`;
+
+  const hourOptions = HOURS_12.filter(
+    (h) => !isTimeEnabled || MINUTES.some((mm) => isTimeEnabled(selectedISO, from12h(h, period), Number(mm)))
+  );
+  const minuteOptions = MINUTES.filter(
+    (mm) => !isTimeEnabled || isTimeEnabled(selectedISO, from12h(h12, period), Number(mm))
+  );
+
+  const firstValidMoment = (dayISO: string): { h: number; min: number } | null => {
+    if (!isTimeEnabled) return null;
+    for (let h = 0; h < 24; h++) {
+      for (const mm of MINUTES) {
+        if (isTimeEnabled(dayISO, h, Number(mm))) return { h, min: Number(mm) };
+      }
+    }
+    return null;
+  };
 
   const pickDay = (day: number) => {
+    const dayISO = `${viewY}-${pad(viewM + 1)}-${pad(day)}`;
+    if (isTimeEnabled && !isTimeEnabled(dayISO, parts.h, parts.min)) {
+      // Snap to the new day's first valid moment instead of stranding the
+      // time selects on an out-of-scope value.
+      const snap = firstValidMoment(dayISO);
+      if (snap) onChange(compose(viewY, viewM, day, snap.h, snap.min));
+      return;
+    }
     onChange(compose(viewY, viewM, day, parts.h, parts.min));
   };
 
   const pickTime = (next: { h12?: string; min?: string; period?: "AM" | "PM" }) => {
     const h = from12h(next.h12 ?? h12, next.period ?? period);
-    onChange(compose(parts.y, parts.m, parts.d, h, Number(next.min ?? minute)));
+    const m = Number(next.min ?? minute);
+    if (isTimeEnabled && !isTimeEnabled(selectedISO, h, m)) {
+      // Period/hour switches can strand the moment outside coverage — snap
+      // to the day's first valid moment so the value stays bookable.
+      const snap = firstValidMoment(selectedISO);
+      if (snap) {
+        onChange(compose(parts.y, parts.m, parts.d, snap.h, snap.min));
+        return;
+      }
+    }
+    onChange(compose(parts.y, parts.m, parts.d, h, m));
   };
 
   const stepMonth = (dir: 1 | -1) => {
@@ -151,7 +201,8 @@ export function DateTimePicker({
         {cells.map((c, i) => {
           if (!c) return <span key={`gap-${i}`} />;
           const date = new Date(viewY, viewM, c.day);
-          const disabled = date < today;
+          const cellISO = `${viewY}-${pad(viewM + 1)}-${pad(c.day)}`;
+          const disabled = date < today || (isDayEnabled ? !isDayEnabled(cellISO) : false);
           const selected = parts.y === viewY && parts.m === viewM && parts.d === c.day;
           return (
             <button
@@ -189,7 +240,7 @@ export function DateTimePicker({
             value={h12}
             onChange={(v) => pickTime({ h12: v })}
             ariaLabel="Hour"
-            options={HOURS_12.map((h) => ({ value: h, label: h }))}
+            options={hourOptions.map((h) => ({ value: h, label: h }))}
           />
           <Dropdown
             menuKey="dtp-minute"
@@ -198,7 +249,7 @@ export function DateTimePicker({
             value={minute}
             onChange={(v) => pickTime({ min: v })}
             ariaLabel="Minute"
-            options={MINUTES.map((m) => ({ value: m, label: m }))}
+            options={minuteOptions.map((m) => ({ value: m, label: m }))}
           />
           <Dropdown
             menuKey="dtp-period"
@@ -213,6 +264,11 @@ export function DateTimePicker({
             ]}
           />
         </div>
+        {scopeHint && (
+          <p className="mt-1.5 text-[11px] font-medium text-ink-faint" aria-live="polite">
+            {scopeHint}
+          </p>
+        )}
       </div>
     </div>
   );

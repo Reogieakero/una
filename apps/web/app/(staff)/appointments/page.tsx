@@ -34,7 +34,9 @@ import { useAppointmentFilters } from "@/components/appointments/use-appointment
 import { AppointmentsBoard } from "@/components/appointments/AppointmentsBoard";
 import { AppointmentConfirmDialogs } from "@/components/appointments/AppointmentConfirmDialogs";
 import { AppointmentDetailModal } from "@/components/appointments/AppointmentDetailModal";
+import { SessionNotesModal } from "@/components/appointments/SessionNotesModal";
 import { AppointmentsHeader } from "@/components/appointments/AppointmentsHeader";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const EMPTY_APPTS: Appt[] = [];
 const EMPTY_MAP = new Map<string, string>();
@@ -67,13 +69,14 @@ export default function AppointmentsPage() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const confirmBusyRef = useRef(false);
   const [detail, setDetail] = useState<Appt | null>(null);
+  const [notesAppt, setNotesAppt] = useState<Appt | null>(null);
   const [sched, setSched] = useState<ScheduleSelection | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [meetingInput, setMeetingInput] = useState("");
   const [meetingError, setMeetingError] = useState<string | null>(null);
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
 
-  const { query, setQuery, statusFilter, setStatusFilter, modeFilter, setModeFilter, counselorFilter, setCounselorFilter, stats, visible } =
+  const { query, setQuery, statusFilter, setStatusFilter, modeFilter, setModeFilter, counselorFilter, setCounselorFilter, kindFilter, setKindFilter, kindCounts, stats, visible } =
     useAppointmentFilters({ rows, role, counselorId, aliases });
 
   useEffect(() => { if (isError) toast.error("Couldn't load appointments right now."); }, [isError]);
@@ -212,6 +215,9 @@ export default function AppointmentsPage() {
         void notifyStudent(appt, def.doneTitle, studentBody, `appt:${appt.id}:${KIND_PAST[kind]}`, KIND_TONE[kind]);
         void notifyHeadsAppt({ ...appt, scheduled_at: scheduledAt?.toISOString() ?? appt.scheduled_at }, kind);
         toast.success(def.doneTitle, { description: def.okBody(when), position: "top-right" });
+        // The session just ended — hand the counselor straight to the private
+        // record so the note is documented while it's fresh.
+        if (kind === "complete") setNotesAppt({ ...appt, status: "completed" });
       }
     } finally {
       confirmBusyRef.current = false;
@@ -257,6 +263,17 @@ export default function AppointmentsPage() {
 
       <AppointmentsHeader role={role} canSeeActions={canSeeActions} loading={loading} stats={stats} onSelectStatus={setStatusFilter} onSelectCounselor={setCounselorFilter} />
 
+      <Tabs value={kindFilter} onValueChange={(v) => setKindFilter(v as "appointments" | "followups")}>
+        <TabsList aria-label="Session type">
+          <TabsTrigger value="appointments">
+            Appointments{!loading && <span className="ml-1.5 opacity-70">({kindCounts.appointments})</span>}
+          </TabsTrigger>
+          <TabsTrigger value="followups">
+            Follow-up sessions{!loading && <span className="ml-1.5 opacity-70">({kindCounts.followups})</span>}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       <Card className="p-0">
         <AppointmentsBoard
           visible={visible} loading={loading}
@@ -268,6 +285,7 @@ export default function AppointmentsPage() {
           busyId={busyId} canAssign={canAssign} canReject={canReject} isCounselor={isCounselor} canSeeActions={canSeeActions}
           counselorName={counselorName} openMenuKey={openMenuKey} setOpenMenuKey={setOpenMenuKey}
           onAssign={handleAssign} onDetail={setDetail} onConfirming={setConfirming}
+          onNotes={setNotesAppt} kindFilter={kindFilter}
         />
       </Card>
 
@@ -277,7 +295,23 @@ export default function AppointmentsPage() {
         meetingInput={meetingInput} onMeetingChange={(v) => { setMeetingInput(v); setMeetingError(null); }} meetingError={meetingError}
         confirmBusy={confirmBusy} onClose={closeConfirming} onSubmit={runConfirming}
       />
-      <AppointmentDetailModal detail={detail} aliases={aliases} counselorName={counselorName} onClose={() => setDetail(null)} />
+      <AppointmentDetailModal
+        detail={detail}
+        aliases={aliases}
+        counselorName={counselorName}
+        onClose={() => setDetail(null)}
+        canSeeNotes={isCounselor || role === "guidance_head"}
+        onNotes={(a) => { setDetail(null); setNotesAppt(a); }}
+      />
+      <SessionNotesModal
+        appt={notesAppt}
+        studentLabel={notesAppt?.student_id ? (aliases.get(notesAppt.student_id) ?? "Student") : "Walk-in"}
+        studentProfileId={notesAppt?.student_id ? (studentProfiles.get(notesAppt.student_id) ?? null) : null}
+        editable={isCounselor}
+        headIds={headIds}
+        slots={slots}
+        onClose={() => setNotesAppt(null)}
+      />
     </div>
   );
 }

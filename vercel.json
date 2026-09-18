@@ -3,5 +3,11 @@
   "framework": "nextjs",
   "installCommand": "pnpm install",
   "buildCommand": "pnpm --filter @dorsu/web build",
-  "outputDirectory": "apps/web/.next"
+  "outputDirectory": "apps/web/.next",
+  "crons": [
+    {
+      "path": "/api/admin/backups/cron",
+      "schedule": "0 18 * * *"
+    }
+  ]
 }

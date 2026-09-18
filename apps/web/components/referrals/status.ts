@@ -91,7 +91,7 @@ export type TriageKind = "confirmed" | "resolved" | "escalated" | "rejected";
 
 export const TRIAGE_COPY: Record<TriageKind, { title: string; body: string; ok: string }> = {
   confirmed: { title: "Confirm and schedule this session?", body: "Set the final session date and time plus how you'll meet. Confirming creates the session itself — the student is notified with the schedule.", ok: "Confirm session" },
-  resolved: { title: "Resolve this referral?", body: "Closes the loop — the student needs a confirmed session with a schedule first, and the session time must have passed. Resolve stays blocked until then.", ok: "Resolve" },
+  resolved: { title: "Resolve this referral?", body: "Closes the loop — the student needs a confirmed session with a schedule first, and the session time must have passed. Resolve stays blocked until then. After resolving you can attach the optional confidential record (notes, images, follow-up) for the linked session.", ok: "Resolve" },
   escalated: { title: "Escalate this referral?", body: "Flags it as needing urgent attention from leadership.", ok: "Escalate" },
   rejected: { title: "Reject this referral?", body: "The referral ends as Rejected and leaves the queue. This can't be undone.", ok: "Reject referral" },
 };

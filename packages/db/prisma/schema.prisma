@@ -367,6 +367,12 @@ model Appointment {
   // reuse the key and collapse to one row via the UNIQUE index (NULLs never
   // conflict, so keyless legacy writes are unaffected).
   idempotencyKey    String?           @unique(map: "appointments_idempotency_key_unique") @map("idempotency_key") @db.Text
+  // Follow-up lineage (00054): sessions minted from a session note's
+  // follow-up land here as confirmed rows instead of note-only dates.
+  isFollowUp Boolean @default(false) @map("is_follow_up")
+  followUpOf   String?      @map("follow_up_of") @db.Uuid
+  followUpOrigin Appointment? @relation("AppointmentFollowUp", fields: [followUpOf], references: [id], onDelete: SetNull)
+  followUps      Appointment[] @relation("AppointmentFollowUp")
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -381,6 +387,7 @@ model Appointment {
   @@index([status])
   @@index([requestedDatetime])
   @@index([scheduledAt])
+  @@index([followUpOf])
   @@map("appointments")
 }
 
