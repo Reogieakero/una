@@ -143,7 +143,7 @@ export async function GET(request: Request) {
         ? withRange(
             supabase
               .from("referrals")
-              .select("id", { count: "exact", head: true })
+              .select("id", { count: "estimated", head: true })
               .in("status", [...OPEN_REFERRALS])
               .is("assigned_counselor_id", null),
             "created_at",
@@ -152,7 +152,7 @@ export async function GET(request: Request) {
         : Promise.resolve({ data: null, error: null, count: null }),
       needPipeline
         ? withRange(
-            supabase.from("referrals").select("id", { count: "exact", head: true }).eq("status", "escalated"),
+            supabase.from("referrals").select("id", { count: "estimated", head: true }).eq("status", "escalated"),
             "created_at",
             range
           )

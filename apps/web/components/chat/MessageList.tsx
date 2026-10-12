@@ -24,6 +24,7 @@ export function MessageList({
   onScroll,
   onJump,
   emptyText,
+  topSlot,
 }: {
   messages: MsgLike[];
   me: string | null;
@@ -32,11 +33,14 @@ export function MessageList({
   onScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   onJump: () => void;
   emptyText?: string | null;
+  /** Optional header inside the scroll area (e.g. "Load older" paging). */
+  topSlot?: React.ReactNode;
 }) {
   let lastDay = "";
   return (
     <div className="relative h-[46vh] min-h-[320px] lg:h-auto lg:min-h-0 lg:flex-1">
       <div onScroll={onScroll} className="no-scrollbar h-full space-y-3 overflow-y-auto px-4 py-4">
+      {topSlot}
       {messages.map((m) => {
         const mine = m.sender_profile_id === me;
         const day = dayLabel(m.created_at);

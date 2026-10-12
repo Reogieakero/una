@@ -14,19 +14,29 @@ export async function listThreads(db: DbClient, studentId: string) {
 }
 
 /** Fetch a thread with messages ordered oldest-first (pure read). */
-export async function getThreadWithMessages(db: DbClient, threadId: string) {
+export async function getThreadWithMessages(
+  db: DbClient,
+  threadId: string,
+  opts?: { limit?: number; before?: string },
+) {
   const { data: thread, error: tErr } = await db
     .from("chat_threads")
-    .select("*")
+    .select("id, student_id, counselor_id, appointment_id, status, created_at, updated_at")
     .eq("id", threadId)
     .single();
   if (tErr) throw tErr;
-  const { data: messages, error: mErr } = await db
+  // P10: bounded history — latest N first, reversed to oldest-first for
+  // render. Cursor (`before`) pages older messages instead of loading all.
+  let mq = db
     .from("chat_messages")
-    .select("*")
+    .select("id, thread_id, sender_profile_id, body, created_at")
     .eq("thread_id", threadId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .limit(Math.min(opts?.limit ?? 50, 200));
+  if (opts?.before) mq = mq.lt("created_at", opts.before);
+  const { data: page, error: mErr } = await mq;
   if (mErr) throw mErr;
+  const messages = (((page ?? []) as { id: string; created_at: string }[]).slice().reverse());
   return { thread, messages };
 }
 

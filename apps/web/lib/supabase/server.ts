@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { resolveSupabaseEnv, type TypedSupabaseClient } from "@dorsu/supabase-client";
@@ -29,8 +30,11 @@ export async function createClient(): Promise<TypedSupabaseClient> {
  * Current profile (id + role) for RBAC guards. Layouts fetch it once via
  * requireRole() and pass it down (StaffShell → StaffSidebar) so one
  * navigation costs a single lookup instead of one per component.
+ * P16: React cache() — StaffLayout.requireRole() + the page's
+ * getCurrentProfile() in the same request share one lookup instead of two
+ * sequential auth + profile roundtrips.
  */
-export async function getCurrentProfile() {
+export const getCurrentProfile = cache(async () => {
   const supabase = await createClient();
   const {
     data: { user },
@@ -42,4 +46,4 @@ export async function getCurrentProfile() {
     .eq("id", user.id)
     .single();
   return data;
-}
+});

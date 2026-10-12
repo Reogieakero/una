@@ -1,8 +1,10 @@
 "use client";
 
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import { listCounselorAppointments, listOfficeAppointments } from "@dorsu/shared-services";
+import { listAppointmentPage, type AppointmentCursor } from "@dorsu/shared-services";
+import { MAX_PAGE_SIZE } from "@/lib/pagination";
+import { patchBoard } from "@/lib/patch-board";
 
 export type BoardAppointment = {
   id: string;
@@ -34,6 +36,15 @@ export type BoardSlot = {
   valid_to: string | null;
 };
 
+export type AppointmentsStats = {
+  total: number;
+  pending: number;
+  assigned: number;
+  confirmed: number;
+  completed: number;
+  unassigned: number;
+};
+
 export type AppointmentsBoardData = {
   role: string | null;
   counselorId: string | null;
@@ -44,16 +55,105 @@ export type AppointmentsBoardData = {
   headIds: string[];
   /** Own availability slots (counselor role only) — confirm/reschedule scope. */
   slots: BoardSlot[];
+  /** Pager state for this cache entry. */
+  page: number;
+  size: number;
+  hasMore: boolean;
+  /** Server-side total (estimated counts, RLS-scoped) — "~N" labels. */
+  totalApprox: number;
+  stats: AppointmentsStats;
+  kindCounts: { appointments: number; followups: number };
 };
 
 export const APPOINTMENTS_BOARD_KEY = ["appointments", "board"] as const;
+
+export type AppointmentsScope = {
+  page: number;
+  size: number;
+  status: string;
+  mode: string;
+  counselor: string;
+  kind: "appointments" | "followups";
+};
+
+/** Default first-page scope (sidebar prefetch + simple consumers). */
+export const DEFAULT_APPOINTMENTS_SCOPE: AppointmentsScope = {
+  page: 1,
+  size: 25,
+  status: "all",
+  mode: "all",
+  counselor: "all",
+  kind: "appointments",
+};
+
+/**
+ * Cursor chain per scope signature — index i holds the cursor FOR page i+1
+ * (index 0 is always null = page 1). Module-scoped: survives in-app
+ * navigation. Deep ?page=N links walk forward once with limit-1 probes.
+ */
+const cursorChains = new Map<string, (AppointmentCursor | null)[]>();
+
+function chainKey(scope: { size: number; status: string; mode: string; counselor: string; kind: string; asc: boolean }): string {
+  return `${scope.size}|${scope.status}|${scope.mode}|${scope.counselor}|${scope.kind}|${scope.asc ? "a" : "d"}`;
+}
+
+/** Patch one appointment's fields across every cached page. */
+export function patchAppointmentRow(qc: QueryClient, id: string, patch: Partial<BoardAppointment>) {
+  const entries = qc.getQueryCache().findAll({ queryKey: [...APPOINTMENTS_BOARD_KEY] });
+  for (const entry of entries) {
+    patchBoard<AppointmentsBoardData>(qc, entry.queryKey, (prev) => ({
+      ...prev,
+      appointments: prev.appointments.map((a) => (a.id === id ? { ...a, ...patch } : a)),
+    }));
+  }
+}
+
+/** Upsert one appointment into every cached page (realtime arrivals). */
+export function upsertAppointmentRow(qc: QueryClient, row: BoardAppointment) {
+  const entries = qc.getQueryCache().findAll({ queryKey: [...APPOINTMENTS_BOARD_KEY] });
+  for (const entry of entries) {
+    patchBoard<AppointmentsBoardData>(qc, entry.queryKey, (prev) => ({
+      ...prev,
+      appointments: prev.appointments.some((a) => a.id === row.id)
+        ? prev.appointments.map((a) => (a.id === row.id ? { ...a, ...row } : a))
+        : [row, ...prev.appointments],
+    }));
+  }
+}
+
+/** Single-row fetch for deep-links landing on an unloaded page. */
+export async function fetchAppointmentCard(id: string): Promise<{ row: BoardAppointment; alias: string | null }> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of")
+    .eq("id", id)
+    .single();
+  if (error || !data) throw new Error("Session not found.");
+  const row = data as BoardAppointment;
+  let alias: string | null = null;
+  if (row.student_id) {
+    const { data: s } = await supabase.from("students").select("anonymous_alias").eq("id", row.student_id).single();
+    alias = (s as { anonymous_alias: string | null } | null)?.anonymous_alias ?? null;
+  }
+  return { row, alias };
+}
 
 /** Fresh window — inside it, going back to /appointments renders zero-fetch. */
 export const APPOINTMENTS_BOARD_STALE_MS = 60_000;
 
 const EMPTY_MAP = new Map<string, string>();
+const EMPTY_STATS: AppointmentsStats = { total: 0, pending: 0, assigned: 0, confirmed: 0, completed: 0, unassigned: 0 };
+const EMPTY_KIND = { appointments: 0, followups: 0 };
 
-export async function fetchAppointmentsBoard(): Promise<AppointmentsBoardData> {
+const ACTIVE_APPT = ["pending", "assigned", "confirmed"] as const;
+
+export async function fetchAppointmentsBoard(scope: AppointmentsScope): Promise<AppointmentsBoardData> {
+  const page = Math.max(1, Math.floor(scope.page) || 1);
+  const size = Math.min(Math.max(Math.floor(scope.size) || 25, 1), MAX_PAGE_SIZE);
+  const status = scope.status || "all";
+  const mode = scope.mode || "all";
+  // Counselors read their own queue only — forced server-side (RLS too).
   const supabase = createClient();
   const {
     data: { user },
@@ -66,10 +166,19 @@ export async function fetchAppointmentsBoard(): Promise<AppointmentsBoardData> {
     const { data } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
     cid = (data as { id: string } | null)?.id ?? null;
   }
+  const base = {
+    role: r,
+    counselorId: cid,
+    page,
+    size,
+    hasMore: false,
+    totalApprox: 0,
+    stats: EMPTY_STATS,
+    kindCounts: EMPTY_KIND,
+  };
   if (!r || r === "faculty") {
     return {
-      role: r,
-      counselorId: cid,
+      ...base,
       appointments: [],
       aliases: EMPTY_MAP,
       studentProfiles: EMPTY_MAP,
@@ -84,8 +193,7 @@ export async function fetchAppointmentsBoard(): Promise<AppointmentsBoardData> {
   // but no office query is even issued).
   if (r === "counselor" && !cid) {
     return {
-      role: r,
-      counselorId: cid,
+      ...base,
       appointments: [],
       aliases: EMPTY_MAP,
       studentProfiles: EMPTY_MAP,
@@ -95,11 +203,63 @@ export async function fetchAppointmentsBoard(): Promise<AppointmentsBoardData> {
     };
   }
 
-  const data =
-    r === "counselor"
-      ? await listCounselorAppointments(supabase, cid as string)
-      : await listOfficeAppointments(supabase);
-  const appointments = ((data ?? []) as BoardAppointment[]);
+  // Counselor queue reads earliest-first; the office reads newest-first.
+  // Direction is part of the cursor-chain key (predicates flip with it).
+  const asc = r === "counselor";
+  const listOpts = {
+    status,
+    mode,
+    counselor: scope.counselor || "all",
+    isFollowUp: scope.kind === "followups",
+    ascending: asc,
+    ...(r === "counselor" ? { counselorId: cid as string } : {}),
+  };
+  const key = chainKey({ size, status, mode, counselor: r === "counselor" ? (cid as string) : listOpts.counselor, kind: scope.kind, asc });
+  let chain = cursorChains.get(key);
+  if (!chain) {
+    chain = [null];
+    cursorChains.set(key, chain);
+  }
+  while (chain.length < page) {
+    const probe = await listAppointmentPage(supabase, { ...listOpts, limit: 1, cursor: chain[chain.length - 1] });
+    chain.push(probe.nextCursor);
+    if (!probe.hasMore) break;
+  }
+  const { rows, nextCursor, hasMore } = await listAppointmentPage(supabase, {
+    ...listOpts,
+    limit: size,
+    cursor: chain[page - 1] ?? null,
+  });
+  chain[page] = nextCursor;
+  const appointments = ((rows ?? []) as BoardAppointment[]);
+
+  // Stats + kind tabs: estimated counts (RLS-scoped, one parallel batch).
+  // Tabs show role-scope queue sizes; the text search stays client-side.
+  const countBase = (extra?: (q: any) => any) => {
+    let q = supabase.from("appointments").select("id", { count: "estimated", head: true });
+    if (r === "counselor" && cid) q = q.eq("counselor_id", cid);
+    if (extra) q = extra(q);
+    return q;
+  };
+  const [
+    totalRes,
+    pendingRes,
+    assignedRes,
+    confirmedRes,
+    completedRes,
+    unassignedRes,
+    regularRes,
+    followupRes,
+  ] = await Promise.all([
+    countBase(),
+    countBase((q) => q.eq("status", "pending")),
+    countBase((q) => q.eq("status", "assigned")),
+    countBase((q) => q.eq("status", "confirmed")),
+    countBase((q) => q.eq("status", "completed")),
+    countBase((q) => q.in("status", [...ACTIVE_APPT]).is("counselor_id", null)),
+    countBase((q) => q.eq("is_follow_up", false)),
+    countBase((q) => q.eq("is_follow_up", true)),
+  ]);
 
   const studentIds = [...new Set(appointments.map((a) => a.student_id).filter((id): id is string => !!id))];
   let aliases = EMPTY_MAP;
@@ -140,21 +300,40 @@ export async function fetchAppointmentsBoard(): Promise<AppointmentsBoardData> {
     slots = ((slotRows ?? []) as BoardSlot[]);
   }
 
-  return { role: r, counselorId: cid, appointments, aliases, studentProfiles, counselors, headIds, slots };
+  return {
+    ...base,
+    appointments,
+    aliases,
+    studentProfiles,
+    counselors,
+    headIds,
+    slots,
+    hasMore,
+    totalApprox: totalRes.count ?? 0,
+    stats: {
+      total: totalRes.count ?? 0,
+      pending: pendingRes.count ?? 0,
+      assigned: assignedRes.count ?? 0,
+      confirmed: confirmedRes.count ?? 0,
+      completed: completedRes.count ?? 0,
+      unassigned: unassignedRes.count ?? 0,
+    },
+    kindCounts: {
+      appointments: regularRes.count ?? 0,
+      followups: followupRes.count ?? 0,
+    },
+  };
 }
 
 /**
- * Cached appointments board — stale-while-revalidate.
- * The QueryClient lives in the root layout and survives in-app navigation,
- * so the second visit to /appointments shows cached rows instantly while a
- * background refetch (only if stale) refreshes them without blocking.
- * Mutations refetch explicitly, so actions never serve stale rows.
- * Filters and dialog state stay local on purpose.
+ * Cached appointments board — stale-while-revalidate, keyed by page + size
+ * + structured filters. Text search stays client-side over the loaded page;
+ * changing any structured filter must reset to page 1.
  */
-export function useAppointmentsBoard() {
+export function useAppointmentsBoard(scope: AppointmentsScope) {
   return useQuery({
-    queryKey: [...APPOINTMENTS_BOARD_KEY],
-    queryFn: fetchAppointmentsBoard,
+    queryKey: [...APPOINTMENTS_BOARD_KEY, scope.page, scope.size, scope.status, scope.mode, scope.counselor, scope.kind],
+    queryFn: () => fetchAppointmentsBoard(scope),
     staleTime: APPOINTMENTS_BOARD_STALE_MS,
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: false,

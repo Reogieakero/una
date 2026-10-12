@@ -132,32 +132,31 @@ export async function runLogicalBackup(opts: {
     let partial = false;
 
     for (const table of BACKUP_TABLES) {
-      const { count, error: countError } = await admin
-        .from(table)
-        .select("*", { count: "exact", head: true });
-      if (countError) {
-        // Table missing on this deploy (migration not applied yet) — skip
-        // loudly instead of failing the whole backup.
-        if ((countError as { code?: string }).code === "42P01") {
-          warnings.push(`${table}: missing on this database, skipped`);
-          continue;
-        }
-        await fail(`Couldn't count ${table}: ${(countError as Error).message ?? "unknown error"}`);
-      }
-      const expected = count ?? 0;
+      // P8: single read per table (no exact-count pre-scan). rowCounts derive
+      // from the fetched rows; LIMIT+1 detects overflow. Halves roundtrips
+      // from 46 to 23 for the full table set.
       const { data, error: readError } = await admin
         .from(table)
         .select("*")
         .limit(BACKUP_ROW_LIMIT + 1);
-      if (readError) await fail(`Couldn't read ${table}: ${(readError as Error).message ?? "unknown error"}`);
+      if (readError) {
+        // Table missing on this deploy (migration not applied yet) — skip
+        // loudly instead of failing the whole backup.
+        if ((readError as { code?: string }).code === "42P01") {
+          warnings.push(`${table}: missing on this database, skipped`);
+          continue;
+        }
+        await fail(`Couldn't read ${table}: ${(readError as Error).message ?? "unknown error"}`);
+      }
       let rows = ((data ?? []) as Record<string, unknown>[]);
+      const expected = rows.length;
       if (rows.length > BACKUP_ROW_LIMIT) {
         rows = rows.slice(0, BACKUP_ROW_LIMIT);
         partial = true;
-        warnings.push(`${table}: capped at ${BACKUP_ROW_LIMIT} of ${expected} rows`);
+        warnings.push(`${table}: capped at ${BACKUP_ROW_LIMIT} of ${expected}+ rows`);
       }
       tables[table] = rows;
-      rowCounts[table] = expected;
+      rowCounts[table] = rows.length;
     }
 
     const totalRows = Object.values(rowCounts).reduce((a, b) => a + b, 0);

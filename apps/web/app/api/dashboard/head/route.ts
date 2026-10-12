@@ -83,18 +83,19 @@ export async function GET() {
   ] = await Promise.all([
     supabase
       .from("appointments")
-      .select("id", { count: "exact", head: true })
+      .select("id", { count: "estimated", head: true })
       .gte("scheduled_at", today.toISOString())
       .lt("scheduled_at", tomorrow.toISOString()),
     supabase
       .from("referrals")
-      .select("id", { count: "exact", head: true })
+      .select("id", { count: "estimated", head: true })
       .in("status", [...OPEN_REFERRALS]),
     // The head's inbox is direct staff messages only (student–counselor
     // threads are participant-private) — this KPI counts its unread DMs.
+    // P8: estimated avoids a full exact-count scan per dashboard load.
     supabase
       .from("staff_messages")
-      .select("id", { count: "exact", head: true })
+      .select("id", { count: "estimated", head: true })
       .eq("recipient_profile_id", user.id)
       .eq("is_read", false),
     supabase
@@ -122,12 +123,13 @@ export async function GET() {
       .select("id, title, published_at")
       .order("published_at", { ascending: false, nullsFirst: false })
       .limit(3),
-    supabase
-      .from("appointments")
-      .select("scheduled_at")
-      .gte("scheduled_at", weekAgo.toISOString())
-      .limit(500),
-    supabase.from("referrals").select("status").limit(1000),
+    // P3b: week + status aggregates come from SQL RPCs (≤31 bucket rows)
+    // instead of pulling 500 + 1000 raw rows to group in JS.
+    supabase.rpc("head_appointment_daily_counts", {
+      from_ts: weekAgo.toISOString(),
+      to_ts: tomorrow.toISOString(),
+    }),
+    supabase.rpc("head_referral_status_counts"),
   ]);
 
   type ReferralRow = {
@@ -151,14 +153,16 @@ export async function GET() {
     return { key: dayKey(d), day: dayLabel(d), sessions: 0 };
   });
   const byKey = new Map(buckets.map((b) => [b.key, b]));
-  for (const row of ((weekRows.data ?? []) as { scheduled_at: string }[])) {
-    const b = byKey.get(dayKey(new Date(row.scheduled_at)));
-    if (b) b.sessions += 1;
+  for (const row of ((weekRows.data ?? []) as { day: string; sessions: number | string }[])) {
+    if (!row?.day) continue;
+    const b = byKey.get(dayKey(new Date(row.day)));
+    if (b) b.sessions += Number(row.sessions ?? 0);
   }
 
   const counts = new Map<string, number>();
-  for (const row of ((statusRows.data ?? []) as { status: string }[])) {
-    counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
+  for (const row of ((statusRows.data ?? []) as { status: string; count: number | string }[])) {
+    if (!row?.status) continue;
+    counts.set(row.status, Number(row.count ?? 0));
   }
   const statusChart = [...counts.entries()]
     .filter(([, v]) => v > 0)

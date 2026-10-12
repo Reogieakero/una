@@ -433,7 +433,13 @@ export async function confirmReferralWithSession(
       delete (sessionPatch as Record<string, unknown>).ends_at;
       upRes = await runUpdate();
     }
-    if (upRes.error) throw upRes.error;
+    if (upRes.error) {
+      // Slot race between the gate check and the write (P12 backstop).
+      if ((upRes.error as { code?: string }).code === "23P01") {
+        throw new Error("That time was just taken — please pick another window.");
+      }
+      throw upRes.error;
+    }
   } else {
     const runInsert = () =>
       db.from("appointments").insert({
@@ -447,7 +453,12 @@ export async function confirmReferralWithSession(
       delete (sessionPatch as Record<string, unknown>).ends_at;
       insRes = await runInsert();
     }
-    if (insRes.error) throw insRes.error;
+    if (insRes.error) {
+      if ((insRes.error as { code?: string }).code === "23P01") {
+        throw new Error("That time was just taken — please pick another window.");
+      }
+      throw insRes.error;
+    }
   }
 
   return triageReferral(db, {

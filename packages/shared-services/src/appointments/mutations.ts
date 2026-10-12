@@ -495,6 +495,9 @@ export async function confirmAppointment(
   }
   const { data, error } = result;
   if (error) {
+    if ((error as { code?: string })?.code === "23P01") {
+      throw new Error("That time was just taken — please pick another window.");
+    }
     // The Meet link column ships in migration 00034 — if the database was
     // never updated, online confirms fail here (not on the status gate).
     // Say so plainly instead of a generic "changed status" message.
@@ -620,6 +623,10 @@ export async function rescheduleAppointmentByCounselor(
 /**
  * Student reschedules their booking to a future slot (status untouched).
  * Active steps only — terminal rows must rebook instead.
+ * Slot guard (P12): when the session already has a counselor, the new
+ * window goes through the same availability + overlap gate as the counselor
+ * path (excluding itself), preserving the existing duration. Unassigned
+ * pending rows keep the old future-only check.
  */
 export async function rescheduleAppointment(
   db: DbClient,
@@ -632,15 +639,58 @@ export async function rescheduleAppointment(
   if (scheduledAt.getTime() <= Date.now()) {
     throw new Error("Rescheduled sessions must be in the future");
   }
-  const { data, error } = await db
+  const { data: current, error: curErr } = await db
     .from("appointments")
-    .update({ scheduled_at: scheduledAt.toISOString() })
+    .select("id, status, counselor_id, scheduled_at, ends_at")
     .eq("id", appointmentId)
-    .in("status", ["pending", "assigned", "confirmed"])
-    .select()
     .single();
-  if (error) throw error;
-  return data;
+  if (curErr || !current) throw curErr ?? new Error("Session not found.");
+  const cur = current as {
+    status: string;
+    counselor_id: string | null;
+    scheduled_at: string;
+    ends_at: string | null;
+  };
+  if (!["pending", "assigned", "confirmed"].includes(cur.status)) {
+    throw new Error("Only active sessions can be rescheduled.");
+  }
+  const patch: Record<string, string> = { scheduled_at: scheduledAt.toISOString() };
+  if (cur.counselor_id) {
+    const prevStart = new Date(cur.scheduled_at).getTime();
+    const prevEnd = cur.ends_at ? new Date(cur.ends_at).getTime() : prevStart + DEFAULT_SESSION_MS;
+    const durationMs = Number.isFinite(prevEnd - prevStart) && prevEnd > prevStart
+      ? prevEnd - prevStart
+      : DEFAULT_SESSION_MS;
+    const proposedEnd = new Date(scheduledAt.getTime() + durationMs);
+    const { endMs } = await validateCounselorSchedule(
+      db,
+      cur.counselor_id,
+      scheduledAt,
+      proposedEnd,
+      appointmentId,
+    );
+    patch.ends_at = new Date(endMs).toISOString();
+  }
+  const runUpdate = () =>
+    db
+      .from("appointments")
+      .update(patch)
+      .eq("id", appointmentId)
+      .in("status", ["pending", "assigned", "confirmed"])
+      .select()
+      .single();
+  let result = await runUpdate();
+  if (result.error && "ends_at" in patch && isMissingEndsAtColumn(result.error)) {
+    delete patch.ends_at;
+    result = await runUpdate();
+  }
+  if (result.error) {
+    if ((result.error as { code?: string }).code === "23P01") {
+      throw new Error("That time was just taken — please pick another window.");
+    }
+    throw result.error;
+  }
+  return result.data;
 }
 
 /** Submit post-session feedback (one rating per completed appointment). */

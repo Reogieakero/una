@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchWithTimeout } from "@/lib/fetch-timeout";
 
 export type SessionNoteAttachment = {
   id: string;
@@ -35,7 +36,7 @@ export const MAX_NOTE_IMAGES = 5;
 export const sessionNotesKey = (appointmentId: string) => ["session-notes", appointmentId] as const;
 
 async function fetchSessionNotes(appointmentId: string): Promise<SessionNote[]> {
-  const res = await fetch(`/api/session-notes?appointmentId=${encodeURIComponent(appointmentId)}`, {
+  const res = await fetchWithTimeout(`/api/session-notes?appointmentId=${encodeURIComponent(appointmentId)}`, {
     credentials: "same-origin",
   });
   const body = (await res.json().catch(() => null)) as { notes?: SessionNote[]; error?: string } | null;
@@ -94,11 +95,13 @@ export function useSaveSessionNote(appointmentId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: SaveSessionNoteInput): Promise<SaveSessionNoteResult> => {
-      const res = await fetch("/api/session-notes", {
-        method: input.noteId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify(
+      const res = await fetchWithTimeout(
+        "/api/session-notes",
+        {
+          method: input.noteId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(
           input.noteId
             ? {
                 noteId: input.noteId,
@@ -157,7 +160,7 @@ export async function uploadSessionNoteImage(
     upsert: false,
   });
   if (error) throw new Error("Image upload failed — please try again.");
-  const res = await fetch("/api/session-notes/attachments", {
+  const res = await fetchWithTimeout("/api/session-notes/attachments", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
@@ -173,7 +176,7 @@ export async function uploadSessionNoteImage(
 
 /** Remove one image — the route deletes the private-bucket bytes + the row. */
 export async function deleteSessionNoteAttachment(attachmentId: string): Promise<void> {
-  const res = await fetch(`/api/session-notes/attachments?attachmentId=${encodeURIComponent(attachmentId)}`, {
+  const res = await fetchWithTimeout(`/api/session-notes/attachments?attachmentId=${encodeURIComponent(attachmentId)}`, {
     method: "DELETE",
     credentials: "same-origin",
   });

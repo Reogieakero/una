@@ -1,0 +1,21 @@
+{
+  "name": "dorsu-perf-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Performance measurement sandbox (dev-only, never imported by app code).",
+  "type": "module",
+  "scripts": {
+    "seed": "node seed/seed.mjs",
+    "measure:pages": "node measure-pages.mjs",
+    "measure:booking": "node measure-booking.mjs",
+    "measure:mutations": "node measure-mutations.mjs",
+    "concurrency": "node concurrency-slots.mjs",
+    "realtime": "node realtime-latency.mjs",
+    "explain": "node explain-slowest.mjs"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.49.0",
+    "@supabase/supabase-js": "^2.45.4",
+    "pg": "^8.13.0"
+  }
+}

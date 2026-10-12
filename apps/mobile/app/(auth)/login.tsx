@@ -11,6 +11,7 @@ import { useRouter } from "expo-router";
 export default function LoginScreen() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const { control, handleSubmit, formState } = useForm<LoginInput>({ resolver: zodResolver(loginSchema) });
 
   return (
@@ -31,12 +32,18 @@ export default function LoginScreen() {
           </Field>
           {error && <Text className="mb-2 text-sm text-red-600">{error}</Text>}
           <Button
-            title="Sign in"
+            title={submitting ? "Signing in…" : "Sign in"}
+            disabled={submitting}
             onPress={handleSubmit(async (v) => {
               setError(null);
-              const { error } = await getSupabase().auth.signInWithPassword(v);
-              if (error) setError(error.message);
-              else router.replace("/(student)/appointments");
+              setSubmitting(true);
+              try {
+                const { error } = await getSupabase().auth.signInWithPassword(v);
+                if (error) setError(error.message);
+                else router.replace("/(student)/appointments");
+              } finally {
+                setSubmitting(false);
+              }
             })}
           />
         </View>

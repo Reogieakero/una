@@ -153,15 +153,18 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
   const fetchUnread = useCallback(async (uid: string) => {
     const supabase = createClient();
-    const { data, count, error } = await supabase
+    // P8: no count scan — the badge derives from rows.length (capped at 200).
+    // An exact count here cost a sequential scan on every boot + resync.
+    const { data, error } = await supabase
       .from("notifications")
-      .select("id, type, title, body, link, dedupe_key, created_at", { count: "exact" })
+      .select("id, type, title, body, link, dedupe_key, created_at")
       .eq("profile_id", uid)
       .eq("is_read", false)
       .order("created_at", { ascending: false })
       .limit(200);
     if (error) throw error;
-    return { rows: ((data ?? []) as IncomingNotification[]), count: count ?? 0 };
+    const rows = ((data ?? []) as IncomingNotification[]);
+    return { rows, count: rows.length };
   }, []);
 
   const applySnapshot = useCallback((rows: IncomingNotification[], count: number) => {
@@ -232,7 +235,13 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       try {
         const referralId = refIdFrom(dedupeKey, "referral");
         if (referralId) {
-          const { data } = await supabase.from("referrals").select("*").eq("id", referralId).single();
+          const { data } = await supabase
+            .from("referrals")
+            .select(
+              "id, referring_faculty_id, referring_personnel_id, student_id, student_name_text, student_no_text, reason, priority, status, assigned_counselor_id, created_at, updated_at"
+            )
+            .eq("id", referralId)
+            .single();
           const row = data as ReferralsRow | null;
           if (!row?.id) return;
           let alias: string | null = null;
@@ -257,17 +266,25 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
             .single();
           const row = data as BoardAppointment | null;
           if (!row?.id) return;
-          patchBoard<AppointmentsBoardData>(qc, [...APPOINTMENTS_BOARD_KEY], (prev) => ({
-            ...prev,
-            appointments: prev.appointments.some((a) => a.id === row.id)
-              ? prev.appointments.map((a) => (a.id === row.id ? { ...a, ...row } : a))
-              : [row, ...prev.appointments],
-          }));
+          // Paged boards: patch every loaded page holding the row (page 1
+          // prepends when new); untouched pages are left alone.
+          for (const entry of qc.getQueryCache().findAll({ queryKey: [...APPOINTMENTS_BOARD_KEY] })) {
+            patchBoard<AppointmentsBoardData>(qc, entry.queryKey, (prev) => ({
+              ...prev,
+              appointments: prev.appointments.some((a) => a.id === row.id)
+                ? prev.appointments.map((a) => (a.id === row.id ? { ...a, ...row } : a))
+                : [row, ...prev.appointments],
+            }));
+          }
           return;
         }
         const announcementId = refIdFrom(dedupeKey, "announcement");
         if (announcementId) {
-          const { data } = await supabase.from("announcements").select("*").eq("id", announcementId).single();
+          const { data } = await supabase
+            .from("announcements")
+            .select("id, author_profile_id, title, body, audience, image_url, published_at, created_at")
+            .eq("id", announcementId)
+            .single();
           const row = data as AnnouncementsRow | null;
           if (!row?.id) return;
           patchBoard<AnnouncementsBoardData>(qc, [...ANNOUNCEMENTS_BOARD_KEY], (prev) => ({

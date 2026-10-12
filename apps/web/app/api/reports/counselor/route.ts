@@ -108,49 +108,51 @@ export async function GET(request: Request) {
   const needFeedback = showAll || section === "satisfaction";
   const needScreenings = showAll || section === "wellbeing";
 
-  // Counselor scope keys: my appointment ids bound feedback, my student ids
-  // bound screenings. Fetched first so the section queries below stay small.
-  let apptIds: string[] = [];
+  // Counselor scope keys: my student ids bound screenings (pre-booking
+  // check-ins carry no appointment_id, so they can't join-scope).
+  // Feedback join-scopes itself (see fetchFeedback) — no id prefetch.
   let studentIds: string[] = [];
-  if (needFeedback || needScreenings) {
+  if (needScreenings) {
     const { data: mine } = await supabase
       .from("appointments")
-      .select("id,student_id")
+      .select("student_id")
       .eq("counselor_id", counselorId)
       .limit(2000);
-    const rows = ((mine ?? []) as { id: string; student_id: string }[]);
-    apptIds = rows.map((r) => r.id);
-    studentIds = [...new Set(rows.map((r) => r.student_id))];
+    studentIds = [...new Set(((mine ?? []) as { student_id: string }[]).map((r) => r.student_id))];
   }
 
   const fetchFeedback = async (): Promise<CounselorReportsFeedback[]> => {
-    if (!apptIds.length) return [];
-    const out: CounselorReportsFeedback[] = [];
-    for (let i = 0; i < apptIds.length; i += 200) {
-      const { data } = await withRange(
-        supabase.from("feedback").select("rating,comment,created_at").in("appointment_id", apptIds.slice(i, i + 200)).limit(1000),
-        "created_at",
-        range
-      );
-      out.push(...((data ?? []) as CounselorReportsFeedback[]));
-      if (out.length >= 1000) break;
-    }
-    return out.slice(0, 1000);
+    // P3b: single join-scoped query — every feedback row carries its
+    // appointment_id, so !inner restricts to my sessions with no
+    // id-prefetch + 200-chunk fan-out.
+    const { data } = await withRange(
+      supabase
+        .from("feedback")
+        .select("rating,comment,created_at,appointments!inner(counselor_id)")
+        .eq("appointments.counselor_id", counselorId)
+        .order("created_at", { ascending: false })
+        .limit(1000),
+      "created_at",
+      range
+    );
+    return ((data ?? []) as CounselorReportsFeedback[]);
   };
 
   const fetchScreenings = async (): Promise<CounselorReportsScreening[]> => {
     if (!studentIds.length) return [];
-    const out: CounselorReportsScreening[] = [];
-    for (let i = 0; i < studentIds.length; i += 200) {
-      const { data } = await withRange(
-        supabase.from("pss10_assessments").select("band,total_score,created_at").in("student_id", studentIds.slice(i, i + 200)).limit(1000),
-        "created_at",
-        range
-      );
-      out.push(...((data ?? []) as CounselorReportsScreening[]));
-      if (out.length >= 1000) break;
-    }
-    return out.slice(0, 1000);
+    const idChunks: string[][] = [];
+    for (let i = 0; i < studentIds.length; i += 200) idChunks.push(studentIds.slice(i, i + 200));
+    // P11: chunks fan out in parallel instead of awaiting one by one.
+    const pages = await Promise.all(
+      idChunks.map((chunk) =>
+        withRange(
+          supabase.from("pss10_assessments").select("band,total_score,created_at").in("student_id", chunk).limit(1000),
+          "created_at",
+          range
+        )
+      )
+    );
+    return pages.flatMap((p) => ((p.data ?? []) as CounselorReportsScreening[])).slice(0, 1000);
   };
 
   const [apptsRes, refsRes, feedback, screenings] = await Promise.all([

@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { assignAppointment, isMeetUrl } from "@dorsu/shared-services";
 import {
-  APPOINTMENTS_BOARD_KEY,
+  fetchAppointmentCard,
+  patchAppointmentRow,
   useAppointmentsBoard,
-  type AppointmentsBoardData,
 } from "@/lib/hooks/use-appointments-board";
+import { clampPage, clampPageSize } from "@/lib/pagination";
 import { useMutationAction } from "@/lib/hooks/use-mutation-action";
 import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
-import { patchBoard } from "@/lib/patch-board";
 import { Card } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
 import {
@@ -31,7 +32,6 @@ import {
   selectionFitsScope,
   type ScheduleSelection,
 } from "@/components/appointments/SlotSchedulePicker";
-import { useAppointmentFilters } from "@/components/appointments/use-appointment-filters";
 import { AppointmentsBoard } from "@/components/appointments/AppointmentsBoard";
 import { AppointmentConfirmDialogs } from "@/components/appointments/AppointmentConfirmDialogs";
 import { AppointmentDetailModal } from "@/components/appointments/AppointmentDetailModal";
@@ -43,6 +43,8 @@ const EMPTY_APPTS: Appt[] = [];
 const EMPTY_MAP = new Map<string, string>();
 const EMPTY_IDS: string[] = [];
 const EMPTY_COUNSELORS: CounselorOpt[] = [];
+const EMPTY_STATS = { total: 0, pending: 0, assigned: 0, confirmed: 0, completed: 0, unassigned: 0 };
+const EMPTY_KIND = { appointments: 0, followups: 0 };
 
 /**
  * Shared /appointments — one URL, strict role-aware UI.
@@ -54,13 +56,58 @@ const EMPTY_COUNSELORS: CounselorOpt[] = [];
  * Student: cancel + reschedule from the mobile app (never complete).
  */
 export default function AppointmentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="animate-pulse space-y-4" aria-hidden>
+          <div className="h-8 w-48 rounded-lg bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
+        </div>
+      }
+    >
+      <AppointmentsPageInner />
+    </Suspense>
+  );
+}
+
+function AppointmentsPageInner() {
   const qc = useQueryClient();
-  const { data: board, isLoading, isError, refetch } = useAppointmentsBoard();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Numbered pager state lives in the URL (?page=&size=) so filtered views
+  // stay bookmarkable. Structured filters ride the board query server-side;
+  // changing any of them resets to page 1 (cursor chain is filter-keyed).
+  const page = clampPage(searchParams.get("page"));
+  const size = clampPageSize(searchParams.get("size"));
+  const gotoPage = useCallback(
+    (p: number, s: number = size) => {
+      router.replace(`/appointments?page=${p}&size=${s}`, { scroll: false });
+    },
+    [router, size]
+  );
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilterState] = useState("all");
+  const [modeFilter, setModeFilterState] = useState("all");
+  const [counselorFilter, setCounselorFilterState] = useState("all");
+  const [kindFilter, setKindFilterState] = useState<"appointments" | "followups">("appointments");
+  const pickStatus = useCallback((s: string) => { setStatusFilterState(s); gotoPage(1); }, [gotoPage]);
+  const pickMode = useCallback((m: string) => { setModeFilterState(m); gotoPage(1); }, [gotoPage]);
+  const pickCounselor = useCallback((c: string) => { setCounselorFilterState(c); gotoPage(1); }, [gotoPage]);
+  const pickKind = useCallback((k: "appointments" | "followups") => { setKindFilterState(k); gotoPage(1); }, [gotoPage]);
+  const { data: board, isLoading, isError, refetch } = useAppointmentsBoard({
+    page,
+    size,
+    status: statusFilter,
+    mode: modeFilter,
+    counselor: counselorFilter,
+    kind: kindFilter,
+  });
   const { busyId, run: runMutation } = useMutationAction();
   const role = board?.role ?? null;
   const counselorId = board?.counselorId ?? null;
   const rows = board?.appointments ?? EMPTY_APPTS;
-  const aliases = board?.aliases ?? EMPTY_MAP;
+  const boardAliases = board?.aliases ?? EMPTY_MAP;
   const studentProfiles = board?.studentProfiles ?? EMPTY_MAP;
   const headIds = board?.headIds ?? EMPTY_IDS;
   const counselors = board?.counselors ?? EMPTY_COUNSELORS;
@@ -79,9 +126,33 @@ export default function AppointmentsPage() {
   const [meetingInput, setMeetingInput] = useState("");
   const [meetingError, setMeetingError] = useState<string | null>(null);
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
+  // Deep-link fallback rows (fetched by id when the link target is not on
+  // the loaded page). Kept outside the query cache so paging stays exact.
+  const [extraRows, setExtraRows] = useState<Appt[]>([]);
+  const [extraAliases, setExtraAliases] = useState<Map<string, string>>(new Map());
+  const aliases = useMemo(() => {
+    if (!extraAliases.size) return boardAliases;
+    const m = new Map(boardAliases);
+    for (const [k, v] of extraAliases) m.set(k, v);
+    return m;
+  }, [boardAliases, extraAliases]);
 
-  const { query, setQuery, statusFilter, setStatusFilter, modeFilter, setModeFilter, counselorFilter, setCounselorFilter, kindFilter, setKindFilter, kindCounts, stats, visible } =
-    useAppointmentFilters({ rows, role, counselorId, aliases });
+  // Rows are already role- and filter-scoped server-side (RLS + keyset
+  // query); only free-text search stays client-side over the loaded page.
+  const visible = useMemo(() => {
+    const base = extraRows.length
+      ? [...extraRows.filter((r) => !rows.some((x) => x.id === r.id)), ...rows]
+      : rows;
+    const q = query.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter(
+      (a) =>
+        a.concern.toLowerCase().includes(q) ||
+        (a.student_id ? (aliases.get(a.student_id) ?? "") : "walk-in").toLowerCase().includes(q)
+    );
+  }, [rows, extraRows, query, aliases]);
+  const stats = board?.stats ?? EMPTY_STATS;
+  const kindCounts = board?.kindCounts ?? EMPTY_KIND;
 
   useEffect(() => { if (isError) toast.error("Couldn't load appointments right now."); }, [isError]);
 
@@ -93,14 +164,28 @@ export default function AppointmentsPage() {
     !id ? "Unassigned" : (counselors.find((c) => c.id === id)?.name ?? "Counselor");
 
   // Shared mutation runner: busy state resolves the moment the DB write
-  // settles (inside the hook's finally) — the row is patched locally and the
-  // full-board refetch reconciles in the background, so the spinner never
-  // waits on refetches or notification delivery.
-  const patchRow = (id: string, patch: Partial<Appt>) =>
-    patchBoard<AppointmentsBoardData>(qc, [...APPOINTMENTS_BOARD_KEY], (prev) => ({
-      ...prev,
-      appointments: prev.appointments.map((a) => (a.id === id ? { ...a, ...patch } : a)),
-    }));
+  // settles (inside the hook's finally) — the row is patched locally across
+  // cached pages and the debounced refetch reconciles in the background, so
+  // the spinner never waits on refetches or notification delivery.
+  const patchRow = (id: string, patch: Partial<Appt>) => patchAppointmentRow(qc, id, patch);
+
+  // P15: trailing-edge background reconcile — coalesces rapid successive
+  // actions (assign bursts, confirm chains) into one refetch instead of one
+  // full-board reload per click. The optimistic patchRow above already
+  // renders the change; this only reconciles aliases/trails/stats.
+  const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+    },
+    []
+  );
+  const scheduleReconcile = () => {
+    if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+    reconcileTimer.current = setTimeout(() => {
+      void refetch().catch(() => {});
+    }, 1500);
+  };
 
   const act = async (
     id: string,
@@ -116,7 +201,7 @@ export default function AppointmentsPage() {
       {
         label,
         friendly:
-          /future|valid session|valid date|valid end|after the start|meet link|database update|migration|meeting_url|only assigned|assigned or confirmed|only pending|unassign|not found|availability|slot|overlap|free window/i,
+          /future|valid session|valid date|valid end|after the start|meet link|database update|migration|meeting_url|only assigned|assigned or confirmed|only pending|unassign|not found|availability|slot|overlap|free window|just taken|already taken|taken/i,
       }
     );
     if (!result.ok) return false;
@@ -125,8 +210,8 @@ export default function AppointmentsPage() {
       const { id: _drop, ...fields } = updated as Partial<Appt> & { id?: string };
       patchRow(id, fields);
     }
-    // Background reconcile — never awaited, never blocks the toast.
-    void refetch().catch(() => {});
+    // Background reconcile (debounced, never blocks the toast).
+    scheduleReconcile();
     return true;
   };
 
@@ -188,6 +273,27 @@ export default function AppointmentsPage() {
     return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
   }, [detail, confirming]);
 
+  // Deep-link row resolver — loaded page first, single-row fetch fallback.
+  const ensureAppt = useCallback(
+    async (id: string): Promise<Appt | null> => {
+      const found = rows.find((a) => a.id === id) ?? extraRows.find((a) => a.id === id) ?? null;
+      if (found) return found;
+      try {
+        const card = await fetchAppointmentCard(id);
+        setExtraRows((prev) => (prev.some((r) => r.id === card.row.id) ? prev : [...prev, card.row as Appt]));
+        if (card.alias && card.row.student_id) {
+          const sid = card.row.student_id;
+          const alias = card.alias;
+          setExtraAliases((prev) => (prev.get(sid) === alias ? prev : new Map(prev).set(sid, alias)));
+        }
+        return card.row as Appt;
+      } catch {
+        return null;
+      }
+    },
+    [rows, extraRows]
+  );
+
   // Deep-link from the dashboard: /appointments#confirm-<id> opens the
   // confirm dialog straight on the record so counselors never hunt for the
   // row. Consumed once — the hash is handed to the row highlighter (#focus-)
@@ -201,13 +307,15 @@ export default function AppointmentsPage() {
     let id: string | null = null;
     try { id = decodeURIComponent(m[1]); } catch { id = null; }
     if (!id) return;
-    const appt = rows.find((a) => a.id === id);
-    if (appt && appt.status === "assigned" && isCounselor) {
-      setConfirming({ appt, kind: "confirm" });
-    }
+    void (async () => {
+      const appt = await ensureAppt(id as string);
+      if (appt && appt.status === "assigned" && isCounselor) {
+        setConfirming({ appt, kind: "confirm" });
+      }
+    })();
     window.history.replaceState(null, "", `#focus-${id}`);
     window.dispatchEvent(new Event("hashchange"));
-  }, [loading, board, rows, isCounselor]);
+  }, [loading, board, rows, isCounselor, ensureAppt]);
 
   const runConfirming = async () => {
     if (!confirming || confirmBusyRef.current) return;
@@ -286,9 +394,9 @@ export default function AppointmentsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <AppointmentsHeader role={role} canSeeActions={canSeeActions} loading={loading} stats={stats} onSelectStatus={setStatusFilter} onSelectCounselor={setCounselorFilter} />
+      <AppointmentsHeader role={role} canSeeActions={canSeeActions} loading={loading} stats={stats} onSelectStatus={pickStatus} onSelectCounselor={pickCounselor} />
 
-      <Tabs value={kindFilter} onValueChange={(v) => setKindFilter(v as "appointments" | "followups")}>
+      <Tabs value={kindFilter} onValueChange={(v) => pickKind(v as "appointments" | "followups")}>
         <TabsList aria-label="Session type">
           <TabsTrigger value="appointments">
             Appointments{!loading && <span className="ml-1.5 opacity-70">({kindCounts.appointments})</span>}
@@ -303,14 +411,17 @@ export default function AppointmentsPage() {
         <AppointmentsBoard
           visible={visible} loading={loading}
           query={query} setQuery={setQuery}
-          statusFilter={statusFilter} setStatusFilter={setStatusFilter}
-          modeFilter={modeFilter} setModeFilter={setModeFilter}
-          counselorFilter={counselorFilter} setCounselorFilter={setCounselorFilter}
+          statusFilter={statusFilter} setStatusFilter={pickStatus}
+          modeFilter={modeFilter} setModeFilter={pickMode}
+          counselorFilter={counselorFilter} setCounselorFilter={pickCounselor}
           counselors={counselors} aliases={aliases} role={role}
           busyId={busyId} canAssign={canAssign} canReject={canReject} isCounselor={isCounselor} canSeeActions={canSeeActions}
           counselorName={counselorName} openMenuKey={openMenuKey} setOpenMenuKey={setOpenMenuKey}
           onAssign={handleAssign} onDetail={setDetail} onConfirming={setConfirming}
           onNotes={setNotesAppt} kindFilter={kindFilter}
+          page={page} size={size} totalApprox={board?.totalApprox ?? 0} hasMore={board?.hasMore ?? false}
+          onPageChange={(p) => gotoPage(p)} onSizeChange={(s) => gotoPage(1, s)}
+          searchActive={query.trim().length > 0}
         />
       </Card>
 

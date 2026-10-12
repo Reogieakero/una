@@ -2,6 +2,7 @@ import type { DbClient, Clock } from "../platform";
 import { isUniqueViolation, systemClock } from "../platform";
 import { createAppointmentSchema } from "@dorsu/shared-schemas";
 import { getLatestPss10 } from "./queries";
+import { validateCounselorSchedule } from "./mutations";
 
 const PSS10_FRESH_DAYS = 30;
 
@@ -66,12 +67,22 @@ export async function bookAppointment(
   if (!gateDate || !isPss10Fresh(gateDate, clock)) {
     throw new Error("PSS-10 expired — please retake the check-in before booking");
   }
+  // Slot guard (P12): when a counselor is picked at booking time, the window
+  // must sit inside their availability slots with no overlap — same gate the
+  // counselor confirm path enforces. Unassigned (pending, null counselor)
+  // bookings skip this; the head/counselor validates on assign/confirm.
+  let endsAtIso: string | null = null;
+  if (parsed.counselorId) {
+    const { endMs } = await validateCounselorSchedule(db, parsed.counselorId, parsed.scheduledAt, null, null);
+    endsAtIso = new Date(endMs).toISOString();
+  }
   const { data, error } = await db
     .from("appointments")
     .insert({
       student_id: input.studentId,
       counselor_id: parsed.counselorId ?? null,
       scheduled_at: parsed.scheduledAt.toISOString(),
+      ...(endsAtIso ? { ends_at: endsAtIso } : {}),
       mode: parsed.mode,
       concern: parsed.concern,
       is_anonymous: parsed.isAnonymous,
@@ -82,6 +93,12 @@ export async function bookAppointment(
     .select()
     .single();
   if (!error) return data;
+  // Counselor slot taken between the gate check and the insert (race) —
+  // the exclusion constraint (00059) aborts with 23P01. Surface it as a
+  // friendly retry message instead of a raw Postgres error.
+  if (error && (error as { code?: string }).code === "23P01") {
+    throw new Error("That time was just taken — please pick another window.");
+  }
   // Retry of the same intent: return the row the first attempt created.
   // Scoped to (student_id, idempotency_key) so one student's key can never
   // resolve to another student's appointment.

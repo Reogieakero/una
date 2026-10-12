@@ -11,10 +11,10 @@ import { staffMessageSchema } from "@dorsu/shared-schemas";
 export async function listStaffMessages(db: DbClient, profileId: string, limit = 300) {
   const { data, error } = await db
     .from("staff_messages")
-    .select("*")
+    .select("id, sender_profile_id, recipient_profile_id, body, is_read, created_at")
     .or(`sender_profile_id.eq.${profileId},recipient_profile_id.eq.${profileId}`)
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .limit(Math.min(limit, 300));
   if (error) throw error;
   return data;
 }

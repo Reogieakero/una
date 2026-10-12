@@ -1,18 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import {
-  REFERRALS_BOARD_KEY,
+  fetchReferralCard,
+  patchReferralRow,
   useReferralsBoard,
   type ReferralStudentOption,
-  type ReferralsBoardData,
 } from "@/lib/hooks/use-referrals-board";
+import { clampPage, clampPageSize } from "@/lib/pagination";
 import { useMutationAction } from "@/lib/hooks/use-mutation-action";
 import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
-import { patchBoard } from "@/lib/patch-board";
 import {
   assignReferral,
   completeAppointment,
@@ -60,6 +61,7 @@ const EMPTY_COUNSELORS: { id: string; name: string }[] = [];
 const EMPTY_IDS: string[] = [];
 const EMPTY_STUDENTS: ReferralStudentOption[] = [];
 const EMPTY_READY = new Set<string>();
+const EMPTY_REFERRAL_STATS = { total: 0, pending: 0, assigned: 0, confirmed: 0, resolved: 0, unassigned: 0 };
 
 /**
  * Shared /referrals — same role-separated flow as appointments, different
@@ -75,15 +77,84 @@ const EMPTY_READY = new Set<string>();
  * Rules live in referrals/mutations.ts; this page only renders them.
  */
 export default function ReferralsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="animate-pulse space-y-4" aria-hidden>
+          <div className="h-8 w-48 rounded-lg bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
+        </div>
+      }
+    >
+      <ReferralsPageInner />
+    </Suspense>
+  );
+}
+
+function ReferralsPageInner() {
   const qc = useQueryClient();
-  const { data: board, isLoading, isError, refetch } = useReferralsBoard();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Numbered pager state lives in the URL (?page=&size=) so filtered views
+  // stay bookmarkable. Structured filters ride the board query server-side;
+  // changing any of them resets to page 1 (cursor chain is filter-keyed).
+  const page = clampPage(searchParams.get("page"));
+  const size = clampPageSize(searchParams.get("size"));
+  const gotoPage = useCallback(
+    (p: number, s: number = size) => {
+      router.replace(`/referrals?page=${p}&size=${s}`, { scroll: false });
+    },
+    [router, size]
+  );
+  const filters = useReferralFilters();
+  const { data: board, isLoading, isError, refetch } = useReferralsBoard({
+    page,
+    size,
+    status: filters.statusFilter,
+    priority: filters.priorityFilter,
+    assignee: filters.assigneeFilter,
+  });
+  // Structured picks reset to page 1 — cursors belong to a filter signature.
+  const pickStatus = useCallback(
+    (s: string) => {
+      filters.setStatusFilter(s);
+      gotoPage(1);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gotoPage]
+  );
+  const pickPriority = useCallback(
+    (p: string) => {
+      filters.setPriorityFilter(p);
+      gotoPage(1);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gotoPage]
+  );
+  const pickAssignee = useCallback(
+    (a: string) => {
+      filters.setAssigneeFilter(a);
+      gotoPage(1);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gotoPage]
+  );
+  const resetAll = useCallback(() => {
+    filters.resetFilters();
+    gotoPage(1);
+  }, [filters, gotoPage]);
+  const viewFilters = useMemo(
+    () => ({ ...filters, setStatusFilter: pickStatus, setPriorityFilter: pickPriority, setAssigneeFilter: pickAssignee }),
+    [filters, pickStatus, pickPriority, pickAssignee]
+  );
   const rows = board?.rows ?? EMPTY_ROWS;
   const trail = board?.trail ?? EMPTY_TRAIL;
   const actorNames = board?.actorNames ?? EMPTY_MAP;
-  const aliases = board?.aliases ?? EMPTY_MAP;
+  const boardAliases = board?.aliases ?? EMPTY_MAP;
   const counselors = board?.counselors ?? EMPTY_COUNSELORS;
   const counselorProfiles = board?.counselorProfiles ?? EMPTY_MAP;
-  const facultyNames = board?.facultyNames ?? EMPTY_MAP;
+  const boardFacultyNames = board?.facultyNames ?? EMPTY_MAP;
   const facultyProfiles = board?.facultyProfiles ?? EMPTY_MAP;
   const headIds = board?.headIds ?? EMPTY_IDS;
   const students = board?.students ?? EMPTY_STUDENTS;
@@ -204,10 +275,8 @@ export default function ReferralsPage() {
         tone: "info",
       });
       // The trail gains the reschedule entry — reconcile every surface that
-      // reads it, plus the moved session's boards.
-      void refetch().catch(() => {});
-      void qc.invalidateQueries({ queryKey: [...APPOINTMENTS_BOARD_KEY] }).catch(() => {});
-      void qc.invalidateQueries({ queryKey: [...SESSIONS_CALENDAR_KEY] }).catch(() => {});
+      // reads it, plus the moved session's boards (debounced, non-blocking).
+      scheduleReconcile("all");
       toast.success(def.doneTitle, { description: def.okBody(when), position: "top-right" });
     } finally {
       reschedBusyRef.current = false;
@@ -219,8 +288,48 @@ export default function ReferralsPage() {
     }
   };
   const { busyId, run: runMutation } = useMutationAction();
-  const filters = useReferralFilters();
-  const { statusFilter, priorityFilter, assigneeFilter, query, resetFilters } = filters;
+  // P15: trailing-edge background reconcile — coalesces rapid successive
+  // triage actions into one pass instead of a full reload per click. The
+  // optimistic patchRow above already renders the change; this only
+  // reconciles trails/aliases/stats (and, for session-minting moves, the
+  // session boards too).
+  const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+    },
+    []
+  );
+  const scheduleReconcile = (scope: "referrals" | "all" = "referrals") => {
+    if (reconcileTimer.current) clearTimeout(reconcileTimer.current);
+    reconcileTimer.current = setTimeout(() => {
+      void refetch().catch(() => {});
+      if (scope === "all") {
+        void qc.invalidateQueries({ queryKey: [...APPOINTMENTS_BOARD_KEY] }).catch(() => {});
+        void qc.invalidateQueries({ queryKey: [...SESSIONS_CALENDAR_KEY] }).catch(() => {});
+      }
+    }, 1500);
+  };
+  const { query } = filters;
+  // Deep-link fallback rows (fetched by id when the link target is not on
+  // the loaded page) + their display names. Kept outside the query cache so
+  // paging stays exact; merged into the views below.
+  const [extraRows, setExtraRows] = useState<Referral[]>([]);
+  const [extraAliases, setExtraAliases] = useState<Map<string, string>>(new Map());
+  const [extraFacultyNames, setExtraFacultyNames] = useState<Map<string, string>>(new Map());
+  // Board maps merged with deep-link fallback names (see ensureRow below).
+  const aliases = useMemo(() => {
+    if (!extraAliases.size) return boardAliases;
+    const m = new Map(boardAliases);
+    for (const [k, v] of extraAliases) m.set(k, v);
+    return m;
+  }, [boardAliases, extraAliases]);
+  const facultyNames = useMemo(() => {
+    if (!extraFacultyNames.size) return boardFacultyNames;
+    const m = new Map(boardFacultyNames);
+    for (const [k, v] of extraFacultyNames) m.set(k, v);
+    return m;
+  }, [boardFacultyNames, extraFacultyNames]);
   const [confirming, setConfirming] = useState<{ ref: Referral; to: TriageKind } | null>(null);
   const [formRef, setFormRef] = useState<Referral | null>(null);
   const [trackRef, setTrackRef] = useState<Referral | null>(null);
@@ -249,46 +358,28 @@ export default function ReferralsPage() {
   const canReject = role === "guidance_head";
   const canSeeActions = canAssign || canReject || isCounselor;
 
-  // Counselor scope mirrors appointments — my assigned cases only. Other
-  // counselors' cases stay out of my queue and my numbers (enforced by RLS
-  // too — unlinked counselors simply see an empty inbox until setup).
-  const mine = useMemo(
-    () => (isCounselor && counselorId ? rows.filter((r) => r.assigned_counselor_id === counselorId) : rows),
-    [rows, isCounselor, counselorId]
-  );
+  // Rows are already role- and filter-scoped server-side (RLS + keyset
+  // query); `mine` only merges deep-link fallback rows fetched by id.
+  const mine = useMemo(() => {
+    if (!extraRows.length) return rows;
+    const seen = new Set(rows.map((r) => r.id));
+    return [...extraRows.filter((r) => !seen.has(r.id)), ...rows];
+  }, [rows, extraRows]);
 
-  const stats = useMemo(() => {
-    const src = isCounselor ? mine : rows;
-    return {
-      total: src.length,
-      pending: src.filter((r) => r.status === "pending").length,
-      assigned: src.filter((r) => r.status === "assigned").length,
-      confirmed: src.filter((r) => r.status === "confirmed").length,
-      resolved: src.filter((r) => r.status === "resolved").length,
-      unassigned: src.filter((r) => !r.assigned_counselor_id && r.status !== "resolved" && r.status !== "rejected").length,
-    };
-  }, [rows, mine, isCounselor]);
+  // Server stats (RLS-scoped status RPC) — office-wide for the head, own
+  // queue for counselors, own filings for faculty.
+  const stats = board?.stats ?? EMPTY_REFERRAL_STATS;
 
+  // Only free-text search stays client-side, over the loaded page (structured
+  // filters already applied server-side). The board labels this honestly.
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return mine
-      .filter((r) => (statusFilter === "all" ? true : r.status === statusFilter))
-      .filter((r) => (priorityFilter === "all" ? true : r.priority === priorityFilter))
-      .filter((r) =>
-        isCounselor
-          ? true
-          : assigneeFilter === "all"
-            ? true
-            : assigneeFilter === "unassigned"
-              ? !r.assigned_counselor_id
-              : r.assigned_counselor_id === assigneeFilter
-      )
-      .filter((r) => {
-        if (!q) return true;
-        const alias = referralStudentName(r, aliases);
-        return `${alias} ${classificationSummary(r.case_classification)} ${r.classification_other ?? ""} ${r.reason}`.toLowerCase().includes(q);
-      });
-  }, [mine, isCounselor, statusFilter, priorityFilter, assigneeFilter, query, aliases]);
+    if (!q) return mine;
+    return mine.filter((r) => {
+      const alias = referralStudentName(r, aliases);
+      return `${alias} ${classificationSummary(r.case_classification)} ${r.classification_other ?? ""} ${r.reason}`.toLowerCase().includes(q);
+    });
+  }, [mine, query, aliases]);
 
   // Counselor-set session time per referral — confirm note, overridden by
   // every later reschedule in the trail.
@@ -352,6 +443,33 @@ export default function ReferralsPage() {
     setConfirming({ ref, to });
   };
 
+  // Deep-link row resolver — loaded page first, single-row fetch fallback
+  // (stashed in extraRows so paging stays exact and modals keep working).
+  const ensureRow = useCallback(
+    async (id: string): Promise<Referral | null> => {
+      const found = mine.find((r) => r.id === id) ?? rows.find((r) => r.id === id) ?? null;
+      if (found) return found;
+      try {
+        const card = await fetchReferralCard(id);
+        setExtraRows((prev) => (prev.some((r) => r.id === card.row.id) ? prev : [...prev, card.row as Referral]));
+        if (card.alias && card.row.student_id) {
+          const sid = card.row.student_id;
+          const alias = card.alias;
+          setExtraAliases((prev) => (prev.get(sid) === alias ? prev : new Map(prev).set(sid, alias)));
+        }
+        if (card.facultyName && card.row.referring_faculty_id) {
+          const fid = card.row.referring_faculty_id;
+          const fname = card.facultyName;
+          setExtraFacultyNames((prev) => (prev.get(fid) === fname ? prev : new Map(prev).set(fid, fname)));
+        }
+        return card.row as Referral;
+      } catch {
+        return null;
+      }
+    },
+    [mine, rows]
+  );
+
   // Deep-link from the dashboard: /referrals#triage-<id> opens the confirm
   // dialog straight on the record so counselors never hunt for the row.
   // Consumed once — the hash is handed to the row highlighter (#focus-) so
@@ -365,20 +483,19 @@ export default function ReferralsPage() {
     let id: string | null = null;
     try { id = decodeURIComponent(m[1]); } catch { id = null; }
     if (!id) return;
-    const ref = mine.find((r) => r.id === id) ?? rows.find((r) => r.id === id) ?? null;
-    if (ref && ref.status === "assigned" && canTriage) {
-      askConfirm(ref, "confirmed");
-    }
+    void (async () => {
+      const ref = await ensureRow(id as string);
+      if (ref && ref.status === "assigned" && canTriage) {
+        askConfirm(ref, "confirmed");
+      }
+    })();
     window.history.replaceState(null, "", `#focus-${id}`);
     window.dispatchEvent(new Event("hashchange"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, board]);
 
   const patchRow = (id: string, patch: { status?: string; assigned_counselor_id?: string | null }) =>
-    patchBoard<ReferralsBoardData>(qc, [...REFERRALS_BOARD_KEY], (prev) => ({
-      ...prev,
-      rows: prev.rows.map((r) => (r.id === id ? { ...r, ...patch } : r)),
-    }));
+    patchReferralRow(qc, id, patch);
 
   /**
    * After a counselor resolve, offer the optional confidential record for the
@@ -458,7 +575,7 @@ export default function ReferralsPage() {
       {
         label: "move that referral",
         friendly:
-          /confirmed session|sessions must be|valid session|valid date|valid end|after the start|meet link|no account|only the (assigned|handling)|only pending|unassign|unknown session|availability|slot|overlap|free window|can't (move|assign|unassign|reject|confirm|resolve|escalate|acknowledge|start|triage)/i,
+          /confirmed session|sessions must be|valid session|valid date|valid end|after the start|meet link|no account|only the (assigned|handling)|only pending|unassign|unknown session|availability|slot|overlap|free window|just taken|already taken|taken|can't (move|assign|unassign|reject|confirm|resolve|escalate|acknowledge|start|triage)/i,
       }
     );
     if (!result.ok) return;
@@ -535,8 +652,8 @@ export default function ReferralsPage() {
           }
         }
       }
-      // Background reconcile — never awaited, never blocks the toast.
-      void refetch().catch(() => {});
+      // Background reconcile (debounced) — never awaited, never blocks the toast.
+      scheduleReconcile();
       // Success feedback for the actor — pops top-right on completion.
       const okTitle =
         to === "confirmed"
@@ -599,8 +716,8 @@ export default function ReferralsPage() {
       } else {
         toast.success("Referral unassigned", { position: "top-right" });
       }
-      // Background reconcile — never awaited, never blocks the toast.
-      void refetch().catch(() => {});
+      // Background reconcile (debounced) — never awaited, never blocks the toast.
+      scheduleReconcile();
   };
 
   const closeConfirming = useCallback(() => setConfirming(null), []);
@@ -633,9 +750,10 @@ export default function ReferralsPage() {
     let id: string | null = null;
     try { id = decodeURIComponent(m[1]); } catch { id = null; }
     if (!id) return;
-    const pool = isCounselor ? mine : rows;
-    const found = pool.find((r) => r.id === id) ?? rows.find((r) => r.id === id) ?? null;
-    if (found) openForm(found);
+    void (async () => {
+      const found = await ensureRow(id as string);
+      if (found) openForm(found);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, board]);
 
@@ -695,9 +813,9 @@ export default function ReferralsPage() {
                 <ReferralStatsMenu
                   stats={stats}
                   isCounselor={isCounselor}
-                  onPickStatus={(s) => filters.setStatusFilter(s)}
-                  onPickUnassigned={() => filters.setAssigneeFilter("unassigned")}
-                  onReset={resetFilters}
+                  onPickStatus={pickStatus}
+                  onPickUnassigned={() => pickAssignee("unassigned")}
+                  onReset={resetAll}
                 />
                 {canSeeActions && <ReferralActionsLegend role={role} />}
               </>
@@ -724,7 +842,13 @@ export default function ReferralsPage() {
           canReject={canReject}
           canSeeActions={canSeeActions}
           visible={visible}
-          totalCount={mine.length}
+          totalApprox={board?.totalApprox ?? 0}
+          page={page}
+          size={size}
+          hasMore={board?.hasMore ?? false}
+          onPageChange={(p) => gotoPage(p)}
+          onSizeChange={(s) => gotoPage(1, s)}
+          searchActive={query.trim().length > 0}
           trail={trail}
           aliases={aliases}
           actorNames={actorNames}
@@ -733,7 +857,7 @@ export default function ReferralsPage() {
           sessionSchedule={sessionSchedule}
           escalatedAt={escalatedAt}
           busyId={busyId}
-          filters={filters}
+          filters={viewFilters}
           canResolve={canResolve}
           counselorName={counselorName}
           referrerLabel={referrerLabel}

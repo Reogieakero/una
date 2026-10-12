@@ -3,6 +3,8 @@
 import { Activity, CalendarClock, Eye, Loader2, X } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
+import { Pager, PageSize } from "@/components/shared/Pager";
+import { pageRange } from "@/lib/pagination";
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { IconAction } from "@/components/shared/icon-action";
 import { cn } from "@/lib/utils";
@@ -23,7 +25,6 @@ import {
 } from "./status";
 import { ageShort, formatWhen, timeAgo, isSessionUpcoming } from "./format-helpers";
 import { FOCUS_RING, useFocusRow } from "@/lib/hooks/use-focus-row";
-import type { ReferralFilters } from "./use-referral-filters";
 
 /**
  * Presentational referrals board — filters, list + grid views.
@@ -37,7 +38,13 @@ export function ReferralsBoard({
   canReject,
   canSeeActions,
   visible,
-  totalCount,
+  totalApprox,
+  page,
+  size,
+  hasMore,
+  onPageChange,
+  onSizeChange,
+  searchActive,
   trail,
   aliases,
   actorNames,
@@ -63,7 +70,14 @@ export function ReferralsBoard({
   canReject: boolean;
   canSeeActions: boolean;
   visible: Referral[];
-  totalCount: number;
+  totalApprox: number;
+  page: number;
+  size: number;
+  hasMore: boolean;
+  onPageChange: (page: number) => void;
+  onSizeChange: (size: number) => void;
+  /** Free-text search filters the loaded page only (structured filters are server-side). */
+  searchActive: boolean;
   trail: Map<string, RefAction[]>;
   aliases: Map<string, string>;
   actorNames: Map<string, string>;
@@ -72,7 +86,22 @@ export function ReferralsBoard({
   sessionSchedule: Map<string, string>;
   escalatedAt: Map<string, string>;
   busyId: string | null;
-  filters: ReferralFilters;
+  // Filter state with plain setter signatures (the page wraps picks to reset
+  // the pager; Dispatch setters satisfy this shape too).
+  filters: {
+    statusFilter: string;
+    setStatusFilter: (s: string) => void;
+    priorityFilter: string;
+    setPriorityFilter: (p: string) => void;
+    assigneeFilter: string;
+    setAssigneeFilter: (a: string) => void;
+    view: "list" | "grid";
+    setView: (v: "list" | "grid") => void;
+    query: string;
+    setQuery: (q: string) => void;
+    openMenuKey: string | null;
+    setOpenMenuKey: (k: string | null) => void;
+  };
   canResolve: (ref: Referral) => boolean;
   counselorName: (id: string | null) => string;
   referrerLabel: (r: Referral) => string;
@@ -196,9 +225,13 @@ export function ReferralsBoard({
               </div>
             </div>
           </div>
-          <p className="px-4 text-xs font-medium text-ink-faint sm:px-5">
-            Showing {visible.length} of {totalCount} referrals · student names stay private (aliases only).
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5">
+            <p className="text-xs font-medium text-ink-faint">
+              Showing {pageRange(page, size, visible.length).start}–{pageRange(page, size, visible.length).end} of ~{totalApprox} referrals
+              {searchActive ? " · search matches this page only" : ""} · student names stay private (aliases only).
+            </p>
+            <PageSize value={size} onChange={onSizeChange} />
+          </div>
 
           {/* Board — list */}
           {view === "list" && (
@@ -491,6 +524,7 @@ export function ReferralsBoard({
               )}
             </div>
           )}
+          <Pager page={page} size={size} totalApprox={totalApprox} hasMore={hasMore} onPage={onPageChange} />
         </>
       )}
     </Card>

@@ -69,26 +69,28 @@ export async function fetchStudentsBoard(): Promise<StudentsBoardData> {
         ...(((threadRows ?? []) as { student_id: string }[]).map((t) => t.student_id)),
       ].filter((id): id is string => !!id)),
     ];
-    const studentList: StudentsRow[] = [];
+    const studentChunks: string[][] = [];
     for (let i = 0; i < myIds.length; i += 200) {
       const chunk = myIds.slice(i, i + 200);
-      if (!chunk.length) break;
-      const { data } = await supabase.from("students").select(STUDENT_COLS).in("id", chunk);
-      studentList.push(...((data ?? []) as StudentsRow[]));
+      if (chunk.length) studentChunks.push(chunk);
     }
+    // P11: chunks fan out in parallel instead of awaiting one by one.
+    const [studentPages, screenPages] = await Promise.all([
+      Promise.all(studentChunks.map((chunk) => supabase.from("students").select(STUDENT_COLS).in("id", chunk))),
+      Promise.all(
+        studentChunks.map((chunk) =>
+          supabase
+            .from("pss10_assessments")
+            .select("student_id, band, created_at")
+            .in("student_id", chunk)
+            .order("created_at", { ascending: false })
+            .limit(1000)
+        )
+      ),
+    ]);
+    const studentList = studentPages.flatMap((p) => ((p.data ?? []) as StudentsRow[]));
     studentList.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
-    const screenList: StudentsScreen[] = [];
-    for (let i = 0; i < myIds.length; i += 200) {
-      const chunk = myIds.slice(i, i + 200);
-      if (!chunk.length) break;
-      const { data } = await supabase
-        .from("pss10_assessments")
-        .select("student_id, band, created_at")
-        .in("student_id", chunk)
-        .order("created_at", { ascending: false })
-        .limit(1000);
-      screenList.push(...((data ?? []) as StudentsScreen[]));
-    }
+    const screenList = screenPages.flatMap((p) => ((p.data ?? []) as StudentsScreen[]));
     return {
       role: r,
       counselorId: cid,

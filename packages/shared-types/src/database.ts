@@ -385,6 +385,15 @@ export interface Database {
         Args: Record<string, never>;
         Returns: { counselor_id: string; display_name: string }[];
       };
+      // Added by hand (00061) — db:types regen will keep it.
+      head_appointment_daily_counts: {
+        Args: { from_ts: string; to_ts: string };
+        Returns: { day: string; sessions: number }[];
+      };
+      head_referral_status_counts: {
+        Args: { from_ts?: string | null; to_ts?: string | null };
+        Returns: { status: string; count: number }[];
+      };
     };
     Enums: Record<string, never>;
   };

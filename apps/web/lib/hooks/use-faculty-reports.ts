@@ -3,6 +3,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { FacultyReportsPayload } from "@/app/api/reports/faculty/route";
 import type { ReportSection } from "@/lib/reports-scope";
+import { fetchWithTimeout } from "@/lib/fetch-timeout";
 
 export type { FacultyReportsPayload };
 
@@ -26,7 +27,7 @@ export async function fetchFacultyReports(scope: FacultyReportsScope): Promise<F
   if (scope.preset !== "all" && scope.preset !== "custom") p.set("range", scope.preset);
   if (scope.fromDay) p.set("from", scope.fromDay);
   if (scope.toDay) p.set("to", scope.toDay);
-  const res = await fetch(`/api/reports/faculty?${p.toString()}`, { credentials: "same-origin" });
+  const res = await fetchWithTimeout(`/api/reports/faculty?${p.toString()}`, { credentials: "same-origin" });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error ?? "Couldn't load the reports right now.");

@@ -2,6 +2,7 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { fetchWithTimeout } from "@/lib/fetch-timeout";
 import { listStaffMessages } from "@dorsu/shared-services";
 
 export type ChatThread = {
@@ -80,7 +81,7 @@ export async function fetchChatBoard(): Promise<ChatBoardData> {
   /** Office directory via /api/chat/contacts (faculty see the office, counselors see faculty). */
   async function fetchContacts(): Promise<ChatContact[]> {
     try {
-      const res = await fetch("/api/chat/contacts", { credentials: "same-origin" });
+      const res = await fetchWithTimeout("/api/chat/contacts", { credentials: "same-origin" }, 8_000);
       if (res.ok) return (((await res.json()) as { contacts?: ChatContact[] }).contacts ?? []);
     } catch {
       // Offline — inbox still renders, compose just has nobody to pick.
@@ -134,7 +135,11 @@ export async function fetchChatBoard(): Promise<ChatBoardData> {
   let aliases = EMPTY_ALIASES;
   let previews = EMPTY_PREVIEWS;
   if (!isHead) {
-    let q = supabase.from("chat_threads").select("*").order("updated_at", { ascending: false }).limit(100);
+    let q = supabase
+      .from("chat_threads")
+      .select("id, student_id, counselor_id, appointment_id, status, created_at, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(100);
     if (r === "counselor" && cid) q = q.eq("counselor_id", cid);
     const { data, error } = await q;
     if (error) throw error;

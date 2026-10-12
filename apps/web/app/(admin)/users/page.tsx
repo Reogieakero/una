@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { BarChart3, ChevronDown } from "lucide-react";
 import { useUsersBoard, type UsersProfile } from "@/lib/hooks/use-users-board";
+import { clampPage, clampPageSize } from "@/lib/pagination";
+import { Pager, PageSize } from "@/components/shared/Pager";
+import { pageRange } from "@/lib/pagination";
 import { cn } from "@/lib/utils";
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { ROLES, ROLE_LABEL } from "@/components/users/RolePill";
@@ -25,15 +29,48 @@ const EMPTY_DETAILS = new Map<string, string>();
 
 /** Admin user directory — stats, filters, and activate/deactivate (via a service-role route). */
 export default function AdminUsersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="animate-pulse space-y-4" aria-hidden>
+          <div className="h-8 w-48 rounded-lg bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
+        </div>
+      }
+    >
+      <AdminUsersPageInner />
+    </Suspense>
+  );
+}
+
+function AdminUsersPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Client-side pager over the loaded directory (?page=&size=, 10/25/50).
+  // Filters and stats stay exact over the full loaded set — only the
+  // rendered table rows are sliced (DOM cost, not fetch cost).
+  const page = clampPage(searchParams.get("page"));
+  const size = clampPageSize(searchParams.get("size"));
+  const gotoPage = useCallback(
+    (p: number, s: number = size) => {
+      router.replace(`/users?page=${p}&size=${s}`, { scroll: false });
+    },
+    [router, size]
+  );
   const { data: board, isLoading, isError, refetch } = useUsersBoard();
   const me = board?.me ?? null;
   const rows = board?.rows ?? EMPTY_ROWS;
   const details = board?.details ?? EMPTY_DETAILS;
   const loading = isLoading && !board;
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [roleFilter, setRoleFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilterState] = useState<string>("all");
+  const [statusFilter, setStatusFilterState] = useState<string>("all");
+  const [query, setQueryState] = useState("");
+  // Any filter change resets to page 1 (page window belongs to a result set).
+  const setRoleFilter = useCallback((v: string) => { setRoleFilterState(v); gotoPage(1); }, [gotoPage]);
+  const setStatusFilter = useCallback((v: string) => { setStatusFilterState(v); gotoPage(1); }, [gotoPage]);
+  const setQuery = useCallback((v: string) => { setQueryState(v); gotoPage(1); }, [gotoPage]);
   const [confirming, setConfirming] = useState<{ user: Profile; toActive: boolean } | null>(null);
 
   // Stats live in a floating panel — same hover/click behavior as the
@@ -101,6 +138,14 @@ export default function AdminUsersPage() {
         !q ? true : `${u.full_name ?? ""} ${u.email}`.toLowerCase().includes(q)
       );
   }, [rows, roleFilter, statusFilter, query]);
+
+  // Render window into the filtered set (exact totals).
+  const totalPages = Math.max(1, Math.ceil(visible.length / size));
+  const safePage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => visible.slice((safePage - 1) * size, safePage * size),
+    [visible, safePage, size]
+  );
 
   const runConfirming = async () => {
     if (!confirming || busyId) return;
@@ -267,9 +312,12 @@ export default function AdminUsersPage() {
             />
           </div>
         </div>
-        <p className="px-4 text-xs font-medium text-ink-faint sm:px-5">
-          Showing {visible.length} of {rows.length} accounts.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5">
+          <p className="text-xs font-medium text-ink-faint">
+            Showing {pageRange(safePage, size, paged.length).start}–{pageRange(safePage, size, paged.length).end} of {visible.length} accounts.
+          </p>
+          <PageSize value={size} onChange={(s) => gotoPage(1, s)} />
+        </div>
         <div className="mt-3 overflow-x-auto">
         <table className="w-full min-w-[820px] text-left text-sm">
           <thead>
@@ -283,7 +331,7 @@ export default function AdminUsersPage() {
             </tr>
           </thead>
           <tbody>
-            {visible.map((u) => (
+            {paged.map((u) => (
               <UserRow
                 key={u.id}
                 user={u}
@@ -308,6 +356,13 @@ export default function AdminUsersPage() {
           </div>
         )}
         </div>
+        <Pager
+          page={safePage}
+          size={size}
+          totalApprox={visible.length}
+          hasMore={safePage * size < visible.length}
+          onPage={(p) => gotoPage(p)}
+        />
       </Card>
 
       {/* Activate/deactivate confirm */}

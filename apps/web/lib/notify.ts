@@ -1,4 +1,5 @@
 import { logEvent } from "./log-event";
+import { fetchWithTimeout } from "./fetch-timeout";
 
 type NotifyType = "appointment" | "referral" | "announcement" | "chat" | "assessment" | "system";
 
@@ -25,11 +26,15 @@ export async function notifyStaff(
   try {
     const targets = [...new Set(to.filter((id): id is string => !!id))];
     if (!input.title.trim()) return;
-    const res = await fetch("/api/staff/notify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: targets, ...input }),
-    }).catch(() => null);
+    const res = await fetchWithTimeout(
+      "/api/staff/notify",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: targets, ...input }),
+      },
+      8_000
+    ).catch(() => null);
     logEvent("REALTIME_EVENT_PUBLISHED", {
       type: input.type,
       targets: targets.length,

@@ -86,24 +86,24 @@ export async function GET() {
     await Promise.all([
       supabase
         .from("appointments")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("counselor_id", counselorId)
         .gte("scheduled_at", today.toISOString())
         .lt("scheduled_at", tomorrow.toISOString())
         .in("status", ["assigned", "confirmed"]),
       supabase
         .from("appointments")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("counselor_id", counselorId)
         .eq("status", "assigned"),
       supabase
         .from("referrals")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("assigned_counselor_id", counselorId)
         .in("status", ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"]),
       supabase
         .from("chat_threads")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("counselor_id", counselorId)
         .eq("status", "open"),
       supabase
@@ -130,9 +130,10 @@ export async function GET() {
         .order("created_at", { ascending: false })
         .limit(5),
       // Assigned-only referrals needing confirmation (dashboard action queue).
+      // P8: estimated count — exact KPI scans are the dashboard's hidden tax.
       supabase
         .from("referrals")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("assigned_counselor_id", counselorId)
         .eq("status", "assigned"),
       supabase

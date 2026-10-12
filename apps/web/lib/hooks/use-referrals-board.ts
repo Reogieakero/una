@@ -3,7 +3,8 @@
 import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { patchBoard } from "@/lib/patch-board";
-import { listReferrals } from "@dorsu/shared-services";
+import { listReferralPage, type ReferralCursor } from "@dorsu/shared-services";
+import { MAX_PAGE_SIZE } from "@/lib/pagination";
 
 export type ReferralsRow = {
   id: string;
@@ -50,6 +51,15 @@ export type ReferralsAction = {
   created_at: string;
 };
 
+export type ReferralsStats = {
+  total: number;
+  pending: number;
+  assigned: number;
+  confirmed: number;
+  resolved: number;
+  unassigned: number;
+};
+
 export type ReferralsBoardData = {
   role: string | null;
   me: string | null;
@@ -71,6 +81,13 @@ export type ReferralsBoardData = {
   readyStudents: Set<string>;
   /** Own availability slots (counselor role only) — confirm schedule scope. */
   slots: BoardSlot[];
+  /** Pager state for this cache entry. */
+  page: number;
+  size: number;
+  hasMore: boolean;
+  /** Server-side total (status RPC, RLS-scoped) — "~N" labels, not exact. */
+  totalApprox: number;
+  stats: ReferralsStats;
 };
 
 export type BoardSlot = {
@@ -84,21 +101,98 @@ export type BoardSlot = {
 
 export const REFERRALS_BOARD_KEY = ["referrals", "board"] as const;
 
+export type ReferralsScope = {
+  page: number;
+  size: number;
+  status: string;
+  priority: string;
+  assignee: string;
+};
+
+/** Default first-page scope (sidebar prefetch + simple consumers). */
+export const DEFAULT_REFERRALS_SCOPE: ReferralsScope = {
+  page: 1,
+  size: 25,
+  status: "all",
+  priority: "all",
+  assignee: "all",
+};
+
 /**
- * Upsert one referral row into the cached board — prepends when new (actor
- * submit, incoming realtime row), merges when known (status/assignee moves).
- * Optionally files the student's display alias in the same pass so the row
- * renders with its name immediately, not after the background reconcile.
+ * Cursor chain per filter signature — index i holds the cursor FOR page i+1
+ * (index 0 is always null = page 1). Module-scoped: survives in-app
+ * navigation, keyed by size+filters so a filter change starts a fresh chain.
+ * Deep ?page=N links walk forward once with limit-1 probes, then pin.
+ */
+const cursorChains = new Map<string, (ReferralCursor | null)[]>();
+
+function chainKey(size: number, status: string, priority: string, assignee: string): string {
+  return `${size}|${status}|${priority}|${assignee}`;
+}
+
+/**
+ * Upsert one referral row into EVERY cached board page — prepends when new
+ * (actor submit, incoming realtime row), merges when known. Pages holding
+ * the row converge without a full refetch; other pages are untouched.
  */
 export function upsertReferralRow(qc: QueryClient, row: ReferralsRow, alias?: string | null) {
-  patchBoard<ReferralsBoardData>(qc, [...REFERRALS_BOARD_KEY], (prev) => {
-    const rows = prev.rows.some((r) => r.id === row.id)
-      ? prev.rows.map((r) => (r.id === row.id ? { ...r, ...row } : r))
-      : [row, ...prev.rows];
-    const aliases =
-      alias && row.student_id ? new Map(prev.aliases).set(row.student_id, alias) : prev.aliases;
-    return { ...prev, rows, aliases };
-  });
+  const entries = qc.getQueryCache().findAll({ queryKey: [...REFERRALS_BOARD_KEY] });
+  for (const entry of entries) {
+    patchBoard<ReferralsBoardData>(qc, entry.queryKey, (prev) => {
+      const rows = prev.rows.some((r) => r.id === row.id)
+        ? prev.rows.map((r) => (r.id === row.id ? { ...r, ...row } : r))
+        : [row, ...prev.rows];
+      const aliases =
+        alias && row.student_id ? new Map(prev.aliases).set(row.student_id, alias) : prev.aliases;
+      return { ...prev, rows, aliases };
+    });
+  }
+}
+
+/** Patch one row's fields across every cached page (triage/assign moves). */
+export function patchReferralRow(qc: QueryClient, id: string, patch: Partial<ReferralsRow>) {
+  const entries = qc.getQueryCache().findAll({ queryKey: [...REFERRALS_BOARD_KEY] });
+  for (const entry of entries) {
+    patchBoard<ReferralsBoardData>(qc, entry.queryKey, (prev) => ({
+      ...prev,
+      rows: prev.rows.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    }));
+  }
+}
+
+/** Single-row fetch for deep-links landing on an unloaded page. */
+export async function fetchReferralCard(id: string): Promise<{
+  row: ReferralsRow;
+  alias: string | null;
+  facultyName: string | null;
+}> {
+  const supabase = createClient();
+  const { data, error } = await supabase.from("referrals").select("*").eq("id", id).single();
+  if (error || !data) throw new Error("Referral not found.");
+  const row = data as ReferralsRow;
+  let alias: string | null = null;
+  if (row.student_id) {
+    const { data: s } = await supabase
+      .from("students")
+      .select("anonymous_alias")
+      .eq("id", row.student_id)
+      .single();
+    alias = (s as { anonymous_alias: string | null } | null)?.anonymous_alias ?? null;
+  }
+  let facultyName: string | null = null;
+  if (row.referring_faculty_id) {
+    const { data: f } = await supabase
+      .from("faculty_members")
+      .select("profile_id")
+      .eq("id", row.referring_faculty_id)
+      .single();
+    const pid = (f as { profile_id: string } | null)?.profile_id;
+    if (pid) {
+      const { data: p } = await supabase.from("profiles").select("full_name").eq("id", pid).single();
+      facultyName = (p as { full_name: string | null } | null)?.full_name ?? null;
+    }
+  }
+  return { row, alias, facultyName };
 }
 
 /** Fresh window — inside it, going back to /referrals renders zero-fetch. */
@@ -112,8 +206,14 @@ const EMPTY_STUDENTS: ReferralStudentOption[] = [];
 const EMPTY_COUNSELORS: { id: string; name: string }[] = [];
 const EMPTY_READY = new Set<string>();
 const EMPTY_SLOTS: BoardSlot[] = [];
+const EMPTY_STATS: ReferralsStats = { total: 0, pending: 0, assigned: 0, confirmed: 0, resolved: 0, unassigned: 0 };
 
-export async function fetchReferralsBoard(): Promise<ReferralsBoardData> {
+export async function fetchReferralsBoard(scope: ReferralsScope): Promise<ReferralsBoardData> {
+  const page = Math.max(1, Math.floor(scope.page) || 1);
+  const size = Math.min(Math.max(Math.floor(scope.size) || 25, 1), MAX_PAGE_SIZE);
+  const status = scope.status || "all";
+  const priority = scope.priority || "all";
+  const assignee = scope.assignee || "all";
   const supabase = createClient();
   const {
     data: { user },
@@ -122,6 +222,16 @@ export async function fetchReferralsBoard(): Promise<ReferralsBoardData> {
   const { data: profile } = await supabase.from("profiles").select("role, full_name").eq("id", user.id).single();
   const r = (profile as { role: string } | null)?.role ?? null;
   const myName = (profile as { full_name: string | null } | null)?.full_name ?? "Staff";
+  const base = {
+    role: r,
+    me: user.id,
+    myName,
+    page,
+    size,
+    hasMore: false,
+    totalApprox: 0,
+    stats: EMPTY_STATS,
+  };
   let facultyId: string | null = null;
   let counselorId: string | null = null;
   let students = EMPTY_STUDENTS;
@@ -156,9 +266,7 @@ export async function fetchReferralsBoard(): Promise<ReferralsBoardData> {
   }
   if (!r || !["counselor", "guidance_head", "faculty"].includes(r)) {
     return {
-      role: r,
-      me: user.id,
-      myName,
+      ...base,
       facultyId,
       counselorId,
       rows: EMPTY_ROWS,
@@ -177,18 +285,55 @@ export async function fetchReferralsBoard(): Promise<ReferralsBoardData> {
     };
   }
 
-  // Round 1 — independent reads, one batch instead of four sequential hops.
-  const [listRes, actionsRes, headRes, counselorRes] = await Promise.all([
-    listReferrals(supabase),
-    supabase
-      .from("referral_actions")
-      .select("id, referral_id, actor_profile_id, actor_name, actor_role, action, note, created_at")
-      .order("created_at", { ascending: false })
-      .limit(500),
+  // Keyset walk: resolve the cursor for the requested page (limit-1 probes
+  // for skipped pages — one indexed row each, then pinned in the chain).
+  const key = chainKey(size, status, priority, assignee);
+  let chain = cursorChains.get(key);
+  if (!chain) {
+    chain = [null];
+    cursorChains.set(key, chain);
+  }
+  const listOpts = {
+    status,
+    priority,
+    // Counselors see their own queue only — RLS enforces it too, but scoping
+    // the query keeps pages dense for them.
+    assignee: r === "counselor" && counselorId ? counselorId : assignee,
+  };
+  while (chain.length < page) {
+    const probe = await listReferralPage(supabase, { ...listOpts, limit: 1, cursor: chain[chain.length - 1] });
+    chain.push(probe.nextCursor);
+    if (!probe.hasMore) break;
+  }
+  const { rows: pageRows, nextCursor, hasMore } = await listReferralPage(supabase, {
+    ...listOpts,
+    limit: size,
+    cursor: chain[page - 1] ?? null,
+  });
+  chain[page] = nextCursor;
+  const data = ((pageRows ?? []) as ReferralsRow[]);
+
+  // Round 1 — independent reads, one batch.
+  // Trail is scoped to THIS page's ids (≤50 IN-list) instead of the old
+  // global 500-row pull; stats come from the RLS-scoped status RPC.
+  const pageIds = data.map((x) => x.id);
+  const [actionsRes, headRes, counselorRes, statusRes, unassignedRes] = await Promise.all([
+    pageIds.length
+      ? supabase
+          .from("referral_actions")
+          .select("id, referral_id, actor_profile_id, actor_name, actor_role, action, note, created_at")
+          .in("referral_id", pageIds)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
     supabase.from("profiles").select("id").eq("role", "guidance_head").eq("is_active", true),
     supabase.from("counselors").select("id, profile_id").limit(100),
+    supabase.rpc("head_referral_status_counts"),
+    supabase
+      .from("referrals")
+      .select("id", { count: "estimated", head: true })
+      .in("status", ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"])
+      .is("assigned_counselor_id", null),
   ]);
-  const data = ((listRes ?? []) as ReferralsRow[]);
   const actions = actionsRes.data;
   const headIds = (((headRes.data ?? []) as { id: string }[])).map((h) => h.id);
   const crows = (((counselorRes.data ?? []) as { id: string; profile_id: string }[]));
@@ -202,10 +347,7 @@ export async function fetchReferralsBoard(): Promise<ReferralsBoardData> {
   const studentIds = [...new Set(data.map((x) => x.student_id).filter((id): id is string => !!id))];
   const facIds = [...new Set(data.map((x) => x.referring_faculty_id).filter(Boolean))] as string[];
 
-  // Round 2 — everything keyed off round 1, still one batch. Counselor
-  // display names come from the narrow counselor_directory() exception
-  // (00049) instead of profiles, so every role — including faculty — sees
-  // the handling counselor's name.
+  // Round 2 — everything keyed off the page, still one batch.
   const emptyPage = { data: null };
   const [actorProfilesRes, studentRes, sessionRes, counselorNamesRes, facRes] = await Promise.all([
     actorIds.length
@@ -243,9 +385,6 @@ export async function fetchReferralsBoard(): Promise<ReferralsBoardData> {
     const srows = (((studentRes.data ?? []) as { id: string; profile_id: string; anonymous_alias: string | null }[]));
     aliases = new Map(srows.map((s) => [s.id, s.anonymous_alias ?? "Student"]));
     studentProfiles = new Map(srows.map((s) => [s.id, s.profile_id]));
-    // Resolve gate — which referred students already hold a confirmed (or
-    // completed) session with a schedule. RLS-scoped, so counselors only
-    // ever see their own sessions here.
     readyStudents = new Set(
       (((sessionRes.data ?? []) as { student_id: string }[])).map((a) => a.student_id)
     );
@@ -275,8 +414,41 @@ export async function fetchReferralsBoard(): Promise<ReferralsBoardData> {
     }
   }
 
-  // Own availability windows scope the counselor's confirm schedule picker
-  // (the minted session must sit inside these slots).
+  // Server stats (RLS-scoped status RPC) + unassigned pipeline count.
+  // Fallback when the 00061 RPC is not deployed yet (e.g. staging before
+  // `supabase db push`): per-status estimated counts keep the stats menu
+  // correct at zero extra cost once the RPC exists.
+  const statusCounts = new Map<string, number>();
+  for (const s of ((statusRes.data ?? []) as { status: string; count: number | string }[])) {
+    statusCounts.set(s.status, Number(s.count ?? 0));
+  }
+  if (statusRes.error) {
+    const [totalRes, pendRes, assRes, confRes, resRes] = await Promise.all([
+      supabase.from("referrals").select("id", { count: "estimated", head: true }),
+      supabase.from("referrals").select("id", { count: "estimated", head: true }).eq("status", "pending"),
+      supabase.from("referrals").select("id", { count: "estimated", head: true }).eq("status", "assigned"),
+      supabase.from("referrals").select("id", { count: "estimated", head: true }).eq("status", "confirmed"),
+      supabase.from("referrals").select("id", { count: "estimated", head: true }).eq("status", "resolved"),
+    ]);
+    statusCounts.set("__total", totalRes.count ?? 0);
+    statusCounts.set("pending", pendRes.count ?? 0);
+    statusCounts.set("assigned", assRes.count ?? 0);
+    statusCounts.set("confirmed", confRes.count ?? 0);
+    statusCounts.set("resolved", resRes.count ?? 0);
+  }
+  const total = statusCounts.has("__total")
+    ? (statusCounts.get("__total") ?? 0)
+    : [...statusCounts.values()].reduce((a, b) => a + b, 0);
+  const stats: ReferralsStats = {
+    total,
+    pending: statusCounts.get("pending") ?? 0,
+    assigned: statusCounts.get("assigned") ?? 0,
+    confirmed: statusCounts.get("confirmed") ?? 0,
+    resolved: statusCounts.get("resolved") ?? 0,
+    unassigned: (unassignedRes as { count: number | null }).count ?? 0,
+  };
+
+  // Own availability windows scope the counselor's confirm schedule picker.
   let slots: BoardSlot[] = [];
   if (r === "counselor" && counselorId) {
     const { data: slotRows } = await supabase
@@ -287,9 +459,7 @@ export async function fetchReferralsBoard(): Promise<ReferralsBoardData> {
   }
 
   return {
-    role: r,
-    me: user.id,
-    myName,
+    ...base,
     facultyId,
     counselorId,
     rows: data,
@@ -305,21 +475,22 @@ export async function fetchReferralsBoard(): Promise<ReferralsBoardData> {
     students,
     readyStudents,
     slots,
+    hasMore,
+    totalApprox: total,
+    stats,
   };
 }
 
 /**
- * Cached referrals board — stale-while-revalidate.
- * The QueryClient lives in the root layout and survives in-app navigation,
- * so the second visit to /referrals shows cached rows instantly while a
- * background refetch (only if stale) refreshes them without blocking.
- * Mutations refetch explicitly, so actions never serve stale rows.
- * Filters, search, view, and dialog state stay local on purpose.
+ * Cached referrals board — stale-while-revalidate, keyed by page + size +
+ * structured filters. Text search stays client-side over the loaded page
+ * (see page); changing any structured filter must reset to page 1 (the
+ * cursor chain is keyed by the filter signature).
  */
-export function useReferralsBoard() {
+export function useReferralsBoard(scope: ReferralsScope) {
   return useQuery({
-    queryKey: [...REFERRALS_BOARD_KEY],
-    queryFn: fetchReferralsBoard,
+    queryKey: [...REFERRALS_BOARD_KEY, scope.page, scope.size, scope.status, scope.priority, scope.assignee],
+    queryFn: () => fetchReferralsBoard(scope),
     staleTime: REFERRALS_BOARD_STALE_MS,
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: false,

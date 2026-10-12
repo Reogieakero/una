@@ -29,7 +29,7 @@ export default function AccessEventsPage() {
     const supabase = createClient();
     const { data, error } = await supabase
       .from("break_glass_logs")
-      .select("*")
+      .select("id, accessor_profile_id, student_id, justification, accessed_at, reviewed_by, reviewed_at")
       .order("accessed_at", { ascending: false })
       .limit(100);
     if (error) throw error;

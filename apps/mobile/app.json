@@ -6,10 +6,30 @@
     "orientation": "portrait",
     "scheme": "dorsu-mental",
     "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#EFF6FF"
+    },
     "assetBundlePatterns": ["**/*"],
-    "ios": { "supportsTablet": true, "bundleIdentifier": "edu.ph.dorsu.chekie" },
-    "android": { "package": "edu.ph.dorsu.chekie", "adaptiveIcon": { "backgroundColor": "#EFF6FF" } },
-    "plugins": ["expo-router", "expo-secure-store", ["expo-notifications", { "icon": "./assets/icon.png" }]],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "edu.ph.dorsu.chekie"
+    },
+    "android": {
+      "package": "edu.ph.dorsu.chekie",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#EFF6FF"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-splash-screen",
+      "expo-secure-store",
+      ["expo-notifications", { "icon": "./assets/icon.png" }]
+    ],
     "experiments": { "typedRoutes": true }
   }
 }

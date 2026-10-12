@@ -179,12 +179,13 @@ export function SidebarNavGroups({
     }).catch(() => {});
   };
 
-  // Warm the cached referrals board so opening /referrals feels instant.
+  // Warm the cached referrals board (first page, default scope) so opening
+  // /referrals feels instant.
   const prefetchReferrals = () => {
     if (role !== "counselor" && role !== "guidance_head" && role !== "faculty") return;
     qc.prefetchQuery({
-      queryKey: [...REFERRALS_BOARD_KEY],
-      queryFn: fetchReferralsBoard,
+      queryKey: [...REFERRALS_BOARD_KEY, 1, 25, "all", "all", "all"],
+      queryFn: () => fetchReferralsBoard({ page: 1, size: 25, status: "all", priority: "all", assignee: "all" }),
       staleTime: REFERRALS_BOARD_STALE_MS,
     }).catch(() => {});
   };
@@ -257,13 +258,14 @@ export function SidebarNavGroups({
     }).catch(() => {});
   };
 
-  // Warm the cached appointments board so opening /appointments feels instant.
-  // The board query branches internally (own queue vs office-wide).
+  // Warm the cached appointments board (first page, default scope) so
+  // opening /appointments feels instant. The board query branches internally
+  // (own queue vs office-wide).
   const prefetchAppointments = () => {
     if (role !== "counselor" && role !== "guidance_head") return;
     qc.prefetchQuery({
-      queryKey: [...APPOINTMENTS_BOARD_KEY],
-      queryFn: fetchAppointmentsBoard,
+      queryKey: [...APPOINTMENTS_BOARD_KEY, 1, 25, "all", "all", "all", "appointments"],
+      queryFn: () => fetchAppointmentsBoard({ page: 1, size: 25, status: "all", mode: "all", counselor: "all", kind: "appointments" }),
       staleTime: APPOINTMENTS_BOARD_STALE_MS,
     }).catch(() => {});
   };

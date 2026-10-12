@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-11T17:31:49.773Z",
+  "threadId": "3bb6caac-40ed-4731-ac9a-4b8d9666d920",
+  "delivery": {
+    "n": 50,
+    "min": 205.02980000000025,
+    "p50": 378.5642000000007,
+    "p95": 494.70330000000104,
+    "max": 502.8071,
+    "lost": 0
+  },
+  "reconnect": {
+    "replayed_live": 1,
+    "recovered_via_refetch": 3,
+    "expected": 3
+  }
+}

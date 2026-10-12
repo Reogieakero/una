@@ -2,6 +2,7 @@
 
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CounselorDashboardPayload } from "@/app/api/dashboard/counselor/route";
+import { fetchWithTimeout } from "@/lib/fetch-timeout";
 
 export type { CounselorDashboardPayload };
 
@@ -11,7 +12,7 @@ export const COUNSELOR_DASHBOARD_KEY = ["dashboard", "counselor"] as const;
 export const COUNSELOR_DASHBOARD_STALE_MS = 60_000;
 
 export async function fetchCounselorDashboard(): Promise<CounselorDashboardPayload> {
-  const res = await fetch("/api/dashboard/counselor", { credentials: "same-origin" });
+  const res = await fetchWithTimeout("/api/dashboard/counselor", { credentials: "same-origin" });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error ?? "Couldn't load the dashboard right now.");

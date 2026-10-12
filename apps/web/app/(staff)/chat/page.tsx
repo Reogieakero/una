@@ -86,7 +86,7 @@ const EMPTY_PREVIEWS = new Map<string, Msg>();
  */
 export default function ChatPage() {
   const qc = useQueryClient();
-  const { data: board, isLoading, isError, refetch } = useChatBoard();
+  const { data: board, isLoading, isError } = useChatBoard();
   const role = board?.role ?? null;
   const me = board?.me ?? null;
   const myName = board?.myName ?? "Staff";
@@ -155,16 +155,24 @@ export default function ChatPage() {
     if (isError) toast.error("Couldn't load chats right now.");
   }, [isError]);
 
-  // Active thread messages + realtime.
+  // Active thread messages + realtime. History is bounded (latest 50 —
+  // see getThreadWithMessages); "Load older" pages back via cursor below.
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   useEffect(() => {
     if (!activeId) {
       setMessages([]);
+      setHasMoreHistory(false);
       return;
     }
     let alive = true;
+    setHasMoreHistory(false);
     getThreadWithMessages(createClient(), activeId)
       .then(({ messages: ms }) => {
-        if (alive) setMessages((ms ?? []) as Msg[]);
+        if (!alive) return;
+        const list = ((ms ?? []) as Msg[]);
+        setMessages(list);
+        setHasMoreHistory(list.length >= 50);
       })
       .catch(() => {});
     const ch = createClient()
@@ -185,24 +193,64 @@ export default function ChatPage() {
     };
   }, [activeId]);
 
+  // P10: older history on demand — prepends the next page without yanking
+  // the viewport (scrollTop is preserved; auto-stick-to-bottom is off while
+  // reading history, so the arrival effect below stays quiet).
+  const loadOlder = () => {
+    if (!activeId || !messages.length || loadingOlder) return;
+    setLoadingOlder(true);
+    const oldest = messages[0]?.created_at;
+    getThreadWithMessages(createClient(), activeId, { before: oldest })
+      .then(({ messages: ms }) => {
+        const page = ((ms ?? []) as Msg[]);
+        atBottomRef.current = false;
+        setShowJump(true);
+        setMessages((m) => {
+          const known = new Set(m.map((x) => x.id));
+          return [...page.filter((x) => !known.has(x.id)), ...m];
+        });
+        if (page.length < 50) setHasMoreHistory(false);
+      })
+      .catch(() => {
+        toast.error("Couldn't load older messages.");
+      })
+      .finally(() => setLoadingOlder(false));
+  };
+
+  // P9: visible-thread signature — the shared preview listener below
+  // subscribes only to these thread ids (plus my DMs), never the whole
+  // org's chat_messages table. Rebuilt when the thread set changes.
+  const threadFilter = useMemo(
+    () => threads.map((t) => t.id).slice(0, 100).sort().join(","),
+    [threads]
+  );
+
   // One shared channel for everything outside the open thread: thread-list
   // previews patch in place (never a full invalidate — the old chat-list
   // channel refetched the whole board on every message), and staff DMs land
   // live, filtered to messages addressed to me. The open thread keeps its
   // own filtered subchannel above. RLS still scopes chat_messages to
-  // participant threads server-side; the recipient filter narrows DMs.
+  // participant threads server-side; the thread_id=in.(...) filter narrows
+  // realtime egress client-side so other counselors' messages never reach
+  // this tab. Empty (faculty/head without threads) skips chat_messages.
   useEffect(() => {
     if (!me) return;
-    const ch = createClient()
-      .channel(`chat-global-${me}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (p) => {
-        const row = p.new as Msg;
-        if (!row?.id || !row.thread_id) return;
-        patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) => ({
-          ...prev,
-          previews: new Map(prev.previews).set(row.thread_id, row),
-        }));
-      })
+    const builder = createClient().channel(`chat-global-${me}`);
+    if (threadFilter) {
+      builder.on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_messages", filter: `thread_id=in.(${threadFilter})` },
+        (p) => {
+          const row = p.new as Msg;
+          if (!row?.id || !row.thread_id) return;
+          patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) => ({
+            ...prev,
+            previews: new Map(prev.previews).set(row.thread_id, row),
+          }));
+        }
+      );
+    }
+    const ch = builder
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "staff_messages", filter: `recipient_profile_id=eq.${me}` },
@@ -217,7 +265,7 @@ export default function ChatPage() {
     return () => {
       createClient().removeChannel(ch);
     };
-  }, [me, qc]);
+  }, [me, qc, threadFilter]);
 
   // New arrivals stick to the bottom only while already viewing the latest —
   // reading history is never yanked away.
@@ -274,15 +322,33 @@ export default function ChatPage() {
       return;
     }
     setMsgBusy(true);
+    // P14: optimistic — the DM renders and the view switches instantly;
+    // the temp row is replaced by the server row (same replace-by-id the
+    // realtime echo uses), removed on failure while staying on the view.
+    const tempId = crypto.randomUUID();
+    const optimistic: Dm = {
+      id: tempId,
+      sender_profile_id: me,
+      recipient_profile_id: peerProfile,
+      body,
+      is_read: true,
+      created_at: new Date().toISOString(),
+    };
+    patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) =>
+      prev.dms.some((x) => x.id === tempId) ? prev : { ...prev, dms: [optimistic, ...prev.dms] }
+    );
+    setMsgOpen(false);
+    setMsgBody("");
+    setActiveId(null);
+    setMessages([]);
+    setActiveDm(peerProfile);
+    setShowThreadMobile(true);
     try {
-      const sent = (await sendStaffMessage(createClient(), { senderProfileId: me, recipientProfileId: peerProfile, body })) as { id?: string } | null;
-      setMsgOpen(false);
-      setMsgBody("");
-      await refetch();
-      setActiveId(null);
-      setMessages([]);
-      setActiveDm(peerProfile);
-      setShowThreadMobile(true);
+      const sent = (await sendStaffMessage(createClient(), { senderProfileId: me, recipientProfileId: peerProfile, body })) as Dm;
+      patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) => ({
+        ...prev,
+        dms: prev.dms.map((x) => (x.id === tempId ? sent : x)),
+      }));
       // Fire-and-forget: dialog close reflects the sent message, not delivery.
       void notifyStaff([peerProfile], {
         type: "chat",
@@ -293,6 +359,10 @@ export default function ChatPage() {
         tone: "info",
       });
     } catch (e) {
+      patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) => ({
+        ...prev,
+        dms: prev.dms.filter((x) => x.id !== tempId),
+      }));
       logEvent("CHAT_SEND_FAILED", { role: role ?? "unknown", detail: e instanceof Error ? e.message : "unknown" });
       toast.error("Couldn't deliver the message — please try again.");
     } finally {
@@ -438,13 +508,33 @@ export default function ChatPage() {
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!me || !activeId || !draft.trim() || sending) return;
+    // P14: optimistic send — the message renders + composer clears instantly.
+    // The client UUID doubles as the idempotency key (service messageId):
+    // a retry reuses it, and the realtime echo carries the same id, so the
+    // temp row reconciles instead of duplicating. Failure rolls back and
+    // restores the draft so no text is lost.
+    const body = draft.trim();
+    const threadId = activeId;
+    const tempId = crypto.randomUUID();
+    const optimistic: Msg = {
+      id: tempId,
+      thread_id: threadId,
+      sender_profile_id: me,
+      body,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((m) => [...m, optimistic]);
+    setDraft("");
     setSending(true);
     try {
-      const body = draft.trim();
-      const sent = (await sendMessage(createClient(), { threadId: activeId, senderProfileId: me, body })) as Msg;
-      setMessages((m) => (m.some((x) => x.id === sent.id) ? m : [...m, sent]));
-      setDraft("");
-      const thread = threads.find((t) => t.id === activeId);
+      const sent = (await sendMessage(createClient(), {
+        threadId,
+        senderProfileId: me,
+        body,
+        messageId: tempId,
+      })) as Msg;
+      setMessages((m) => m.map((x) => (x.id === tempId ? sent : x)));
+      const thread = threads.find((t) => t.id === threadId);
       const otherProfile = thread
         ? thread.counselor_id === ownCounselorId
           ? aliases.get(thread.student_id)?.profileId
@@ -460,6 +550,8 @@ export default function ChatPage() {
         tone: "info",
       });
     } catch {
+      setMessages((m) => m.filter((x) => x.id !== tempId));
+      setDraft(body);
       toast.error("Couldn't send — please try again.");
     } finally {
       setSending(false);
@@ -469,20 +561,36 @@ export default function ChatPage() {
   const sendDm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!me || !activeDm || !draft.trim() || sending) return;
+    // P14: optimistic DM — temp row renders instantly, replaced by the
+    // server row on success (realtime echo dedupes by id), removed on fail.
+    const body = draft.trim();
+    const peer = activeDm;
+    const tempId = crypto.randomUUID();
+    const optimistic: Dm = {
+      id: tempId,
+      sender_profile_id: me,
+      recipient_profile_id: peer,
+      body,
+      is_read: true,
+      created_at: new Date().toISOString(),
+    };
+    patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) =>
+      prev.dms.some((x) => x.id === tempId) ? prev : { ...prev, dms: [optimistic, ...prev.dms] }
+    );
+    setDraft("");
     setSending(true);
     try {
-      const body = draft.trim();
       const sent = (await sendStaffMessage(createClient(), {
         senderProfileId: me,
-        recipientProfileId: activeDm,
+        recipientProfileId: peer,
         body,
       })) as Dm;
-      patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) =>
-        prev.dms.some((x) => x.id === sent.id) ? prev : { ...prev, dms: [sent, ...prev.dms] }
-      );
-      setDraft("");
+      patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) => ({
+        ...prev,
+        dms: prev.dms.map((x) => (x.id === tempId ? sent : x)),
+      }));
       // Fire-and-forget: composer reset reflects the sent message, not delivery.
-      void notifyStaff([activeDm], {
+      void notifyStaff([peer], {
         type: "chat",
         title: `New message from ${myName}`,
         body: body.length > 140 ? `${body.slice(0, 140)}…` : body,
@@ -491,6 +599,11 @@ export default function ChatPage() {
         tone: "info",
       });
     } catch {
+      patchBoard<ChatBoardData>(qc, [...CHAT_BOARD_KEY], (prev) => ({
+        ...prev,
+        dms: prev.dms.filter((x) => x.id !== tempId),
+      }));
+      setDraft(body);
       toast.error("Couldn't send — please try again.");
     } finally {
       setSending(false);
@@ -605,6 +718,18 @@ export default function ChatPage() {
                 onScroll={onMessagesScroll}
                 onJump={jumpToLatest}
                 emptyText="No messages yet — say hello first."
+                topSlot={
+                  hasMoreHistory ? (
+                    <button
+                      type="button"
+                      onClick={loadOlder}
+                      disabled={loadingOlder}
+                      className="mx-auto mb-1 block rounded-full bg-cream px-4 py-1.5 text-xs font-bold text-ink-soft transition hover:bg-cream-dark disabled:opacity-50"
+                    >
+                      {loadingOlder ? "Loading…" : "Load older messages"}
+                    </button>
+                  ) : null
+                }
               />
 
               {iAmParticipant ? (

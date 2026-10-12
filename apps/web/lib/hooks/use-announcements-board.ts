@@ -44,7 +44,7 @@ export async function fetchAnnouncementsBoard(): Promise<AnnouncementsBoardData>
   }
   const { data, error } = await supabase
     .from("announcements")
-    .select("*")
+    .select("id, author_profile_id, title, body, audience, image_url, published_at, created_at")
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) throw error;

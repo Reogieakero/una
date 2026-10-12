@@ -108,26 +108,26 @@ export async function GET() {
     await Promise.all([
       supabase
         .from("referrals")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("referring_faculty_id", facultyId),
       supabase
         .from("referrals")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("referring_faculty_id", facultyId)
         .eq("status", "pending"),
       supabase
         .from("referrals")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("referring_faculty_id", facultyId)
         .in("status", [...IN_PROGRESS]),
       supabase
         .from("referrals")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("referring_faculty_id", facultyId)
         .eq("status", "resolved"),
       supabase
         .from("notifications")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "estimated", head: true })
         .eq("profile_id", user.id)
         .eq("is_read", false),
       supabase

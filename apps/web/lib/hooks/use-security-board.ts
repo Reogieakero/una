@@ -53,8 +53,16 @@ export async function fetchSecurityBoard(): Promise<SecurityBoardData> {
     data: { user },
   } = await supabase.auth.getUser();
   const [{ data: glass }, { data: auditRows }, { data: profiles }] = await Promise.all([
-    supabase.from("break_glass_logs").select("*").order("accessed_at", { ascending: false }).limit(50),
-    supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(100),
+    supabase
+      .from("break_glass_logs")
+      .select("id, accessor_profile_id, student_id, justification, accessed_at, reviewed_by, reviewed_at")
+      .order("accessed_at", { ascending: false })
+      .limit(50),
+    supabase
+      .from("audit_logs")
+      .select("id, actor_profile_id, action, entity, entity_id, metadata, created_at")
+      .order("created_at", { ascending: false })
+      .limit(100),
     supabase.from("profiles").select("id, email, role, full_name, is_active").limit(300),
   ]);
   const glassList = ((glass ?? []) as SecurityGlassLog[]);

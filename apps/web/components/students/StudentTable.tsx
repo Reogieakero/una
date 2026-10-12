@@ -2,6 +2,8 @@
 
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { Card, Input } from "@/components/ui/primitives";
+import { Pager, PageSize } from "@/components/shared/Pager";
+import { pageRange } from "@/lib/pagination";
 import { formatWhen } from "@/lib/format";
 
 export type Student = {
@@ -43,6 +45,11 @@ export function bandLabel(b: string): string {
 export function StudentTable({
   visible,
   totalCount,
+  page,
+  size,
+  hasMore,
+  onPageChange,
+  onSizeChange,
   loading,
   query,
   setQuery,
@@ -59,6 +66,11 @@ export function StudentTable({
 }: {
   visible: Student[];
   totalCount: number;
+  page: number;
+  size: number;
+  hasMore: boolean;
+  onPageChange: (page: number) => void;
+  onSizeChange: (size: number) => void;
   loading: boolean;
   query: string;
   setQuery: (v: string) => void;
@@ -107,9 +119,12 @@ export function StudentTable({
           />
         </div>
       </div>
-      <p className="px-4 text-xs font-medium text-ink-faint sm:px-5">
-        Showing {visible.length} of {totalCount} students.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5">
+        <p className="text-xs font-medium text-ink-faint">
+          Showing {pageRange(page, size, visible.length).start}–{pageRange(page, size, visible.length).end} of {totalCount} students.
+        </p>
+        <PageSize value={size} onChange={onSizeChange} />
+      </div>
       <div className="mt-3 overflow-x-auto">
       <table className="w-full min-w-[860px] text-left text-sm">
         <thead>
@@ -187,6 +202,7 @@ export function StudentTable({
         </div>
       )}
       </div>
+      <Pager page={page} size={size} totalApprox={totalCount} hasMore={hasMore} onPage={onPageChange} />
     </Card>
   );
 }

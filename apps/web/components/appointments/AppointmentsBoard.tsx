@@ -5,6 +5,8 @@ import { Badge, Input } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { IconAction } from "@/components/shared/icon-action";
+import { Pager, PageSize } from "@/components/shared/Pager";
+import { pageRange } from "@/lib/pagination";
 import { FOCUS_RING, useFocusRow } from "@/lib/hooks/use-focus-row";
 import { formatWhen, isUpcomingSession, statusLabel, statusTone, STATUSES } from "./status";
 import type { ActionKind, Appt, CounselorOpt } from "./status";
@@ -40,6 +42,13 @@ export function AppointmentsBoard({
   onConfirming,
   onNotes,
   kindFilter = "appointments",
+  page,
+  size,
+  totalApprox,
+  hasMore,
+  onPageChange,
+  onSizeChange,
+  searchActive,
 }: {
   visible: Appt[];
   loading: boolean;
@@ -69,6 +78,14 @@ export function AppointmentsBoard({
   onNotes: (appt: Appt) => void;
   /** Active board tab — tailors the empty state. */
   kindFilter?: "appointments" | "followups";
+  page: number;
+  size: number;
+  totalApprox: number;
+  hasMore: boolean;
+  onPageChange: (page: number) => void;
+  onSizeChange: (size: number) => void;
+  /** Free-text search filters the loaded page only (structured filters are server-side). */
+  searchActive: boolean;
 }) {
   const focusedId = useFocusRow(visible);
   return (
@@ -125,6 +142,13 @@ export function AppointmentsBoard({
           />
         )}
         </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5">
+        <p className="text-xs font-medium text-ink-faint">
+          Showing {pageRange(page, size, visible.length).start}–{pageRange(page, size, visible.length).end} of ~{totalApprox} sessions
+          {searchActive ? " · search matches this page only" : ""}.
+        </p>
+        <PageSize value={size} onChange={onSizeChange} />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[880px] text-left text-sm">
@@ -282,6 +306,7 @@ export function AppointmentsBoard({
           <div className="h-10 rounded-lg bg-ink/10" />
         </div>
       )}
+      <Pager page={page} size={size} totalApprox={totalApprox} hasMore={hasMore} onPage={onPageChange} />
     </>
   );
 }

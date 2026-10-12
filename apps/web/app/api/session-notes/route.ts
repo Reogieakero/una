@@ -256,26 +256,26 @@ export async function POST(request: Request) {
   if (a.status !== "completed") {
     return NextResponse.json({ error: "Session notes can only be documented once the session has ended." }, { status: 422 });
   }
-  // Follow-ups must respect the counselor's availability — same scope gate
-  // as scheduling a session (the picker already constrains choices; this is
-  // the bypass-proof enforcement).
-  if (parsed.data.followUpRequired && parsed.data.followUpAt) {
-    try {
-      await validateFollowUpMoment(supabase, counselorId, new Date(parsed.data.followUpAt));
-    } catch (e) {
-      return NextResponse.json(
-        { error: e instanceof Error ? e.message : "Follow-up is outside your availability." },
-        { status: 422 }
-      );
-    }
+  // P13: the follow-up scope gate and the duplicate-note check are
+  // independent of the appointment read above — one batch, not three hops.
+  // Error precedence is unchanged (gate 422 before duplicate 409).
+  const [gateError, { data: existing }] = await Promise.all([
+    parsed.data.followUpRequired && parsed.data.followUpAt
+      ? validateFollowUpMoment(supabase, counselorId, new Date(parsed.data.followUpAt)).then(
+          (): string | null => null,
+          (e): string | null => (e instanceof Error ? e.message : "Follow-up is outside your availability."),
+        )
+      : Promise.resolve(null as string | null),
+    supabase
+      .from("session_notes")
+      .select("id")
+      .eq("appointment_id", a.id)
+      .eq("counselor_id", counselorId)
+      .maybeSingle(),
+  ]);
+  if (gateError) {
+    return NextResponse.json({ error: gateError }, { status: 422 });
   }
-
-  const { data: existing } = await supabase
-    .from("session_notes")
-    .select("id")
-    .eq("appointment_id", a.id)
-    .eq("counselor_id", counselorId)
-    .maybeSingle();
   if (existing) {
     return NextResponse.json({ error: "A note already exists for this session — edit it instead.", noteId: (existing as { id: string }).id }, { status: 409 });
   }
@@ -383,20 +383,23 @@ export async function PATCH(request: Request) {
     .select(NOTE_SELECT)
     .single();
   if (updateError || !data) return NextResponse.json({ error: "Couldn't update the session note." }, { status: 500 });
-  const { data: attRows } = await supabase
-    .from("session_note_attachments")
-    .select("id,note_id,counselor_id,storage_path,mime_type,size_bytes,created_at")
-    .eq("note_id", cur.id)
-    .order("created_at", { ascending: true });
+  // P13: attachments + origin row are independent reads — one batch.
+  const [{ data: attRows }, { data: originRow }] = await Promise.all([
+    supabase
+      .from("session_note_attachments")
+      .select("id,note_id,counselor_id,storage_path,mime_type,size_bytes,created_at")
+      .eq("note_id", cur.id)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("appointments")
+      .select("id,status,counselor_id,student_id,mode,concern,is_anonymous")
+      .eq("id", cur.appointment_id)
+      .maybeSingle(),
+  ]);
   // Keep the minted follow-up in step with the note: move it to an amended
   // moment, mint it if follow-up was newly added, call it off if removed.
   let followUpSession: FollowUpSessionResult | null = null;
   let followUpError: string | null = null;
-  const { data: originRow } = await supabase
-    .from("appointments")
-    .select("id,status,counselor_id,student_id,mode,concern,is_anonymous")
-    .eq("id", cur.appointment_id)
-    .maybeSingle();
   const origin = originRow as ApptLite | null;
   if (origin && origin.counselor_id === counselorId) {
     ({ followUpSession, followUpError } = await syncNoteFollowUp(

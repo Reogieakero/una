@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { registerStaffSchema, registerStudentSchema } from "@dorsu/shared-schemas";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { clientIp, hitRateLimit } from "@/lib/rate-limit";
 
 /**
  * POST /api/auth/register — the ONLY writer of profiles/role rows at signup.
@@ -39,6 +40,17 @@ async function generateAlias(admin: ReturnType<typeof createAdminClient>): Promi
 }
 
 export async function POST(request: Request) {
+  // P19: open registration is the highest-abuse surface (creates auth
+  // users). Generous per-IP window — 10 attempts / 10 min — so real users
+  // never notice; floods get 429 + Retry-After. Per-instance memory (see
+  // rate-limit.ts); shared-bucket follow-up is Upstash Redis.
+  const gate = hitRateLimit(`register:${clientIp(request)}`, 10, 10 * 60 * 1000);
+  if (gate.limited) {
+    return NextResponse.json(
+      { error: "Too many signup attempts — please wait a few minutes and try again." },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfterSec) } },
+    );
+  }
   const admin = createAdminClient();
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });

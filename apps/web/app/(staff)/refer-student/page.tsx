@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Activity, ChevronDown, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useReferralsBoard, type ReferralStudentOption } from "@/lib/hooks/use-referrals-board";
+import { DEFAULT_REFERRALS_SCOPE, useReferralsBoard, type ReferralStudentOption } from "@/lib/hooks/use-referrals-board";
 import { Button, Card, Badge } from "@/components/ui/primitives";
 import { IconAction } from "@/components/shared/icon-action";
 import {
@@ -118,7 +118,9 @@ function WhatNextMenu() {
  * its own route so the faculty referral flow can grow here later.
  */
 export default function ReferStudentPage() {
-  const { data: board, isLoading, refetch } = useReferralsBoard();
+  // Sent-history table shows the newest page (faculty's own filings, newest
+  // first); full tracking lives on /referrals with the pager.
+  const { data: board, isLoading, refetch } = useReferralsBoard(DEFAULT_REFERRALS_SCOPE);
   const role = board?.role ?? null;
   const loading = isLoading && !board;
   const [excelOpen, setExcelOpen] = useState(false);

@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useStudentsBoard } from "@/lib/hooks/use-students-board";
+import { clampPage, clampPageSize } from "@/lib/pagination";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STRESS_META } from "@/lib/report-palette";
@@ -36,6 +38,35 @@ const URGENT_PRIORITIES = ["urgent", "high"];
  * (sessions, open referrals, latest screening band).
  */
 export default function StudentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="animate-pulse space-y-4" aria-hidden>
+          <div className="h-8 w-48 rounded-lg bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
+          <div className="h-12 rounded-lg bg-ink/10" />
+        </div>
+      }
+    >
+      <StudentsPageInner />
+    </Suspense>
+  );
+}
+
+function StudentsPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Client-side pager over the loaded directory (?page=&size=, 10/25/50).
+  // Filters, stats, and RiskSummary stay exact over the full loaded set —
+  // only the rendered table rows are sliced (DOM cost, not fetch cost).
+  const page = clampPage(searchParams.get("page"));
+  const size = clampPageSize(searchParams.get("size"));
+  const gotoPage = useCallback(
+    (p: number, s: number = size) => {
+      router.replace(`/students?page=${p}&size=${s}`, { scroll: false });
+    },
+    [router, size]
+  );
   const { data: board, isLoading, isError } = useStudentsBoard();
   const role = board?.role ?? null;
   const counselorId = board?.counselorId ?? null;
@@ -44,10 +75,15 @@ export default function StudentsPage() {
   const refs = board?.refs ?? EMPTY_REFS;
   const screens = board?.screens ?? EMPTY_SCREENS;
   const loading = isLoading && !board;
-  const [query, setQuery] = useState("");
-  const [programFilter, setProgramFilter] = useState("all");
-  const [yearFilter, setYearFilter] = useState("all");
-  const [collegeFilter, setCollegeFilter] = useState("all");
+  const [query, setQueryState] = useState("");
+  const [programFilter, setProgramFilterState] = useState("all");
+  const [yearFilter, setYearFilterState] = useState("all");
+  const [collegeFilter, setCollegeFilterState] = useState("all");
+  // Any filter change resets to page 1 (page window belongs to a result set).
+  const setQuery = useCallback((v: string) => { setQueryState(v); gotoPage(1); }, [gotoPage]);
+  const setProgramFilter = useCallback((v: string) => { setProgramFilterState(v); gotoPage(1); }, [gotoPage]);
+  const setYearFilter = useCallback((v: string) => { setYearFilterState(v); gotoPage(1); }, [gotoPage]);
+  const setCollegeFilter = useCallback((v: string) => { setCollegeFilterState(v); gotoPage(1); }, [gotoPage]);
 
   // Stats live in a floating panel — same hover/click behavior as the
   // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
@@ -228,6 +264,15 @@ export default function StudentsPage() {
       );
   }, [rows, programFilter, yearFilter, collegeFilter, query]);
 
+  // Render window into the filtered set (exact totals — search covers the
+  // full loaded directory, unlike server-paged boards).
+  const totalPages = Math.max(1, Math.ceil(visible.length / size));
+  const safePage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => visible.slice((safePage - 1) * size, safePage * size),
+    [visible, safePage, size]
+  );
+
   if (!loading && (!role || !["counselor", "guidance_head"].includes(role))) {
     return (
       <div className="space-y-4">
@@ -329,8 +374,13 @@ export default function StudentsPage() {
 
       {/* Directory — filters live inside, above the student table */}
       <StudentTable
-        visible={visible}
-        totalCount={rows.length}
+        visible={paged}
+        totalCount={visible.length}
+        page={safePage}
+        size={size}
+        hasMore={safePage * size < visible.length}
+        onPageChange={(p) => gotoPage(p)}
+        onSizeChange={(s) => gotoPage(1, s)}
         loading={loading}
         query={query}
         setQuery={setQuery}

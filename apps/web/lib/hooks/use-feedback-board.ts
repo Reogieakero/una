@@ -57,22 +57,24 @@ export async function fetchFeedbackBoard(): Promise<FeedbackBoardData> {
     // Counselor scope — feedback on my sessions only.
     const { data: myAppts } = await supabase.from("appointments").select("id").eq("counselor_id", cid).limit(2000);
     const ids = ((myAppts ?? []) as { id: string }[]).map((a) => a.id);
-    const mine: FeedbackRow[] = [];
-    for (let i = 0; i < ids.length; i += 200) {
-      const chunk = ids.slice(i, i + 200);
-      const { data: fb } = await supabase
-        .from("feedback")
-        .select("id, appointment_id, student_id, rating, comment, created_at")
-        .in("appointment_id", chunk)
-        .limit(500);
-      mine.push(...((fb ?? []) as FeedbackRow[]));
-      if (mine.length >= 500) break;
-    }
+    const idChunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 200) idChunks.push(ids.slice(i, i + 200));
+    // P11: chunks fan out in parallel instead of awaiting one by one.
+    const pages = await Promise.all(
+      idChunks.map((chunk) =>
+        supabase
+          .from("feedback")
+          .select("id, appointment_id, student_id, rating, comment, created_at")
+          .in("appointment_id", chunk)
+          .limit(500)
+      )
+    );
+    const mine: FeedbackRow[] = pages.flatMap((p) => ((p.data ?? []) as FeedbackRow[]));
     mine.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
     list = mine.slice(0, 500);
     const { count: c } = await supabase
       .from("appointments")
-      .select("id", { count: "exact", head: true })
+      .select("id", { count: "estimated", head: true })
       .eq("counselor_id", cid)
       .eq("status", "completed");
     count = c ?? 0;
@@ -83,7 +85,7 @@ export async function fetchFeedbackBoard(): Promise<FeedbackBoardData> {
         .select("id, appointment_id, student_id, rating, comment, created_at")
         .order("created_at", { ascending: false })
         .limit(500),
-      supabase.from("appointments").select("id", { count: "exact", head: true }).eq("status", "completed"),
+      supabase.from("appointments").select("id", { count: "estimated", head: true }).eq("status", "completed"),
     ]);
     list = ((fb ?? []) as FeedbackRow[]);
     count = c ?? 0;
