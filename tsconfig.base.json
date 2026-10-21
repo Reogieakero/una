@@ -15,7 +15,7 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "preserve",
-    "baseUrl": ".",
+    "types": ["node"],
     "paths": {
       "@dorsu/shared-types": ["./packages/shared-types/src"],
       "@dorsu/shared-schemas": ["./packages/shared-schemas/src"],

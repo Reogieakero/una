@@ -16,6 +16,7 @@
     "jsx": "preserve",
     "incremental": true,
     "plugins": [{ "name": "next" }],
+    "types": ["node", "react", "react-dom"],
     "paths": {
       "@/*": ["./*"],
       "@dorsu/shared-types": ["../../packages/shared-types/src"],

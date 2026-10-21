@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@dorsu/shared-types";
 import { resolveSupabaseEnv, type TypedSupabaseClient } from "@dorsu/supabase-client";
 
 let cached: TypedSupabaseClient | null = null;
@@ -14,7 +15,7 @@ export function getSupabase(): TypedSupabaseClient {
     EXPO_PUBLIC_SUPABASE_URL: process.env["EXPO_PUBLIC_SUPABASE_URL"],
     EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env["EXPO_PUBLIC_SUPABASE_ANON_KEY"],
   });
-  cached = createClient(url, anonKey, {
+  cached = createClient<Database>(url, anonKey, {
     auth: {
       storage: AsyncStorage,
       autoRefreshToken: true,

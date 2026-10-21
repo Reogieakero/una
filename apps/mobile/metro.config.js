@@ -13,4 +13,9 @@ const config = getDefaultConfig(projectRoot);
 // explicitly so Metro can resolve symlinked packages in the pnpm store.
 config.watchFolders = [workspaceRoot];
 
+// Allow resolving lucide-react-native per-icon .mjs files so each screen
+// bundles only the icons it uses instead of the whole set.
+const exts = config.resolver.sourceExts ?? [];
+if (!exts.includes('mjs')) config.resolver.sourceExts = [...exts, 'mjs'];
+
 module.exports = withNativeWind(config, { input: "./global.css" });

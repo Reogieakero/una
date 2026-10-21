@@ -5,9 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { clientIp, hitRateLimit } from "@/lib/rate-limit";
 
 /**
- * POST /api/auth/register — the ONLY writer of profiles/role rows at signup.
+ * POST /api/auth/register — server-side writer of profiles/role rows at signup.
  * Browser clients cannot insert into `profiles` (RLS: service-role/trigger
- * only), so registration goes through here with the service key.
+ * only), so registration goes through here with the service key. Mobile
+ * instead signs up directly and inserts its own student rows (allowed by
+ * RLS 00030 `profiles_insert_own_student` / `students_insert_own`), finishing
+ * them at first login when email confirmation leaves signup session-less —
+ * see `apps/mobile/lib/supabase/ensureStudent.ts`.
  *
  * - Public self-registration is STUDENTS ONLY (`role` forced to `student`).
  *   Staff roles (`counselor`, `faculty`, `guidance_head`) require a signed-in

@@ -10,7 +10,14 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export const registerStudentSchema = z.object({
   fullName: z.string().min(2, "Full name is required").max(120),
   email: z.string().email("Enter a valid university email"),
-  password: z.string().min(8, "Password must be at least 8 characters").max(72),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(72)
+    .regex(
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/,
+      "Use upper and lower case letters and a number",
+    ),
   studentNo: z
     .string()
     .min(4, "Student number is required")

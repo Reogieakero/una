@@ -1,40 +1,51 @@
-import "../global.css";
-import { useCallback, useEffect, useState } from "react";
-import { View } from "react-native";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Slot } from "expo-router";
-import * as SplashScreen from "expo-splash-screen";
+import { useEffect, useState } from 'react';
+import { StatusBar } from 'react-native';
+import { Stack } from 'expo-router';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as SplashScreen from 'expo-splash-screen';
+import { colors } from '@/theme';
+import {
+  useFonts,
+  DMSans_400Regular,
+  DMSans_500Medium,
+  DMSans_700Bold,
+} from '@expo-google-fonts/dm-sans';
 
-void SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
-/** Root provider — TanStack Query over shared services, same as web. */
 export default function RootLayout() {
-  const [client] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { retry: 1 } } }),
-  );
-  const [appIsReady, setAppIsReady] = useState(false);
+  const [fontsLoaded, fontError] = useFonts({
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_700Bold,
+  });
+  const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
-    setAppIsReady(true);
+    const t = setTimeout(() => setTimedOut(true), 6000);
+    return () => clearTimeout(t);
   }, []);
 
-  const onLayoutRootView = useCallback(async () => {
-    if (appIsReady) {
-      try {
-        await SplashScreen.hideAsync();
-      } catch {
-        // Splash was already hidden.
-      }
-    }
-  }, [appIsReady]);
+  const ready = fontsLoaded || timedOut || fontError !== null;
 
-  if (!appIsReady) return null;
+  useEffect(() => {
+    if (ready) {
+      SplashScreen.hideAsync().catch(() => undefined);
+    }
+  }, [ready]);
+
+  if (!ready) return null;
 
   return (
-    <QueryClientProvider client={client}>
-      <View className="flex-1 bg-cream" onLayout={onLayoutRootView}>
-        <Slot />
-      </View>
-    </QueryClientProvider>
+    <SafeAreaProvider>
+      <StatusBar barStyle="dark-content" backgroundColor={colors.cream} translucent />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          contentStyle: { backgroundColor: colors.cream },
+        }}
+      />
+    </SafeAreaProvider>
   );
 }

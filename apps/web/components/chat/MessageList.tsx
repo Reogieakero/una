@@ -28,7 +28,7 @@ export function MessageList({
 }: {
   messages: MsgLike[];
   me: string | null;
-  bottomRef: React.RefObject<HTMLDivElement>;
+  bottomRef: React.RefObject<HTMLDivElement | null>;
   showJump: boolean;
   onScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   onJump: () => void;
