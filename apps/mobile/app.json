@@ -6,13 +6,11 @@
     "orientation": "portrait",
     "scheme": "dorsu-mental",
     "userInterfaceStyle": "light",
+    "backgroundColor": "#FFF8E1",
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#EFF6FF"
-    },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "edu.ph.dorsu.chekie"
@@ -26,10 +24,26 @@
     },
     "plugins": [
       "expo-router",
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#EFF6FF"
+        }
+      ],
       "expo-secure-store",
-      ["expo-notifications", { "icon": "./assets/icon.png" }]
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png"
+        }
+      ],
+      "expo-audio"
     ],
-    "experiments": { "typedRoutes": true }
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }
