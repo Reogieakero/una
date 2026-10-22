@@ -12,7 +12,8 @@ import {
   type NotificationsBoardData,
   type NotificationsRow,
 } from "@/lib/hooks/use-notifications-board";
-import { markNotificationRead, markNotificationsRead } from "@dorsu/shared-services";
+import { markAllInformationalRead, markNotificationRead } from "@dorsu/shared-services";
+import { SIDEBAR_COUNTS_KEY } from "@/lib/hooks/use-sidebar-counts";
 import { patchBoard } from "@/lib/patch-board";
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { Button, Card, Input } from "@/components/ui/primitives";
@@ -94,6 +95,7 @@ export default function NotificationsPage() {
     return {
       total: rows.length,
       unread: unread.length,
+      informationalUnread: unread.filter((n) => !n.is_action_required).length,
       today: rows.filter((n) => new Date(n.created_at).getTime() >= todayStart.getTime()).length,
       types: [...byType.entries()]
         .map(([type, count]) => ({ type, count, ...(TYPE_META[type] ?? { label: type, icon: Bell, tone: "info" as const }) }))
@@ -131,15 +133,24 @@ export default function NotificationsPage() {
   };
 
   const markAllRead = async () => {
-    const ids = rows.filter((n) => !n.is_read).map((n) => n.id);
-    if (!ids.length) return;
+    if (!rows.some((n) => !n.is_read && !n.is_action_required)) return;
     setBusyAll(true);
     const prev = snapshot();
-    patchBoard<NotificationsBoardData>(qc, [...NOTIFICATIONS_BOARD_KEY], (prev) => ({ ...prev, rows: prev.rows.map((n) => ({ ...n, is_read: true })) }));
+    // Action-required requests stay unread: dismissing the inbox must never
+    // erase a student waiting for triage (00063).
+    patchBoard<NotificationsBoardData>(qc, [...NOTIFICATIONS_BOARD_KEY], (prev) => ({
+      ...prev,
+      rows: prev.rows.map((n) =>
+        n.is_action_required ? n : { ...n, is_read: true, read_at: new Date().toISOString() }
+      ),
+    }));
     try {
-      // Single query — never one round-trip per row.
-      await markNotificationsRead(createClient(), ids);
-      toast.success("Inbox cleared — everything is read.");
+      // Server-side RPC: clears every informational row, not just the 50
+      // loaded here, and applies the same action-required guard.
+      await markAllInformationalRead(createClient());
+      await qc.invalidateQueries({ queryKey: [...NOTIFICATIONS_BOARD_KEY] });
+      await qc.invalidateQueries({ queryKey: [...SIDEBAR_COUNTS_KEY] });
+      toast.success("Inbox cleared — everything informational is read.");
     } catch {
       restore(prev);
       toast.error("Some items couldn't be marked read.");
@@ -238,8 +249,8 @@ export default function NotificationsPage() {
               </div>
             )}
           </div>
-          <Button variant="outline" size="sm" disabled={busyAll || !stats.unread} onClick={markAllRead}>
-            {busyAll ? "Clearing…" : `Mark all read (${stats.unread})`}
+          <Button variant="outline" size="sm" disabled={busyAll || !stats.informationalUnread} onClick={markAllRead}>
+            {busyAll ? "Clearing…" : `Mark all read (${stats.informationalUnread})`}
           </Button>
         </div>
       </div>

@@ -46,30 +46,38 @@ export async function ensureStudentRows(
       return { ok: false, error: profileError.message };
     }
   }
-  if (fields.studentNo) {
-    const { data: student, error: studentReadError } = await supabase
-      .from('students')
-      .select('profile_id')
-      .eq('profile_id', userId)
-      .maybeSingle();
-    if (studentReadError) return { ok: false, error: studentReadError.message };
-    if (!student) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const { error: studentError } = await supabase.from('students').insert({
-          profile_id: userId,
-          student_no: fields.studentNo,
-          program: fields.program ?? null,
-          year_level: fields.yearLevel ?? null,
-          anonymous_alias: makeAlias(),
-        });
-        if (!studentError) return { ok: true };
-        if (/anonymous_alias/i.test(studentError.message) && isConflict(studentError.message)) {
-          continue; // alias collision — retry with a fresh one
-        }
-        return { ok: false, error: studentError.message };
+  // The `students` row is what bookings/PSS-10 reference (appointments.student_id),
+  // so it must exist even for legacy accounts that signed up before the
+  // student number was stored in auth metadata. `student_no` is nullable since
+  // migration 00020, so we can mint the row and let Guidance fill it in later.
+  const { data: student, error: studentReadError } = await supabase
+    .from('students')
+    .select('profile_id')
+    .eq('profile_id', userId)
+    .maybeSingle();
+  if (studentReadError) return { ok: false, error: studentReadError.message };
+  if (!student) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { error: studentError } = await supabase.from('students').insert({
+        profile_id: userId,
+        student_no: fields.studentNo,
+        program: fields.program ?? null,
+        year_level: fields.yearLevel ?? null,
+        anonymous_alias: makeAlias(),
+      });
+      if (!studentError) return { ok: true };
+      if (/anonymous_alias/i.test(studentError.message) && isConflict(studentError.message)) {
+        continue; // alias collision — retry with a fresh one
       }
-      return { ok: false, error: 'Could not finish account setup. Please try again.' };
+      if (/student_no/i.test(studentError.message) && /null|not-null/i.test(studentError.message)) {
+        return {
+          ok: false,
+          error: 'Your student number is missing. Please re-register or contact the Guidance Office.',
+        };
+      }
+      return { ok: false, error: studentError.message };
     }
+    return { ok: false, error: 'Could not finish account setup. Please try again.' };
   }
   return { ok: true };
 }

@@ -13,6 +13,7 @@ import { Chip } from '@/components/Chip';
 import { SunCorner } from '@/components/illustrations/SunCorner';
 import { pssQuestions, pssLabels } from '@/data/mock';
 import { getSupabase } from '@/lib/supabase/client';
+import { ensureStudentRows, friendlyDbError } from '@/lib/supabase/ensureStudent';
 import { submitPss10, bookAppointment } from '@dorsu/shared-services';
 
 function combineDateTime(dateIso: string, timeLabel: string): Date | null {
@@ -37,8 +38,12 @@ export default function CheckIn() {
     mode?: string;
     date?: string;
     time?: string;
+    start?: string;
     alias?: string;
   }>();
+  // With booking params this screen books a session after the PSS-10. Without
+  // them ("Stress check" shortcut on Home) it only records the assessment.
+  const bookingMode = Boolean(params.concern && params.mode && params.date && params.time);
 
   const current = answers[index] ?? -1;
   const last = index === pssQuestions.length - 1;
@@ -54,15 +59,20 @@ export default function CheckIn() {
       setError('Please answer every question first.');
       return;
     }
-    const { concern, mode, date, time, alias } = params;
-    if (!concern || !mode || !date || !time) {
-      setError('Booking details are missing. Go back and pick again.');
-      return;
-    }
-    const scheduledAt = combineDateTime(date, time);
-    if (!scheduledAt || scheduledAt.getTime() <= Date.now()) {
-      setError('That time has passed. Go back and pick another.');
-      return;
+    const { concern, mode, date, time, alias, start } = params;
+    // `start` is the exact UTC instant picked from real availability; fall
+    // back to parsing the label for older links/params.
+    const scheduledAt =
+      start !== undefined
+        ? new Date(start)
+        : date && time
+          ? combineDateTime(date, time)
+          : null;
+    if (bookingMode) {
+      if (!scheduledAt || Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() <= Date.now()) {
+        setError('That time has passed. Go back and pick another.');
+        return;
+      }
     }
     setBusy(true);
     try {
@@ -74,11 +84,48 @@ export default function CheckIn() {
         setError('Please log in again to finish booking.');
         return;
       }
-      const { data: student } = await supabase
+      let student: { id: string } | null = null;
+      const first = await supabase
         .from('students')
         .select('id')
         .eq('profile_id', user.id)
         .maybeSingle();
+      if (first.error) {
+        setError(friendlyDbError(first.error.message));
+        return;
+      }
+      student = (first.data as { id: string } | null) ?? null;
+
+      if (!student) {
+        // Legacy accounts (registered while email confirmation blocked the
+        // signup insert) can have a profile but no students row. Repair it
+        // from auth metadata before failing the flow.
+        const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+        const metaString = (key: string) =>
+          typeof meta[key] === 'string' ? (meta[key] as string) : undefined;
+        const ensured = await ensureStudentRows(supabase, user.id, {
+          email: user.email ?? '',
+          fullName: metaString('full_name') ?? '',
+          studentNo: metaString('student_no'),
+          program: metaString('program'),
+          yearLevel: metaString('year_level'),
+        });
+        if (!ensured.ok) {
+          setError(friendlyDbError(ensured.error));
+          return;
+        }
+        const retry = await supabase
+          .from('students')
+          .select('id')
+          .eq('profile_id', user.id)
+          .maybeSingle();
+        if (retry.error) {
+          setError(friendlyDbError(retry.error.message));
+          return;
+        }
+        student = (retry.data as { id: string } | null) ?? null;
+      }
+
       if (!student) {
         setError('Account setup is incomplete. Please log in again.');
         return;
@@ -86,16 +133,18 @@ export default function CheckIn() {
       const pss = (await submitPss10(supabase, { studentId: student.id, answers })) as {
         id: string;
       };
-      await bookAppointment(supabase, {
-        studentId: student.id,
-        scheduledAt,
-        mode: mode === 'online' ? 'online' : 'in_person',
-        concern: `${concern} support session requested`,
-        isAnonymous: alias === '1',
-        pss10Id: pss.id,
-      });
+      if (bookingMode && scheduledAt) {
+        await bookAppointment(supabase, {
+          studentId: student.id,
+          scheduledAt,
+          mode: mode === 'online' ? 'online' : 'in_person',
+          concern: `${concern} support session requested`,
+          isAnonymous: alias === '1',
+          pss10Id: pss.id,
+        });
+      }
       setDone(true);
-      setTimeout(() => router.replace('/chat'), 1200);
+      setTimeout(() => router.replace(bookingMode ? '/chat' : '/(tabs)/home'), 1200);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Booking failed. Please try again.');
     } finally {
@@ -109,7 +158,11 @@ export default function CheckIn() {
         <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
           <View style={styles.doneWrap}>
             <Card>
-              <Text style={styles.q}>Thanks, your counselor will see this before your session.</Text>
+              <Text style={styles.q}>
+                {bookingMode
+                  ? 'Thanks, your counselor will see this before your session.'
+                  : 'Thanks — your check-in was saved.'}
+              </Text>
             </Card>
           </View>
         </SafeAreaView>
@@ -193,7 +246,15 @@ export default function CheckIn() {
             style={styles.flex}
           />
           <Button
-            label={busy ? 'Booking…' : last ? 'Finish' : 'Next question'}
+            label={
+              busy
+                ? bookingMode
+                  ? 'Booking…'
+                  : 'Submitting…'
+                : last
+                  ? 'Finish'
+                  : 'Next question'
+            }
             disabled={current < 0 || busy}
             onPress={() => {
               if (last) void finish();

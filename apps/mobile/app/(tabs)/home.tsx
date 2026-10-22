@@ -29,14 +29,17 @@ import {
 } from '@/theme';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
+import { CounselorPill } from '@/components/CounselorPill';
+import { RescheduleModal } from '@/components/RescheduleModal';
+import { SessionDetailsModal } from '@/components/SessionDetailsModal';
+import { StatusChip } from '@/components/StatusChip';
 import { MoodPicker, type MoodId } from '@/components/MoodPicker';
 import { LumiFigure } from '@/components/mascot/Lumi';
 import { getSupabase } from '@/lib/supabase/client';
-import {
-  listStudentAppointments,
-  cancelAppointment,
-  listNotifications,
-} from '@dorsu/shared-services';
+import { loadCounselorDirectory } from '@/lib/counselors';
+import type { AppointmentRow } from '@dorsu/shared-types';
+import { listStudentAppointments } from '@dorsu/shared-services';
+import { useNotificationCount } from '@/lib/notifications-context';
 
 const quick = [
   { id: 'book', title: 'Book a session', sub: 'Face-to-face, phone, online', Icon: CalendarDays, href: '/book' },
@@ -44,13 +47,6 @@ const quick = [
   { id: 'stress', title: 'Stress check', sub: '2-minute PSS check', Icon: ClipboardList, href: '/check-in' },
   { id: 'mine', title: 'My sessions', sub: 'Upcoming and past', Icon: Clock, href: '/(tabs)/sessions' },
 ] as const;
-
-interface UpcomingSession {
-  id: string;
-  scheduled_at: string;
-  mode: string;
-  status: string;
-}
 
 interface Announcement {
   id: string;
@@ -122,12 +118,14 @@ export default function Home() {
   const [mood, setMood] = useState<MoodId | null>('okay');
   const [firstName, setFirstName] = useState('Student');
   const [greeting, setGreeting] = useState(() => greetingForHour(new Date().getHours()));
-  const [next, setNext] = useState<UpcomingSession | null>(null);
+  const [next, setNext] = useState<AppointmentRow | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [unread, setUnread] = useState(0);
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelBusy, setCancelBusy] = useState(false);
-  const [cancelError, setCancelError] = useState('');
+  const { unread, refresh: refreshUnread } = useNotificationCount();
+  const [counselorNames, setCounselorNames] = useState<Record<string, string>>({});
+  const [counselorSpecialties, setCounselorSpecialties] = useState<Record<string, string>>({});
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<AppointmentRow | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<AppointmentRow | null>(null);
   const [breathOpen, setBreathOpen] = useState(false);
   const [seconds, setSeconds] = useState(60);
   const [scriptStep, setScriptStep] = useState(0);
@@ -166,7 +164,7 @@ export default function Home() {
         const rows = (await listStudentAppointments(
           supabase,
           student.id,
-        )) as UpcomingSession[];
+        )) as AppointmentRow[];
         const upcoming = rows
           .filter(
             (a) =>
@@ -178,6 +176,9 @@ export default function Home() {
               new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime(),
           )[0];
         setNext(upcoming ?? null);
+        const directory = await loadCounselorDirectory(supabase);
+        setCounselorNames(directory.names);
+        setCounselorSpecialties(directory.specialties);
       }
 
       const { data: anns } = await supabase
@@ -187,11 +188,6 @@ export default function Home() {
         .order('published_at', { ascending: false })
         .limit(3);
       setAnnouncements((anns ?? []) as Announcement[]);
-
-      const notifs = (await listNotifications(supabase, user.id)) as Array<{
-        is_read: boolean;
-      }>;
-      setUnread(notifs.filter((n) => !n.is_read).length);
     } catch {
       // Keep last-known (or empty) state on network failure.
     }
@@ -200,23 +196,9 @@ export default function Home() {
   useFocusEffect(
     useCallback(() => {
       void load();
-    }, [load]),
+      void refreshUnread();
+    }, [load, refreshUnread]),
   );
-
-  const doCancel = async () => {
-    if (!next) return;
-    setCancelError('');
-    setCancelBusy(true);
-    try {
-      await cancelAppointment(getSupabase(), next.id);
-      setCancelOpen(false);
-      setNext(null);
-    } catch {
-      setCancelError('Could not cancel. Check your connection and try again.');
-    } finally {
-      setCancelBusy(false);
-    }
-  };
 
   const stopBreath = () => {
     if (timer.current) clearInterval(timer.current);
@@ -287,6 +269,8 @@ export default function Home() {
   const modeLabel = next?.mode === 'online' ? 'Online' : 'Face-to-face';
   const nextMeta =
     next?.mode === 'online' ? `${modeLabel} · Video link` : `${modeLabel} · Guidance Office`;
+  const canRescheduleNext =
+    next !== null && (next.status === 'pending' || next.status === 'assigned');
 
   return (
     <View style={styles.root}>
@@ -299,15 +283,19 @@ export default function Home() {
             </View>
             <View>
               <Pressable
-                onPress={() => undefined}
+                onPress={() => router.push('/notifications')}
                 hitSlop={hitSlop}
                 accessibilityRole="button"
-                accessibilityLabel="Notifications"
+                accessibilityLabel={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
                 style={styles.bell}
               >
                 <Bell size={sizes.tabIcon} color={colors.ink} />
               </Pressable>
-              {unread > 0 ? <View style={styles.dot} pointerEvents="none" /> : null}
+              {unread > 0 ? (
+                <View style={styles.bellBadge} pointerEvents="none">
+                  <Text style={styles.bellBadgeText}>{unread > 99 ? '99+' : unread}</Text>
+                </View>
+              ) : null}
             </View>
           </View>
 
@@ -333,21 +321,53 @@ export default function Home() {
           </View>
 
           {next ? (
-            <View style={styles.next}>
+            <Pressable
+              onPress={() => setDetailsOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Open next session details"
+              style={styles.next}
+            >
               <View style={styles.nextSun} pointerEvents="none" />
               <Text style={styles.nextEyebrow}>NEXT SESSION</Text>
               <Text style={styles.nextWhen}>{formatWhen(next.scheduled_at)}</Text>
               <Text style={styles.nextMeta}>{nextMeta}</Text>
+              <View style={styles.nextPills}>
+                <StatusChip status={next.status} />
+                <CounselorPill
+                  assigned={next.counselor_id !== null}
+                  name={
+                    next.counselor_id ? counselorNames[next.counselor_id] : undefined
+                  }
+                />
+              </View>
               <View style={styles.nextBtns}>
+                {canRescheduleNext ? (
+                  <Button
+                    label="Reschedule"
+                    variant="outline"
+                    onPress={() => {
+                      setDetailsOpen(false);
+                      setRescheduleTarget(next);
+                    }}
+                    style={styles.flex}
+                  />
+                ) : null}
                 <Button
-                  label="Reschedule"
-                  variant="accent"
-                  onPress={() => router.push('/book')}
+                  label="Cancel"
+                  variant="dangerOutline"
+                  onPress={() => {
+                    setDetailsOpen(false);
+                    setCancelTarget(next);
+                  }}
                   style={styles.flex}
                 />
-                <Button label="Cancel" variant="ghostOnDark" onPress={() => setCancelOpen(true)} style={styles.flex} />
               </View>
-            </View>
+              {next.status === 'confirmed' ? (
+                <Text style={styles.nextNote}>
+                  Confirmed by your counselor — rescheduling is closed.
+                </Text>
+              ) : null}
+            </Pressable>
           ) : (
             <Card>
               <Text style={styles.cardTitle}>No upcoming sessions</Text>
@@ -414,26 +434,35 @@ export default function Home() {
         </ScrollView>
       </SafeAreaView>
 
-      <Modal visible={cancelOpen} transparent animationType="fade" onRequestClose={() => setCancelOpen(false)}>
-        <View style={styles.modalBg}>
-          <View style={styles.modal}>
-            <Text style={styles.cardTitle}>Cancel this session?</Text>
-            <Text style={styles.cardSub}>
-              {next ? formatWhen(next.scheduled_at) : ''} will be removed.
-            </Text>
-            {cancelError !== '' ? <Text style={styles.cancelError}>{cancelError}</Text> : null}
-            <View style={styles.nextBtns}>
-              <Button label="Keep" variant="outline" onPress={() => setCancelOpen(false)} style={styles.flex} />
-              <Button
-                label={cancelBusy ? 'Canceling…' : 'Yes, cancel'}
-                disabled={cancelBusy}
-                onPress={() => void doCancel()}
-                style={styles.flex}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <SessionDetailsModal
+        appointment={detailsOpen ? next : null}
+        cancelTarget={cancelTarget}
+        counselorName={next?.counselor_id ? counselorNames[next.counselor_id] : undefined}
+        counselorSpecialty={
+          next?.counselor_id ? counselorSpecialties[next.counselor_id] : undefined
+        }
+        onClose={() => setDetailsOpen(false)}
+        onRequestReschedule={(appointment) => {
+          setDetailsOpen(false);
+          setRescheduleTarget(appointment);
+        }}
+        onRequestCancel={(appointment) => {
+          setDetailsOpen(false);
+          setCancelTarget(appointment);
+        }}
+        onCancelClose={() => setCancelTarget(null)}
+        onCancelled={(appointment) =>
+          setNext((cur) => (cur?.id === appointment.id ? null : cur))
+        }
+      />
+
+      <RescheduleModal
+        appointment={rescheduleTarget}
+        onClose={() => setRescheduleTarget(null)}
+        onRescheduled={(updated) =>
+          setNext((cur) => (cur?.id === updated.id ? updated : cur))
+        }
+      />
 
       <Modal visible={breathOpen} transparent animationType="fade" onRequestClose={stopBreath}>
         <View style={styles.modalBg}>
@@ -463,10 +492,21 @@ const styles = StyleSheet.create({
   hello: { flex: 1 },
   good: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.muted },
   name: { fontFamily: fontFamily.bold, fontSize: fontSize.xl, color: colors.ink },
-  dot: { position: 'absolute', top: 2, right: 2, width: spacing.sm, height: spacing.sm, borderRadius: 4, backgroundColor: colors.blue },
+  bellBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBadgeText: { color: colors.white, fontSize: fontSize.xxs, fontWeight: '700' },
   cardTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.ink },
   cardSub: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.muted },
-  cancelError: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.danger },
   moodWrap: { marginTop: spacing.sm },
   next: {
     backgroundColor: colors.blue,
@@ -488,6 +528,19 @@ const styles = StyleSheet.create({
   nextEyebrow: { fontFamily: fontFamily.bold, fontSize: fontSize.xs, color: colors.white },
   nextWhen: { fontFamily: fontFamily.bold, fontSize: fontSize.xl, color: colors.white },
   nextMeta: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.white },
+  nextPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  nextNote: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.xs,
+    color: colors.white,
+    opacity: 0.9,
+  },
   nextBtns: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   flex: { flex: 1 },
   mt: { marginTop: spacing.sm },

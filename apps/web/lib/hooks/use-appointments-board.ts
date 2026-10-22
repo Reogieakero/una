@@ -22,6 +22,10 @@ export type BoardAppointment = {
   is_follow_up: boolean;
   /** Origin session the follow-up was documented from; null for regular bookings. */
   follow_up_of: string | null;
+  /** Request timestamp — the office board's primary sort. */
+  created_at: string;
+  /** Last-write timestamp (00062 trigger) — the counselor board's primary sort. */
+  updated_at: string;
 };
 
 export type BoardCounselor = { id: string; name: string };
@@ -93,8 +97,8 @@ export const DEFAULT_APPOINTMENTS_SCOPE: AppointmentsScope = {
  */
 const cursorChains = new Map<string, (AppointmentCursor | null)[]>();
 
-function chainKey(scope: { size: number; status: string; mode: string; counselor: string; kind: string; asc: boolean }): string {
-  return `${scope.size}|${scope.status}|${scope.mode}|${scope.counselor}|${scope.kind}|${scope.asc ? "a" : "d"}`;
+function chainKey(scope: { size: number; status: string; mode: string; counselor: string; kind: string; asc: boolean; orderBy: string }): string {
+  return `${scope.size}|${scope.status}|${scope.mode}|${scope.counselor}|${scope.kind}|${scope.asc ? "a" : "d"}|${scope.orderBy}`;
 }
 
 /** Patch one appointment's fields across every cached page. */
@@ -126,7 +130,7 @@ export async function fetchAppointmentCard(id: string): Promise<{ row: BoardAppo
   const supabase = createClient();
   const { data, error } = await supabase
     .from("appointments")
-    .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of")
+    .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of, created_at, updated_at")
     .eq("id", id)
     .single();
   if (error || !data) throw new Error("Session not found.");
@@ -203,18 +207,23 @@ export async function fetchAppointmentsBoard(scope: AppointmentsScope): Promise<
     };
   }
 
-  // Counselor queue reads earliest-first; the office reads newest-first.
-  // Direction is part of the cursor-chain key (predicates flip with it).
-  const asc = r === "counselor";
+  // Counselor queue reads latest-activity first: the 00062 trigger bumps
+  // updated_at on assign/confirm/reschedule/complete, so whatever the counselor
+  // or head just touched is on top. The office reads most-recently-requested
+  // first (created_at) so mobile bookings land on top regardless of how far
+  // out the session date is.
+  const asc = false;
+  const orderBy: "created_at" | "updated_at" = r === "counselor" ? "updated_at" : "created_at";
   const listOpts = {
     status,
     mode,
     counselor: scope.counselor || "all",
     isFollowUp: scope.kind === "followups",
     ascending: asc,
+    orderBy,
     ...(r === "counselor" ? { counselorId: cid as string } : {}),
   };
-  const key = chainKey({ size, status, mode, counselor: r === "counselor" ? (cid as string) : listOpts.counselor, kind: scope.kind, asc });
+  const key = chainKey({ size, status, mode, counselor: r === "counselor" ? (cid as string) : listOpts.counselor, kind: scope.kind, asc, orderBy });
   let chain = cursorChains.get(key);
   if (!chain) {
     chain = [null];

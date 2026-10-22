@@ -35,6 +35,12 @@
       ],
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Chekie to access your photos so you can choose a profile picture."
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/icon.png"

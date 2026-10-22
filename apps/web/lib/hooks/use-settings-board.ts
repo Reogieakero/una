@@ -25,6 +25,8 @@ export type SettingsBoardData = {
   role: string | null;
   email: string;
   fullName: string;
+  /** Raw `profiles.avatar_url` (OAuth URL or `avatars/<id>/…` object path). */
+  avatarUrl: string | null;
   joined: string;
   authEmail: string | null;
   office: { name: string; location: string; contact: string };
@@ -51,10 +53,10 @@ export async function fetchSettingsBoard(): Promise<SettingsBoardData> {
   if (!user) throw new Error("Sign in required.");
 
   const [{ data: profile }, { data: office }] = await Promise.all([
-    supabase.from("profiles").select("email, full_name, created_at, role").eq("id", user.id).single(),
+    supabase.from("profiles").select("email, full_name, avatar_url, created_at, role").eq("id", user.id).single(),
     supabase.from("workspace_settings").select("value").eq("key", "office").maybeSingle(),
   ]);
-  const p = profile as { email: string; full_name: string | null; created_at: string; role: string | null } | null;
+  const p = profile as { email: string; full_name: string | null; avatar_url: string | null; created_at: string; role: string | null } | null;
   const v = (office as { value: { name?: string; location?: string; contact?: string } } | null)?.value;
 
   const [
@@ -119,6 +121,7 @@ export async function fetchSettingsBoard(): Promise<SettingsBoardData> {
     role: p?.role ?? null,
     email: p?.email ?? "",
     fullName: p?.full_name ?? "",
+    avatarUrl: p?.avatar_url ?? null,
     joined: p?.created_at ?? "",
     authEmail: user.email ?? null,
     office: { name: v?.name ?? "", location: v?.location ?? "", contact: v?.contact ?? "" },

@@ -7,7 +7,7 @@ type Props = {
   onPress?: () => void;
   label: string;
   style?: ViewStyle;
-  tone?: 'light' | 'yellow' | 'ink';
+  tone?: 'light' | 'yellow' | 'ink' | 'plain';
 };
 
 export function IconButton({ children, onPress, label, style, tone = 'light' }: Props) {
@@ -17,7 +17,13 @@ export function IconButton({ children, onPress, label, style, tone = 'light' }: 
       hitSlop={hitSlop}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={[styles.base, tone === 'yellow' && styles.yellow, tone === 'ink' && styles.ink, style]}
+      style={[
+        styles.base,
+        tone === 'yellow' && styles.yellow,
+        tone === 'ink' && styles.ink,
+        tone === 'plain' && styles.plain,
+        style,
+      ]}
     >
       {children}
     </Pressable>
@@ -37,4 +43,5 @@ const styles = StyleSheet.create({
   },
   yellow: { backgroundColor: colors.sun, borderColor: colors.sun },
   ink: { backgroundColor: colors.ink, borderColor: colors.ink },
+  plain: { backgroundColor: 'transparent', borderWidth: 0 },
 });

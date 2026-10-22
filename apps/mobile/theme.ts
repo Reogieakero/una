@@ -42,6 +42,7 @@ export const sizes = {
   buttonHeight: 32,
   inputHeight: 44,
   iconButton: 24,
+  tabBarIcon: 26,
   tabIcon: 16,
   screenPadding: 16,
 } as const;

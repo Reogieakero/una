@@ -178,6 +178,8 @@ model Profile {
   status              String   @default("active") @map("status") @db.Text
   // Legacy (00001): kept for compat with existing RLS + UI.
   avatarUrl           String?  @map("avatar_url") @db.Text
+  // 00066: student opt-in for counselor-visible profile photos.
+  shareAvatarWithCounselor Boolean @default(false) @map("share_avatar_with_counselor")
   isActive            Boolean  @default(true) @map("is_active")
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -375,6 +377,8 @@ model Appointment {
   followUps      Appointment[] @relation("AppointmentFollowUp")
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  // Actor who last changed the row (00064); null for service-role writes.
+  updatedBy         String?           @map("updated_by") @db.Uuid
 
   pss10Assessments Pss10Assessment[] @relation("Pss10ForAppointment")
   sessionNotes     SessionNote[]

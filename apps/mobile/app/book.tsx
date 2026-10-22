@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, Switch } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import Video from 'lucide-react-native/icons/video';
 import Building2 from 'lucide-react-native/icons/building-complex';
+import { bookableDays, bookableSlots, type AvailabilityWindow, type BookableSlot } from '@dorsu/shared-services';
+import { getSupabase } from '@/lib/supabase/client';
 import { colors, fontFamily, fontSize, radius, cardRadius, spacing, sizes, hitSlop } from '@/theme';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
@@ -15,71 +17,80 @@ type Concern = (typeof concerns)[number];
 
 const meetModes = [
   { id: 'inperson', title: 'In person', helper: 'Meet at the Guidance Office, Main Campus.' },
-  { id: 'online', title: 'Online', helper: 'Video link is sent before your session.' },
+  { id: 'online', title: 'Online', helper: 'A video link is sent before your session.' },
 ] as const;
 type MeetModeId = (typeof meetModes)[number]['id'];
 
 const modeIcons = { inperson: Building2, online: Video } as const;
 
-const timeSlots = [
-  { id: 't1', label: '9:00 AM', disabled: false },
-  { id: 't2', label: '10:30 AM', disabled: false },
-  { id: 't3', label: '1:00 PM', disabled: true },
-  { id: 't4', label: '2:00 PM', disabled: false },
-  { id: 't5', label: '3:30 PM', disabled: false },
-  { id: 't6', label: '4:30 PM', disabled: false },
-] as const;
-
-interface SchoolDay {
-  id: string;
-  weekday: string;
-  day: string;
-}
-
-/** Next school days (Mon–Fri) from tomorrow — real dates, backend-ready ISO ids. */
-function nextSchoolDays(count: number): SchoolDay[] {
-  const out: SchoolDay[] = [];
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  while (out.length < count) {
-    const wd = d.getDay();
-    if (wd >= 1 && wd <= 5) {
-      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-        d.getDate(),
-      ).padStart(2, '0')}`;
-      out.push({
-        id: iso,
-        weekday: d.toLocaleDateString('en-US', { weekday: 'short' }),
-        day: String(d.getDate()),
-      });
-    }
-    d.setDate(d.getDate() + 1);
-  }
-  return out;
-}
-
 export default function Book() {
   const [concern, setConcern] = useState<Concern | null>(null);
   const [mode, setMode] = useState<MeetModeId>('inperson');
   const [day, setDay] = useState<string | null>(null);
-  const [time, setTime] = useState<string | null>(null);
+  const [slot, setSlot] = useState<BookableSlot | null>(null);
   const [alias, setAlias] = useState(true);
+  const [windows, setWindows] = useState<AvailabilityWindow[] | null>(null);
+  const [availabilityError, setAvailabilityError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const insets = useSafeAreaInsets();
-  const days = useMemo(() => nextSchoolDays(5), []);
+
+  // Real counselor availability (RLS lets any signed-in user read it). The
+  // resulting slots are booking *requests* — the head still assigns/confirms.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const { data, error } = await getSupabase()
+          .from('counselor_availability')
+          .select('weekday, start_time, end_time, is_recurring, valid_from, valid_to')
+          .limit(500);
+        if (!alive) return;
+        if (error) throw error;
+        setWindows((data ?? []) as AvailabilityWindow[]);
+      } catch (e) {
+        if (!alive) return;
+        setAvailabilityError(
+          e instanceof Error ? e.message : 'Could not load availability. Please try again.',
+        );
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [reloadKey]);
+
+  const days = useMemo(() => (windows ? bookableDays(windows, new Date(), 7) : []), [windows]);
+  const times = useMemo(
+    () => (windows && day ? bookableSlots(windows, day, new Date()) : []),
+    [windows, day],
+  );
 
   const modeHelper = meetModes.find((m) => m.id === mode)?.helper ?? '';
-  const ready = concern !== null && day !== null && time !== null;
-  const dayLabel = day ? days.find((d) => d.id === day) : undefined;
+  const ready = concern !== null && day !== null && slot !== null;
+  const dayLabel = day ? days.find((d) => d.date === day) : undefined;
   const summary =
-    ready && dayLabel
-      ? `${concern} · ${dayLabel.weekday} ${dayLabel.day} · ${time}`
+    ready && dayLabel && slot
+      ? `${concern} · ${dayLabel.weekdayShort} ${dayLabel.dayOfMonth} · ${slot.label}`
       : 'Pick a concern, day and time.';
 
+  const pickDay = (date: string) => {
+    setDay(date);
+    // A time is only valid for the day it was generated from.
+    setSlot(null);
+  };
+
   const goCheckIn = () => {
-    if (!ready || !concern || !day || !time) return;
+    if (!ready || !concern || !day || !slot) return;
     router.push({
       pathname: '/check-in',
-      params: { concern, mode, date: day, time, alias: alias ? '1' : '0' },
+      params: {
+        concern,
+        mode,
+        date: day,
+        time: slot.label,
+        start: slot.startIso,
+        alias: alias ? '1' : '0',
+      },
     });
   };
 
@@ -134,41 +145,74 @@ export default function Book() {
 
           <Card>
             <Text style={styles.h}>Choose a day</Text>
-            <View style={styles.days}>
-              {days.map((d) => {
-                const selected = day === d.id;
-                return (
-                  <Pressable
-                    key={d.id}
-                    onPress={() => setDay(d.id)}
-                    hitSlop={hitSlop}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: selected }}
-                    style={[styles.day, selected && styles.dayOn]}
-                  >
-                    <Text style={[styles.dayW, selected && styles.dayTextOn]}>{d.weekday}</Text>
-                    <Text style={[styles.dayN, selected && styles.dayTextOn]}>{d.day}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            {availabilityError !== '' ? (
+              <View style={styles.availabilityErr}>
+                <Text style={styles.availabilityErrText}>{availabilityError}</Text>
+                <Button
+                  label="Try again"
+                  variant="outline"
+                  onPress={() => {
+                    setWindows(null);
+                    setAvailabilityError('');
+                    setReloadKey((k) => k + 1);
+                  }}
+                />
+              </View>
+            ) : windows === null ? (
+              <Text style={styles.helper}>Loading availability…</Text>
+            ) : days.length === 0 ? (
+              <Text style={styles.helper}>
+                No availability posted yet. Please check back later or contact the Guidance Office.
+              </Text>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.days}
+              >
+                {days.map((d) => {
+                  const selected = day === d.date;
+                  return (
+                    <Pressable
+                      key={d.date}
+                      onPress={() => pickDay(d.date)}
+                      hitSlop={hitSlop}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      style={[styles.day, selected && styles.dayOn]}
+                    >
+                      <Text style={[styles.dayW, selected && styles.dayTextOn]}>
+                        {d.weekdayShort}
+                      </Text>
+                      <Text style={[styles.dayN, selected && styles.dayTextOn]}>{d.dayOfMonth}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
           </Card>
 
           <Card>
             <Text style={styles.h}>Available times</Text>
-            <View style={styles.times}>
-              {timeSlots.map((t) => (
-                <Chip
-                  key={t.id}
-                  label={t.label}
-                  disabled={t.disabled}
-                  selected={time === t.label}
-                  selectedTone="yellow"
-                  onPress={() => setTime(t.label)}
-                  style={styles.timeChip}
-                />
-              ))}
-            </View>
+            {day === null ? (
+              <Text style={styles.helper}>Pick a day to see open times.</Text>
+            ) : times.length === 0 ? (
+              <Text style={styles.helper}>No open times on this day. Try another day.</Text>
+            ) : (
+              <View style={styles.times}>
+                {times.map((t) => (
+                  <Chip
+                    key={t.startIso}
+                    label={t.label}
+                    selected={slot?.startIso === t.startIso}
+                    selectedTone="yellow"
+                    onPress={() => setSlot(t)}
+                    style={styles.timeChip}
+                  />
+                ))}
+              </View>
+            )}
+            <Text style={styles.helper}>Sessions last about 60 minutes.</Text>
           </Card>
 
           <View style={styles.alias}>
@@ -225,9 +269,11 @@ const styles = StyleSheet.create({
   modeText: { fontFamily: fontFamily.medium, fontSize: fontSize.xs, color: colors.muted },
   modeTextOn: { fontFamily: fontFamily.bold, color: colors.ink },
   helper: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.muted, marginTop: spacing.sm },
+  availabilityErr: { gap: spacing.sm },
+  availabilityErrText: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.danger },
   days: { flexDirection: 'row', gap: spacing.sm },
   day: {
-    flex: 1,
+    width: 54,
     borderRadius: radius,
     backgroundColor: colors.chip,
     alignItems: 'center',

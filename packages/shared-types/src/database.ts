@@ -76,6 +76,8 @@ export type ProfileRow = {
   role: UserRole;
   full_name: string | null;
   avatar_url: string | null;
+  // Added by hand (00066) — student opt-in for counselor-visible photos.
+  share_avatar_with_counselor: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -153,6 +155,8 @@ export type AppointmentRow = {
   follow_up_of: string | null;
   created_at: string;
   updated_at: string;
+  /** Actor who last changed the row (00064); null for service-role writes. */
+  updated_by: string | null;
 };
 
 export type Pss10AssessmentRow = {
@@ -268,6 +272,13 @@ export type NotificationRow = {
   // these once run against the migrated project.
   dedupe_key: string | null;
   tone: string | null;
+  // Added by hand (00063) — action items survive "mark all"; read_at is the
+  // audit timestamp (is_read stays for backwards compatibility).
+  is_action_required: boolean;
+  read_at: string | null;
+  ref_type: string | null;
+  ref_id: string | null;
+  resolved_at: string | null;
 };
 
 export type AnnouncementRow = {
@@ -393,6 +404,39 @@ export interface Database {
       head_referral_status_counts: {
         Args: { from_ts?: string | null; to_ts?: string | null };
         Returns: { status: string; count: number }[];
+      };
+      // Added by hand (00064) — student-facing "who last updated this session".
+      appointment_update_info: {
+        Args: { p_appointment_id: string };
+        Returns: {
+          updated_at: string;
+          updated_by_name: string | null;
+          updated_by_role: string | null;
+          is_self: boolean;
+        }[];
+      };
+      // Added by hand (00063) — per-user sidebar counters, RLS-scoped.
+      sidebar_counts: {
+        Args: Record<string, never>;
+        Returns: {
+          appointment_requests: number;
+          unassigned_requests: number;
+          referrals_to_triage: number;
+          chat_unread: number;
+          announcements_unread: number;
+          feedback_unread: number;
+          security_unread: number;
+          informational_unread: number;
+        };
+      };
+      mark_informational_read: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      // Added by hand (00065) — cron fan-out for 10-minute session reminders.
+      send_session_reminders: {
+        Args: Record<string, never>;
+        Returns: number;
       };
     };
     Enums: Record<string, never>;

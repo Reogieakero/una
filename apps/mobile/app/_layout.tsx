@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { colors } from '@/theme';
+import { NotificationsProvider } from '@/lib/notifications-context';
 import {
   useFonts,
   DMSans_400Regular,
@@ -39,13 +40,15 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="dark-content" backgroundColor={colors.cream} translucent />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: 'slide_from_right',
-          contentStyle: { backgroundColor: colors.cream },
-        }}
-      />
+      <NotificationsProvider>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: 'slide_from_right',
+            contentStyle: { backgroundColor: colors.cream },
+          }}
+        />
+      </NotificationsProvider>
     </SafeAreaProvider>
   );
 }

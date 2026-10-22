@@ -61,6 +61,7 @@ import {
   fetchAppointmentsBoard,
 } from "@/lib/hooks/use-appointments-board";
 import { filterNavGroups, useNavCounts, type NavProfile, type StaffNavGroup } from "./staff-nav";
+import { useSidebarCounts, type SidebarCounts } from "@/lib/hooks/use-sidebar-counts";
 import { useRoutePending } from "./route-pending";
 import { cn } from "@/lib/utils";
 
@@ -94,9 +95,45 @@ function CountBadge({ count }: { count: number }) {
       aria-hidden
       className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white"
     >
-      {count > 9 ? "9+" : count}
+      {count > 99 ? "99+" : count}
     </span>
   );
+}
+
+/** Spoken label for the count so it names the queue, not just "3 new". */
+const BADGE_LABEL: Record<string, string> = {
+  "/appointments": "appointment request",
+  "/referrals": "referral to triage",
+  "/chat": "unread message",
+  "/announcements": "unread announcement",
+  "/feedback": "new feedback",
+  "/security": "security update",
+};
+
+/**
+ * Prefer the derived (source-of-truth) counters. While the RPC is still
+ * loading/failed, fall back to the notification feed so no badge flickers.
+ */
+function pickCount(href: string, derived: SidebarCounts | undefined, feed: Map<string, number>): number {
+  if (derived) {
+    switch (href) {
+      case "/appointments":
+        return derived.appointment_requests;
+      case "/referrals":
+        return derived.referrals_to_triage;
+      case "/chat":
+        return derived.chat_unread;
+      case "/announcements":
+        return derived.announcements_unread;
+      case "/feedback":
+        return derived.feedback_unread;
+      case "/security":
+        return derived.security_unread;
+      default:
+        return 0;
+    }
+  }
+  return feed.get(href) ?? 0;
 }
 
 /**
@@ -116,6 +153,7 @@ export function SidebarNavGroups({
   const pathname = usePathname();
   const { isPending, startNavigation } = useRoutePending();
   const counts = useNavCounts();
+  const { data: derivedCounts } = useSidebarCounts();
   const visible = filterNavGroups(groups, role);
   const qc = useQueryClient();
 
@@ -299,14 +337,19 @@ export function SidebarNavGroups({
             {g.links.map((l) => {
               const active = pathname === l.href;
               const pending = isPending(l.href);
-              const count = counts.get(l.href) ?? 0;
+              const count = pickCount(l.href, derivedCounts, counts);
+              const countLabel = BADGE_LABEL[l.href];
               const Icon = LINK_ICONS[l.href] ?? BookOpen;
               return (
                 <li key={l.href}>
                   <Link
                     href={l.href}
                     aria-current={active ? "page" : undefined}
-                    aria-label={count ? `${l.label}, ${count} new` : undefined}
+                    aria-label={
+                      count && countLabel
+                        ? `${l.label}, ${count} ${countLabel}${count === 1 ? "" : "s"}`
+                        : undefined
+                    }
                     onClick={() => {
                       startNavigation(l.href);
                       onNavigate?.();

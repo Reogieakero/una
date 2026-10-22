@@ -1,4 +1,4 @@
-import { View, Pressable, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet, Text } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useSegments, type Href } from 'expo-router';
@@ -8,7 +8,8 @@ import MessageCircle from 'lucide-react-native/icons/message-circle';
 import Clock from 'lucide-react-native/icons/clock';
 import User from 'lucide-react-native/icons/user';
 import type { LucideIcon } from 'lucide-react-native';
-import { colors, cardRadius, spacing, hitSlop, sizes } from '@/theme';
+import { colors, spacing, hitSlop, sizes, fontSize } from '@/theme';
+import { useNotificationCount } from '@/lib/notifications-context';
 
 // Only home, sessions and profile are real tabs.
 // Book and Chat are root stack screens (app/book.tsx, app/chat.tsx), so they push.
@@ -21,43 +22,67 @@ const items: { key: string; label: string; Icon: LucideIcon; href: Href }[] = [
 ];
 
 /**
- * Height of the floating bar excluding the bottom safe-area inset
- * (wrap top pad 8 + blur pads 4+4 + icon row 24+12+12).
- * Non-tab screens add this as bottom margin so actions stay tappable.
+ * Height of the bar excluding the bottom safe-area inset
+ * (1px hairline + 50px icon row). Non-tab screens add this as bottom margin
+ * so actions stay tappable.
  */
-export const TAB_BAR_BASE = 64;
+export const TAB_BAR_BASE = 51;
 
+/**
+ * Instagram-style tab bar: full-width, flush to the bottom, evenly spaced
+ * icon-only items above a hairline. No floating capsule and no pill
+ * highlight — the active tab is read from icon weight/color plus a small dot.
+ */
 export function TabBar() {
   const router = useRouter();
   const segments = useSegments();
   const insets = useSafeAreaInsets();
+  const { unread } = useNotificationCount();
   const current = segments[segments.length - 1] ?? 'home';
   return (
-    <View style={[styles.wrap, { paddingBottom: insets.bottom }]}>
-      <View style={styles.bar}>
-        <BlurView intensity={80} tint="light" style={styles.blur}>
+    <View style={styles.wrap} pointerEvents="box-none">
+      <BlurView
+        intensity={95}
+        tint="light"
+        style={[styles.bar, { paddingBottom: insets.bottom }]}
+      >
+        <View style={styles.hairline} />
+        <View style={styles.row}>
           {items.map(({ key, label, Icon, href }) => {
-          const active = current === key;
-          return (
-            <Pressable
-              key={key}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
-              accessibilityLabel={label}
-              hitSlop={hitSlop}
-              onPress={() => router.push(href)}
-              style={[styles.item, active && styles.itemActive]}
-            >
-              <Icon
-                size={sizes.iconButton}
-                strokeWidth={active ? 2.5 : 2}
-                color={active ? colors.ink : colors.muted}
-              />
-            </Pressable>
-          );
-        })}
-        </BlurView>
-      </View>
+            const active = current === key;
+            return (
+              <Pressable
+                key={key}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={key === 'home' && unread > 0 ? `Home, ${unread} unread notifications` : label}
+                hitSlop={hitSlop}
+                // Chat is a root stack screen: pressing its own tab again
+                // would push a duplicate chat on top of the current one.
+                onPress={() => {
+                  if (active) return;
+                  router.push(href);
+                }}
+                style={styles.item}
+              >
+                <View style={styles.iconWrap}>
+                  <Icon
+                    size={sizes.tabBarIcon}
+                    strokeWidth={active ? 2.4 : 1.9}
+                    color={active ? colors.sun : colors.muted}
+                  />
+                  {key === 'home' && unread > 0 ? (
+                    <View style={styles.badge} pointerEvents="none">
+                      <Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={[styles.dot, active && styles.dotActive]} />
+              </Pressable>
+            );
+          })}
+        </View>
+      </BlurView>
     </View>
   );
 }
@@ -68,26 +93,51 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
   },
   bar: {
-    borderRadius: cardRadius,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
-    backgroundColor: 'rgba(255,255,255,0.55)',
-    shadowColor: colors.ink,
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    backgroundColor: 'rgba(255,255,255,0.92)',
   },
-  blur: {
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+  },
+  row: {
     flexDirection: 'row',
-    gap: spacing.xs,
-    padding: spacing.xs,
+    height: 50,
   },
-  item: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm, borderRadius: cardRadius },
-  itemActive: { backgroundColor: colors.sun },
+  item: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  iconWrap: {
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    color: colors.white,
+    fontSize: fontSize.xxs,
+    fontWeight: '700',
+  },
+  dot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'transparent',
+  },
+  dotActive: {
+    backgroundColor: colors.sun,
+  },
 });

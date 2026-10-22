@@ -622,7 +622,9 @@ export async function rescheduleAppointmentByCounselor(
 
 /**
  * Student reschedules their booking to a future slot (status untouched).
- * Active steps only — terminal rows must rebook instead.
+ * Students may only move a request that is still pending or just assigned —
+ * once the counselor confirms, the schedule is locked to the student and any
+ * change must go through the Guidance Office.
  * Slot guard (P12): when the session already has a counselor, the new
  * window goes through the same availability + overlap gate as the counselor
  * path (excluding itself), preserving the existing duration. Unassigned
@@ -651,8 +653,11 @@ export async function rescheduleAppointment(
     scheduled_at: string;
     ends_at: string | null;
   };
-  if (!["pending", "assigned", "confirmed"].includes(cur.status)) {
-    throw new Error("Only active sessions can be rescheduled.");
+  if (cur.status === "confirmed") {
+    throw new Error("Confirmed sessions can't be rescheduled — contact the Guidance Office.");
+  }
+  if (!["pending", "assigned"].includes(cur.status)) {
+    throw new Error("Only pending or assigned sessions can be rescheduled.");
   }
   const patch: Record<string, string> = { scheduled_at: scheduledAt.toISOString() };
   if (cur.counselor_id) {
@@ -676,7 +681,7 @@ export async function rescheduleAppointment(
       .from("appointments")
       .update(patch)
       .eq("id", appointmentId)
-      .in("status", ["pending", "assigned", "confirmed"])
+      .in("status", ["pending", "assigned"])
       .select()
       .single();
   let result = await runUpdate();

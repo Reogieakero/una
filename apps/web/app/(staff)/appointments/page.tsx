@@ -13,7 +13,6 @@ import {
 } from "@/lib/hooks/use-appointments-board";
 import { clampPage, clampPageSize } from "@/lib/pagination";
 import { useMutationAction } from "@/lib/hooks/use-mutation-action";
-import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
 import { Card } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
 import {
@@ -115,7 +114,8 @@ function AppointmentsPageInner() {
   const loading = isLoading && !board;
   // Visiting the section clears its sidebar badge (badges count unread
   // notification rows, not page views).
-  useClearSectionBadge("/appointments", !loading && !!board);
+  // Action-required counts come from sidebar_counts() (00063). Visiting the
+  // page must never clear a pending request — only acting on it does.
   const [confirming, setConfirming] = useState<{ appt: Appt; kind: ActionKind } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const confirmBusyRef = useRef(false);
@@ -371,6 +371,47 @@ function AppointmentsPageInner() {
       if (name) void notifyStudent(appt, "Counselor assigned", `${name} will handle your session on ${formatWhen(appt.scheduled_at)}.`, key, "info");
       const alias = appt.student_id ? (aliases.get(appt.student_id) ?? "Student") : "Walk-in";
       void notifyStaff(headIds, { type: "appointment", title: `Session assigned — ${name ?? "unassigned"}`, body: `${alias} · ${formatWhen(appt.scheduled_at)}`, link: `/appointments#focus-${appt.id}`, dedupeKey: key, tone: "info" });
+
+      // The counselor whose queue just changed must hear about it — the
+      // UPDATE trigger deliberately skips staff actors (00043), and the
+      // assignment is the primary event behind their sidebar badge.
+      const previous = appt.counselor_id;
+      if (previous !== v) {
+        try {
+          const ids = [previous, v].filter((id): id is string => !!id);
+          if (ids.length) {
+            const { data } = await createClient()
+              .from("counselors")
+              .select("id, profile_id")
+              .in("id", ids);
+            const profileFor = new Map(
+              ((data ?? []) as { id: string; profile_id: string | null }[]).map((c) => [c.id, c.profile_id])
+            );
+            const nextProfile = v ? profileFor.get(v) : null;
+            const prevProfile = previous ? profileFor.get(previous) : null;
+            if (nextProfile) {
+              void notifyStaff([nextProfile], {
+                type: "appointment",
+                title: "New session assigned",
+                link: `/appointments#focus-${appt.id}`,
+                dedupeKey: `appt:${appt.id}:assigned:${v}`,
+                tone: "info",
+              });
+            }
+            if (prevProfile && prevProfile !== nextProfile) {
+              void notifyStaff([prevProfile], {
+                type: "appointment",
+                title: "Session reassigned",
+                link: `/appointments#focus-${appt.id}`,
+                dedupeKey: `appt:${appt.id}:unassigned:${previous}`,
+                tone: "info",
+              });
+            }
+          }
+        } catch {
+          // Assignment landed; the badge converges from the appointments feed.
+        }
+      }
       toast.success(name ? `Counselor assigned — ${name}` : "Counselor unassigned", { position: "top-right" });
     })();
   };

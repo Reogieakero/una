@@ -42,7 +42,7 @@ export const getCurrentProfile = cache(async () => {
   if (!user) return null;
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, role, full_name, is_active")
+    .select("id, email, role, full_name, avatar_url, is_active")
     .eq("id", user.id)
     .single();
   return data;

@@ -79,6 +79,10 @@ export default function Register() {
   const [fieldError, setFieldError] = useState('');
   const [serverError, setServerError] = useState('');
   const [busy, setBusy] = useState(false);
+  // Hosted Supabase has email confirmation ON, so signUp() returns no session
+  // and the `profiles` insert cannot run yet (RLS needs `authenticated`).
+  // Hold the email here and finish setup at first login instead.
+  const [awaitingEmail, setAwaitingEmail] = useState<string | null>(null);
 
   const submit = async () => {
     setFieldError('');
@@ -112,7 +116,16 @@ export default function Register() {
       const { data, error } = await supabase.auth.signUp({
         email: v.email,
         password: v.password,
-        options: { data: { full_name: v.fullName } },
+        options: {
+          // Persist every registration field so `ensureStudentRows` can finish
+          // the profiles/students rows after the email is confirmed.
+          data: {
+            full_name: v.fullName,
+            student_no: v.studentNo,
+            program: v.program,
+            year_level: v.yearLevel,
+          },
+        },
       });
       if (error) {
         setServerError(friendlySignupError(error.message));
@@ -123,6 +136,16 @@ export default function Register() {
         setServerError('Registration failed. Please try again.');
         return;
       }
+      // With confirmations ON, Supabase returns an empty identities array for
+      // an already-registered email (anti-enumeration) instead of an error.
+      if (Array.isArray(user.identities) && user.identities.length === 0) {
+        setServerError('An account with this email already exists. Try logging in instead.');
+        return;
+      }
+      if (!data.session) {
+        setAwaitingEmail(v.email);
+        return;
+      }
       const ensured = await ensureStudentRows(supabase, user.id, {
         email: v.email,
         fullName: v.fullName,
@@ -131,7 +154,11 @@ export default function Register() {
         yearLevel: v.yearLevel,
       });
       if (!ensured.ok) {
-        setServerError(friendlyDbError(ensured.error));
+        setServerError(
+          /row-level security/i.test(ensured.error)
+            ? 'Your account was created, but setup could not finish. Log in to complete it.'
+            : friendlyDbError(ensured.error),
+        );
         return;
       }
       router.replace('/(tabs)/home');
@@ -143,6 +170,33 @@ export default function Register() {
   };
 
   const err = fieldError !== '' ? fieldError : serverError;
+
+  if (awaitingEmail !== null) {
+    return (
+      <View style={styles.root}>
+        <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.title}>Check your email</Text>
+            <Text style={styles.helper}>
+              We sent a confirmation link to {awaitingEmail}. Open it, then log in to finish
+              setting up your account.
+            </Text>
+            <View style={styles.card}>
+              <Text style={styles.confirmHint}>
+                The link can take a minute to arrive. Check your spam folder if you don&apos;t see
+                it.
+              </Text>
+              <Button label="Go to log in" onPress={() => router.replace('/login')} />
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   const checks = passwordChecks(pw);
   const score =
@@ -369,6 +423,12 @@ const styles = StyleSheet.create({
   },
   inlineErr: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   inlineErrText: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.danger, flex: 1 },
+  confirmHint: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.sm,
+    color: colors.muted,
+    marginBottom: spacing.sm,
+  },
   label: { fontFamily: fontFamily.bold, fontSize: fontSize.xs, color: colors.ink, marginBottom: spacing.xs },
   select: {
     height: sizes.inputHeight,

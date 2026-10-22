@@ -64,7 +64,7 @@ export async function notifyAppointmentChange(
 export async function markNotificationRead(db: DbClient, notificationId: string) {
   const { data, error } = await db
     .from("notifications")
-    .update({ is_read: true })
+    .update({ is_read: true, read_at: new Date().toISOString() })
     .eq("id", notificationId)
     .select()
     .single();
@@ -76,17 +76,33 @@ export async function markNotificationRead(db: DbClient, notificationId: string)
  * Mark many notifications read in ONE query (owner-only via RLS — rows the
  * caller doesn't own are simply not matched, never an error).
  * Returns the updated rows so callers can reconcile optimistic UI.
+ *
+ * Action-required rows are excluded: viewing a request is not acting on it
+ * (00063). Single-item reads may still dismiss them explicitly.
  */
 export async function markNotificationsRead(db: DbClient, notificationIds: string[]) {
   const ids = [...new Set(notificationIds.filter(Boolean))];
   if (!ids.length) return [];
   const { data, error } = await db
     .from("notifications")
-    .update({ is_read: true })
+    .update({ is_read: true, read_at: new Date().toISOString() })
     .in("id", ids)
+    .eq("is_action_required", false)
     .select("id");
   if (error) throw error;
   return (data ?? []) as { id: string }[];
+}
+
+/**
+ * "Mark all as read" for informational rows only — server-side so it is not
+ * limited to the 50 rows currently loaded in the inbox, and so action-required
+ * requests are never silently cleared (00063).
+ */
+export async function markAllInformationalRead(db: DbClient): Promise<number> {
+  if (!db.rpc) throw new Error("RPC support is required to mark notifications read.");
+  const { data, error } = await db.rpc("mark_informational_read");
+  if (error) throw error;
+  return typeof data === "number" ? data : 0;
 }
 
 /** List a user's notifications newest-first (pure read). */

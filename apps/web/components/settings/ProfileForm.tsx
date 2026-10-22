@@ -1,5 +1,6 @@
 "use client";
 
+import { Camera, Trash2 } from "lucide-react";
 import { Badge, Button, Input } from "@/components/ui/primitives";
 import { initials } from "@/lib/format";
 
@@ -20,7 +21,11 @@ export function ProfileForm({
   completeness,
   editing,
   saving,
+  avatarUrl,
+  avatarBusy,
   onFullNameChange,
+  onAvatarPick,
+  onAvatarRemove,
   onEditToggle,
 }: {
   loading: boolean;
@@ -33,7 +38,11 @@ export function ProfileForm({
   completeness: number;
   editing: boolean;
   saving: string | null;
+  avatarUrl: string | null;
+  avatarBusy: boolean;
   onFullNameChange: (v: string) => void;
+  onAvatarPick: (file: File) => void;
+  onAvatarRemove: () => void;
   onEditToggle: () => void;
 }) {
   return (
@@ -42,12 +51,41 @@ export function ProfileForm({
       <div className="px-5 pb-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="-mt-10 flex items-end gap-3">
-            <span
-              aria-hidden
-              className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-600 font-display text-2xl font-bold text-white ring-4 ring-white"
-            >
-              {loading ? "?" : initials(fullName || email)}
-            </span>
+            <div className="relative shrink-0">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- signed, expiring URL
+                <img
+                  src={avatarUrl}
+                  alt=""
+                  className="h-20 w-20 rounded-full object-cover ring-4 ring-white"
+                />
+              ) : (
+                <span
+                  aria-hidden
+                  className="flex h-20 w-20 items-center justify-center rounded-full bg-primary-600 font-display text-2xl font-bold text-white ring-4 ring-white"
+                >
+                  {loading ? "?" : initials(fullName || email)}
+                </span>
+              )}
+              <label
+                className="absolute -bottom-1 -right-1 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-ink/10 bg-white text-ink-muted shadow-sm transition hover:text-primary-700 focus-within:outline-none focus-within:ring-2 focus-within:ring-primary-400"
+                title="Change profile photo"
+              >
+                <Camera aria-hidden className="h-3.5 w-3.5" />
+                <span className="sr-only">Change profile photo</span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  disabled={avatarBusy || loading}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) onAvatarPick(file);
+                  }}
+                />
+              </label>
+            </div>
             <div className="pb-1 leading-tight">
               <p className="font-display text-xl font-bold text-ink">{loading ? "…" : fullName || "Unnamed"}</p>
               <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] font-medium text-ink-muted">
@@ -55,9 +93,20 @@ export function ProfileForm({
                 {isHead && <span>{officeLocation || "—"}</span>}
                 {joined && <span>· Joined {new Date(joined).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>}
               </p>
+              {avatarUrl && (
+                <button
+                  type="button"
+                  onClick={onAvatarRemove}
+                  disabled={avatarBusy}
+                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-ink-muted transition hover:text-red-700 disabled:opacity-50"
+                >
+                  <Trash2 aria-hidden className="h-3 w-3" />
+                  {avatarBusy ? "Removing…" : "Remove photo"}
+                </button>
+              )}
             </div>
           </div>
-          <Button size="sm" variant={editing ? "ghost" : "outline"} onClick={onEditToggle} disabled={saving === "profile"}>
+          <Button size="sm" variant={editing ? "ghost" : "outline"} onClick={onEditToggle} disabled={saving === "profile" || avatarBusy}>
             {saving === "profile" ? "Saving…" : editing ? "Done" : "Edit profile"}
           </Button>
         </div>

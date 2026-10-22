@@ -23,11 +23,15 @@ export interface DbClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   from(table: any): any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rpc?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   auth?: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   channel?: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   removeChannel?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  storage?: any;
 }
 
 /** Clock injection so expiry/gate rules are deterministic in tests. */

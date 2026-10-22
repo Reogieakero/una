@@ -49,6 +49,7 @@ export function useClearSectionBadge(prefix: string | null, enabled = true) {
           .select("id, link")
           .eq("profile_id", user.id)
           .eq("is_read", false)
+          .eq("is_action_required", false)
           .limit(200);
         const ids = ((data ?? []) as { id: string; link: string | null }[])
           .filter((n) => linkInSection(n.link, prefix))

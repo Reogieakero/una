@@ -13,7 +13,6 @@ import {
 } from "@/lib/hooks/use-referrals-board";
 import { clampPage, clampPageSize } from "@/lib/pagination";
 import { useMutationAction } from "@/lib/hooks/use-mutation-action";
-import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
 import {
   assignReferral,
   completeAppointment,
@@ -169,7 +168,8 @@ function ReferralsPageInner() {
   const loading = isLoading && !board;
   // Visiting the section clears its sidebar badge (badges count unread
   // notification rows, not page views).
-  useClearSectionBadge("/referrals", !loading && !!board);
+  // Action-required referral counts are derived (00063); opening the inbox
+  // does not clear them — assigning/confirming/rejecting does.
 
   const slots = board?.slots ?? [];
 

@@ -4,13 +4,34 @@ import { createAppointmentSchema } from "@dorsu/shared-schemas";
 import { getLatestPss10 } from "./queries";
 import { validateCounselorSchedule } from "./mutations";
 
+const PSS10_FRESH_DAY_MS = 24 * 60 * 60 * 1000;
 const PSS10_FRESH_DAYS = 30;
+
+/**
+ * Client clocks drift (and the phone may be a few seconds/minutes behind the
+ * database). A PSS-10 submitted moments ago must not read as "expired"
+ * because `server created_at - device now` came out slightly negative.
+ */
+const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * Parse a DB timestamp defensively. PostgREST returns microsecond precision
+ * (`...T16:45:00.123456+00:00`); some JS engines (notably Hermes on React
+ * Native) are stricter than V8 about fractional digits, so trim to
+ * milliseconds before parsing.
+ */
+function parseTimestamp(value: string | Date): number {
+  if (value instanceof Date) return value.getTime();
+  const normalized = value.replace(/(\.\d{3})\d+/, "$1");
+  return new Date(normalized).getTime();
+}
 
 /** Booking requires a completed PSS-10 within 30 days (freshness gate). */
 export function isPss10Fresh(completedAt: string | Date, clock: Clock = systemClock): boolean {
-  const done = new Date(completedAt).getTime();
+  const done = parseTimestamp(completedAt);
+  if (!Number.isFinite(done)) return false;
   const ageMs = clock.now().getTime() - done;
-  return ageMs >= 0 && ageMs <= PSS10_FRESH_DAYS * 24 * 60 * 60 * 1000;
+  return ageMs >= -CLOCK_SKEW_TOLERANCE_MS && ageMs <= PSS10_FRESH_DAYS * PSS10_FRESH_DAY_MS;
 }
 
 /** Create an appointment only if the PSS-10 gate passes (never bypass client-side). */

@@ -106,18 +106,15 @@ export async function GET(request: NextRequest) {
           (typeof meta["full_name"] === "string" && meta["full_name"]) ||
           (typeof meta["name"] === "string" && meta["name"]) ||
           (typeof user.email === "string" ? user.email.split("@")[0] : "Student");
-        const avatarUrl =
-          typeof meta["avatar_url"] === "string"
-            ? (meta["avatar_url"] as string)
-            : typeof meta["picture"] === "string"
-              ? (meta["picture"] as string)
-              : null;
         const { error: profileError } = await admin.from("profiles").insert({
           id: user.id,
           email: user.email ?? "",
           role: "student",
           full_name: fullName,
-          avatar_url: avatarUrl,
+          // Deliberately no OAuth avatar for students (00066): an external
+          // Google URL cannot be gated by storage RLS, and students are
+          // anonymous until they opt in from the app.
+          avatar_url: null,
         });
         if (!profileError) {
           const alias = await generateAlias(admin);

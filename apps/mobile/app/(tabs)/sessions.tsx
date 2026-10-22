@@ -1,40 +1,221 @@
-import { useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import { colors, fontFamily, fontSize, radius, spacing, hitSlop } from '@/theme';
+import { router, useFocusEffect } from 'expo-router';
+import { listStudentAppointments, submitFeedback } from '@dorsu/shared-services';
+import type { AppointmentRow } from '@dorsu/shared-types';
+import { getSupabase } from '@/lib/supabase/client';
+import { errorMessage } from '@/lib/errors';
+import { loadCounselorDirectory } from '@/lib/counselors';
+import { colors, fontFamily, fontSize, spacing } from '@/theme';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
+import { CounselorPill } from '@/components/CounselorPill';
+import { RescheduleModal } from '@/components/RescheduleModal';
+import { SessionDetailsModal } from '@/components/SessionDetailsModal';
 import { StatusChip } from '@/components/StatusChip';
 import { StarRating } from '@/components/StarRating';
-import { appointments as seed, stats, type Appointment } from '@/data/mock';
 
 type Tab = 'Upcoming' | 'Past' | 'Canceled';
 const tabs: Tab[] = ['Upcoming', 'Past', 'Canceled'];
 
+const ACTIVE = ['pending', 'assigned', 'confirmed'];
+
+function timeOf(iso: string): { month: string; day: string; when: string } {
+  const d = new Date(iso);
+  const month = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+  const day = String(d.getDate());
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+  let h = d.getHours();
+  const m = d.getMinutes().toString().padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return { month, day, when: `${weekday} · ${h}:${m} ${ampm}` };
+}
+
+function titleFor(row: AppointmentRow): string {
+  const base = row.concern.replace(/\s+support session requested$/i, '').trim();
+  return base === '' ? 'Counseling session' : `${base} session`;
+}
+
+function modeLabel(row: AppointmentRow): string {
+  return row.mode === 'online' ? 'Online' : 'In person · Guidance Office';
+}
+
 export default function Sessions() {
-  const [upcoming, setUpcoming] = useState<Appointment[]>(seed.filter((a) => a.status !== 'Completed'));
-  const [past] = useState<Appointment[]>(seed.filter((a) => a.status === 'Completed'));
-  const [canceled, setCanceled] = useState<Appointment[]>([]);
   const [tab, setTab] = useState<Tab>('Upcoming');
-  const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [rows, setRows] = useState<AppointmentRow[] | null>(null);
+  const [studentId, setStudentId] = useState<string | null>(null);
+  const [checkins, setCheckins] = useState(0);
+  const [rated, setRated] = useState<Record<string, number>>({});
+  const [draft, setDraft] = useState<Record<string, number>>({});
+  const [error, setError] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [fbBusyId, setFbBusyId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<AppointmentRow | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<AppointmentRow | null>(null);
+  // Counselor lookup for the details sheet. `counselor_directory()` is the
+  // RLS-safe SECURITY DEFINER directory (00049); profiles are staff-only.
+  const [counselorNames, setCounselorNames] = useState<Record<string, string>>({});
+  const [counselorSpecialties, setCounselorSpecialties] = useState<Record<string, string>>({});
 
+  // Live read: own appointments + existing feedback + check-in count.
+  // Re-runs on tab focus and on pull-to-refresh so staff-side changes
+  // (assign/confirm/complete) appear without a re-login.
+  const load = useCallback(async () => {
+    try {
+      const supabase = getSupabase();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setRows([]);
+        setError('Please log in again to see your sessions.');
+        return;
+      }
+      const { data: student } = await supabase
+        .from('students')
+        .select('id')
+        .eq('profile_id', user.id)
+        .maybeSingle();
+      if (!student) {
+        setRows([]);
+        setError('Your student profile is still being set up. Pull down to refresh.');
+        return;
+      }
+      const sid = student.id;
+      const [appts, feedbackRes, pssRes, directory] = await Promise.all([
+        listStudentAppointments(supabase, sid),
+        supabase.from('feedback').select('appointment_id, rating').eq('student_id', sid),
+        supabase
+          .from('pss10_assessments')
+          .select('id', { count: 'exact', head: true })
+          .eq('student_id', sid),
+        // Best-effort: sessions must still render if the directory lookup fails.
+        loadCounselorDirectory(supabase),
+      ]);
+      const feedbackMap: Record<string, number> = {};
+      for (const f of (feedbackRes.data ?? []) as { appointment_id: string; rating: number }[]) {
+        feedbackMap[f.appointment_id] = f.rating;
+      }
+      setStudentId(sid);
+      setRows(((appts ?? []) as AppointmentRow[]));
+      setRated(feedbackMap);
+      setCheckins(pssRes.count ?? 0);
+      setCounselorNames(directory.names);
+      setCounselorSpecialties(directory.specialties);
+      setError('');
+    } catch (e) {
+      setRows((prev) => prev ?? []);
+      setError(errorMessage(e, 'Could not load your sessions.'));
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  const { upcoming, past, canceled } = useMemo(() => {
+    // `new Date()` is allowed by the purity lint (Date.now is not); grouping
+    // refreshes whenever the row set changes or the screen regains focus.
+    const now = new Date().getTime();
+    const all = rows ?? [];
+    const isActive = (r: AppointmentRow) => ACTIVE.includes(r.status);
+    const upcomingRows = all
+      .filter((r) => isActive(r) && new Date(r.scheduled_at).getTime() >= now)
+      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+    const pastRows = all
+      .filter(
+        (r) =>
+          r.status === 'completed' ||
+          r.status === 'no_show' ||
+          (isActive(r) && new Date(r.scheduled_at).getTime() < now),
+      )
+      .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+    const canceledRows = all
+      .filter((r) => r.status === 'cancelled' || r.status === 'rejected')
+      .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+    return { upcoming: upcomingRows, past: pastRows, canceled: canceledRows };
+  }, [rows]);
+
+  const completedCount = (rows ?? []).filter((r) => r.status === 'completed').length;
   const list = tab === 'Upcoming' ? upcoming : tab === 'Past' ? past : canceled;
+  const loading = rows === null;
+  const nowMs = new Date().getTime();
+  const selected = openId === null ? null : (rows ?? []).find((r) => r.id === openId) ?? null;
+  const selectedSpecialty = selected?.counselor_id
+    ? counselorSpecialties[selected.counselor_id]
+    : undefined;
 
-  const cancel = (id: string) => {
-    const item = upcoming.find((a) => a.id === id);
-    if (!item) return;
-    setUpcoming((u) => u.filter((a) => a.id !== id));
-    setCanceled((c) => [...c, { ...item, status: 'Canceled' }]);
+  // Shared details/cancel/reschedule sheets: closing the details first keeps a
+  // single modal on screen at a time.
+  const requestCancel = (row: AppointmentRow) => {
+    setOpenId(null);
+    setCancelTarget(row);
   };
 
-  const dotColor = (s: Appointment['status']) =>
-    s === 'Confirmed' ? colors.blue : s === 'Pending' ? colors.sun : colors.muted;
+  const requestReschedule = (row: AppointmentRow) => {
+    setOpenId(null);
+    setRescheduleTarget(row);
+  };
+
+  const applyCancelled = (row: AppointmentRow) => {
+    setRows((prev) =>
+      prev?.map((r) => (r.id === row.id ? { ...r, status: 'cancelled' } : r)) ?? prev,
+    );
+    setCancelTarget(null);
+  };
+
+  const applyRescheduled = (updated: AppointmentRow) => {
+    setRows((prev) => prev?.map((r) => (r.id === updated.id ? updated : r)) ?? prev);
+  };
+
+  const sendFeedback = async (row: AppointmentRow) => {
+    const rating = draft[row.id];
+    if (!studentId || !rating) return;
+    setFbBusyId(row.id);
+    setError('');
+    try {
+      await submitFeedback(getSupabase(), {
+        appointmentId: row.id,
+        studentId,
+        rating,
+      });
+      setRated((prev) => ({ ...prev, [row.id]: rating }));
+    } catch (e) {
+      setError(errorMessage(e, 'Could not send your rating.'));
+    } finally {
+      setFbBusyId(null);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    void load().finally(() => setRefreshing(false));
+  };
 
   return (
     <View style={styles.root}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.blue} />
+          }
+        >
           <View style={styles.head}>
             <Text style={styles.title}>My sessions</Text>
             <Button label="+ Book new" variant="accent" onPress={() => router.push('/book')} />
@@ -42,15 +223,15 @@ export default function Sessions() {
 
           <View style={styles.stats}>
             <Card style={[styles.stat, styles.statBlue]}>
-              <Text style={[styles.statN, styles.statNLight]}>{stats.upcoming}</Text>
+              <Text style={[styles.statN, styles.statNLight]}>{loading ? '—' : upcoming.length}</Text>
               <Text style={[styles.statL, styles.statLLight]}>Upcoming</Text>
             </Card>
             <Card style={styles.stat}>
-              <Text style={styles.statN}>{stats.completed}</Text>
+              <Text style={styles.statN}>{loading ? '—' : completedCount}</Text>
               <Text style={styles.statL}>Completed</Text>
             </Card>
             <Card style={styles.stat}>
-              <Text style={styles.statN}>{stats.checkins}</Text>
+              <Text style={styles.statN}>{loading ? '—' : checkins}</Text>
               <Text style={styles.statL}>Check-ins</Text>
             </Card>
           </View>
@@ -60,25 +241,44 @@ export default function Sessions() {
               <Pressable
                 key={t}
                 onPress={() => setTab(t)}
-                hitSlop={hitSlop}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: tab === t }}
-                style={[styles.tab, tab === t && styles.tabOn]}
+                style={styles.tabWrap}
               >
                 <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>{t}</Text>
               </Pressable>
             ))}
           </View>
 
-          {list.length === 0 ? (
+          {error !== '' ? (
+            <Card style={styles.errCard}>
+              <Text style={styles.errText}>{error}</Text>
+              <View style={styles.mt}>
+                <Button label="Try again" variant="outline" onPress={() => void load()} />
+              </View>
+            </Card>
+          ) : null}
+
+          {loading ? (
+            <View style={styles.center}>
+              <ActivityIndicator color={colors.blue} />
+              <Text style={styles.emptySub}>Loading your sessions…</Text>
+            </View>
+          ) : list.length === 0 ? (
             <Card>
               <Text style={styles.emptyTitle}>
-                {tab === 'Canceled' ? 'No canceled sessions' : 'No upcoming sessions'}
+                {tab === 'Canceled'
+                  ? 'No canceled sessions'
+                  : tab === 'Past'
+                    ? 'No past sessions yet'
+                    : 'No upcoming sessions'}
               </Text>
               <Text style={styles.emptySub}>
                 {tab === 'Canceled'
-                  ? 'Canceled sessions will show up here.'
-                  : 'Book when you are ready. We are here.'}
+                  ? 'Canceled requests will show up here.'
+                  : tab === 'Past'
+                    ? 'Completed sessions and ratings appear here.'
+                    : 'Book when you are ready. We are here.'}
               </Text>
               {tab !== 'Canceled' ? (
                 <View style={styles.mt}>
@@ -87,48 +287,134 @@ export default function Sessions() {
               ) : null}
             </Card>
           ) : (
-            list.map((a) => (
-              <View key={a.id} style={styles.row}>
-                <View style={styles.rail}>
-                  <Text style={styles.month}>{a.month}</Text>
-                  <Text style={styles.dayNum}>{a.day}</Text>
-                  <View style={[styles.dot, { backgroundColor: dotColor(a.status) }]} />
-                  <View style={styles.line} />
-                </View>
-                <Card style={styles.card}>
-                  <Text style={styles.cardTitle}>{a.title}</Text>
-                  <Text style={styles.meta}>
-                    {a.weekday} · {a.time} · {a.mode} · {a.location}
-                  </Text>
-                  <View style={styles.mt}>
-                    <StatusChip status={a.status} />
+            list.map((a) => {
+              const { month, day, when } = timeOf(a.scheduled_at);
+              const isActive = ACTIVE.includes(a.status) && new Date(a.scheduled_at).getTime() >= nowMs;
+              const canReschedule = a.status === 'pending' || a.status === 'assigned';
+              const counselorName = a.counselor_id ? counselorNames[a.counselor_id] : undefined;
+              const sent = rated[a.id];
+              return (
+                <View key={a.id} style={styles.row}>
+                  <View style={styles.rail}>
+                    <Text style={styles.month}>{month}</Text>
+                    <Text style={styles.dayNum}>{day}</Text>
+                    <View
+                      style={[
+                        styles.dot,
+                        {
+                          backgroundColor:
+                            a.status === 'confirmed'
+                              ? colors.blue
+                              : a.status === 'pending' || a.status === 'assigned'
+                                ? colors.sun
+                                : colors.muted,
+                        },
+                      ]}
+                    />
+                    <View style={styles.line} />
                   </View>
-                  {a.status === 'Completed' ? (
-                    <View style={styles.rate}>
-                      <Text style={styles.rateLabel}>Rate this session</Text>
-                      <StarRating
-                        value={ratings[a.id] ?? 0}
-                        onChange={(v) => setRatings((r) => ({ ...r, [a.id]: v }))}
-                      />
-                      <View style={styles.mt}>
-                        <Button label="Send" onPress={() => undefined} />
+                  <Pressable
+                    onPress={() => setOpenId(a.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Session details for ${titleFor(a)}`}
+                    style={styles.cardPress}
+                  >
+                    <Card style={styles.card}>
+                      <Text style={styles.cardTitle}>{titleFor(a)}</Text>
+                      <Text style={styles.meta}>
+                        {when} · {modeLabel(a)}
+                      </Text>
+                      <View style={[styles.mt, styles.pills]}>
+                        <StatusChip status={a.status} />
+                        <CounselorPill assigned={a.counselor_id !== null} name={counselorName} />
                       </View>
-                    </View>
-                  ) : (
-                    <View style={styles.btns}>
-                      <Button label="Reschedule" variant="outline" onPress={() => router.push('/book')} style={styles.flex} />
-                      <Button label="Cancel" variant="outline" onPress={() => cancel(a.id)} style={styles.flex} />
-                      {a.status === 'Confirmed' ? (
-                        <Button label="Message" onPress={() => router.push('/chat')} style={styles.flex} />
+
+                      {isActive ? (
+                        <View style={styles.btns}>
+                          {canReschedule ? (
+                            <Button
+                              label="Reschedule"
+                              variant="outline"
+                              onPress={() => requestReschedule(a)}
+                              style={styles.flex}
+                            />
+                          ) : null}
+                          <Button
+                            label="Cancel"
+                            variant="dangerOutline"
+                            onPress={() => requestCancel(a)}
+                            style={styles.flex}
+                          />
+                        </View>
                       ) : null}
-                    </View>
-                  )}
-                </Card>
-              </View>
-            ))
+
+                      {isActive && a.status === 'confirmed' ? (
+                        <Text style={styles.lockNote}>
+                          Confirmed by your counselor — rescheduling is closed. Contact the
+                          Guidance Office if you need to move this session.
+                        </Text>
+                      ) : null}
+
+                      {isActive && a.status === 'confirmed' ? (
+                        <View style={styles.mt}>
+                          <Button label="Message" onPress={() => router.push('/chat')} />
+                        </View>
+                      ) : null}
+
+                      {isActive && a.mode === 'online' && a.meeting_url ? (
+                        <Text style={styles.meet}>Video link is ready in your confirmation.</Text>
+                      ) : null}
+
+                      {a.status === 'completed' ? (
+                        <View style={styles.rate}>
+                          {sent !== undefined ? (
+                            <Text style={styles.rateLabel}>You rated this session {sent}★</Text>
+                          ) : (
+                            <>
+                              <Text style={styles.rateLabel}>Rate this session</Text>
+                              <StarRating
+                                value={draft[a.id] ?? 0}
+                                onChange={(v) => setDraft((d) => ({ ...d, [a.id]: v }))}
+                              />
+                              <View style={styles.mt}>
+                                <Button
+                                  label={fbBusyId === a.id ? 'Sending…' : 'Send'}
+                                  disabled={!draft[a.id] || fbBusyId !== null}
+                                  onPress={() => void sendFeedback(a)}
+                                />
+                              </View>
+                            </>
+                          )}
+                        </View>
+                      ) : null}
+                    </Card>
+                  </Pressable>
+                </View>
+              );
+            })
           )}
         </ScrollView>
       </SafeAreaView>
+
+      <SessionDetailsModal
+        appointment={selected}
+        cancelTarget={cancelTarget}
+        counselorName={
+          selected?.counselor_id ? counselorNames[selected.counselor_id] : undefined
+        }
+        counselorSpecialty={selectedSpecialty}
+        onClose={() => setOpenId(null)}
+        onRequestReschedule={requestReschedule}
+        onRequestCancel={requestCancel}
+        onCancelClose={() => setCancelTarget(null)}
+        onCancelled={applyCancelled}
+      />
+
+      <RescheduleModal
+        appointment={rescheduleTarget}
+        onClose={() => setRescheduleTarget(null)}
+        onRescheduled={applyRescheduled}
+      />
     </View>
   );
 }
@@ -147,9 +433,13 @@ const styles = StyleSheet.create({
   statNLight: { color: colors.white },
   statLLight: { color: colors.white },
   tabs: { flexDirection: 'row', gap: spacing.md },
-  tab: { paddingVertical: spacing.sm, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabOn: { borderBottomColor: colors.blue },
-  tabText: { fontFamily: fontFamily.medium, fontSize: fontSize.sm, color: colors.muted },
+  tabWrap: { borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabText: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSize.sm,
+    color: colors.muted,
+    paddingVertical: spacing.sm,
+  },
   tabTextOn: { fontFamily: fontFamily.bold, color: colors.blue },
   row: { flexDirection: 'row', gap: spacing.sm },
   rail: { width: 40, alignItems: 'center' },
@@ -158,13 +448,25 @@ const styles = StyleSheet.create({
   dot: { width: spacing.sm, height: spacing.sm, borderRadius: 4, marginTop: spacing.xs },
   line: { width: 2, flex: 1, backgroundColor: colors.creamLine, marginTop: spacing.xs },
   card: { flex: 1 },
+  cardPress: { flex: 1 },
   cardTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.ink },
   meta: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.muted },
+  pills: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
+  lockNote: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.xs,
+    color: colors.muted,
+    marginTop: spacing.sm,
+  },
   mt: { marginTop: spacing.sm },
   btns: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   flex: { flex: 1 },
   rate: { marginTop: spacing.sm, gap: spacing.sm },
   rateLabel: { fontFamily: fontFamily.bold, fontSize: fontSize.sm, color: colors.ink },
+  meet: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.blue, marginTop: spacing.sm },
   emptyTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.ink },
   emptySub: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.muted },
+  center: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.lg },
+  errCard: { borderWidth: 1, borderColor: colors.danger, gap: spacing.sm },
+  errText: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.danger },
 });

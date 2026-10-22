@@ -8,6 +8,7 @@ import { ChekieMark } from "@/components/Logo";
 import { useRealtime } from "./realtime-provider";
 import { useRoutePending } from "./route-pending";
 import { SignOutButton } from "./sign-out-button";
+import { useAvatarUrl } from "@/lib/hooks/use-avatar-url";
 import { cn } from "@/lib/utils";
 
 export type StaffNavLink = { href: string; label: string; desc?: string; roles?: string[] };
@@ -17,6 +18,7 @@ export type NavProfile = {
   email: string;
   role: string;
   full_name: string | null;
+  avatar_url?: string | null;
 } | null;
 
 const ROLE_LABEL: Record<string, string> = {
@@ -159,6 +161,7 @@ function ProfileMenu({ profile }: { profile: NavProfile }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+  const { data: avatar = null } = useAvatarUrl(profile?.avatar_url);
 
   // Close the menu on navigation so it never lingers over the next page.
   useEffect(() => {
@@ -196,9 +199,14 @@ function ProfileMenu({ profile }: { profile: NavProfile }) {
       >
         <span
           aria-hidden
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-600 font-display text-sm font-bold text-white"
+          className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-primary-600 font-display text-sm font-bold text-white"
         >
-          {initial}
+          {avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element -- signed, expiring URL
+            <img src={avatar} alt="" className="h-full w-full object-cover" />
+          ) : (
+            initial
+          )}
         </span>
         <ChevronDown aria-hidden className={cn("h-4 w-4 text-ink-muted transition-transform duration-200", open && "rotate-180")} />
       </button>
@@ -211,9 +219,14 @@ function ProfileMenu({ profile }: { profile: NavProfile }) {
           <div className="flex items-center gap-3 px-4 py-3">
             <span
               aria-hidden
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-600 font-display text-base font-bold text-white"
+              className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-600 font-display text-base font-bold text-white"
             >
-              {initial}
+              {avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element -- signed, expiring URL
+                <img src={avatar} alt="" className="h-full w-full object-cover" />
+              ) : (
+                initial
+              )}
             </span>
             <div className="min-w-0 flex-1 leading-tight">
               <p className="truncate text-[13px] font-bold text-ink">
@@ -294,7 +307,7 @@ function NotifBell() {
             aria-hidden
             className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white ring-2 ring-white"
           >
-            {count > 9 ? "9+" : count}
+            {count > 99 ? "99+" : count}
           </span>
         )}
       </Link>

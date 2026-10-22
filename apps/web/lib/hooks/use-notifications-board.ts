@@ -12,6 +12,8 @@ export type NotificationsRow = {
   link: string | null;
   is_read: boolean;
   created_at: string;
+  is_action_required?: boolean;
+  read_at?: string | null;
 };
 
 export type NotificationsBoardData = {

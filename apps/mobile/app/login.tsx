@@ -22,6 +22,9 @@ function friendlyLoginError(message: string): string {
   if (/invalid login credentials|invalid.*credentials/i.test(message)) {
     return 'Incorrect email or password.';
   }
+  if (/email not confirmed|not confirmed/i.test(message)) {
+    return 'Confirm your email first — open the link we sent you, then try again.';
+  }
   if (/failed to fetch|network request failed|networkerror/i.test(message)) {
     return "Can't reach the server. Check your connection and try again.";
   }
@@ -63,24 +66,23 @@ export default function Login() {
         setError('Login failed. Please try again.');
         return;
       }
-      // Backfill a missing profile row (e.g. account created before
-      // this check existed), then enter.
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (!profile) {
-        const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
-        const fullName = typeof meta['full_name'] === 'string' ? meta['full_name'] : '';
-        const ensured = await ensureStudentRows(supabase, user.id, {
-          email: v.email,
-          fullName,
-        });
-        if (!ensured.ok) {
-          setError(friendlyDbError(ensured.error));
-          return;
-        }
+      // Finish any setup left over from signup: with email confirmation ON the
+      // `profiles`/`students` inserts could not run until this first login.
+      // `ensureStudentRows` is idempotent and reads before writing.
+      const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+      const metaString = (key: string) =>
+        typeof meta[key] === 'string' ? (meta[key] as string) : undefined;
+      const ensured = await ensureStudentRows(supabase, user.id, {
+        email: v.email,
+        fullName: metaString('full_name') ?? '',
+        studentNo: metaString('student_no'),
+        program: metaString('program'),
+        yearLevel: metaString('year_level'),
+      });
+      if (!ensured.ok) {
+        setError(friendlyDbError(ensured.error));
+        lumi.react('worried', 1500);
+        return;
       }
       lumi.react('cheer', 800);
       setTimeout(() => router.replace('/(tabs)/home'), 750);

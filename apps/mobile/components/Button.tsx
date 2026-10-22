@@ -1,7 +1,7 @@
 import { Pressable, Text, StyleSheet, type ViewStyle } from 'react-native';
 import { colors, fontFamily, fontSize, buttonRadius, sizes, hitSlop } from '@/theme';
 
-type Variant = 'primary' | 'accent' | 'outline' | 'dark' | 'ghostOnDark';
+type Variant = 'primary' | 'accent' | 'outline' | 'dark' | 'ghostOnDark' | 'danger' | 'dangerOutline';
 type Props = {
   label: string;
   onPress?: () => void;
@@ -40,6 +40,8 @@ const styles = StyleSheet.create({
   outline: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.blue },
   dark: { backgroundColor: colors.ink },
   ghostOnDark: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#6F8CB8' },
+  danger: { backgroundColor: colors.danger },
+  dangerOutline: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.danger },
   disabled: { backgroundColor: colors.disabledBg, borderColor: colors.border },
   text: { fontFamily: fontFamily.bold, fontSize: fontSize.sm },
 });
@@ -50,4 +52,6 @@ const textColor = StyleSheet.create({
   outline: { color: colors.blue },
   dark: { color: colors.white },
   ghostOnDark: { color: colors.white },
+  danger: { color: colors.white },
+  dangerOutline: { color: colors.danger },
 });

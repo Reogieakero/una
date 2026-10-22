@@ -51,15 +51,15 @@ Flat expo-router structure (no `(auth)` / `(student)` groups):
 |---|---|
 | `/` | Three-page onboarding carousel (chat, booking, check-ins) with Lumi mascot → `/login` |
 | `/login` | Email + password sign-in via Supabase Auth; backfills a missing profile/student row |
-| `/register` | Student self-registration (name, email, student no., program, year level, strong password) |
-| `/(tabs)/home` | Student home: upcoming sessions from Supabase, announcements, quick actions, breathing exercise, mood check |
-| `/(tabs)/sessions` | Upcoming / Past / Canceled tabs, ratings, reschedule/message entry points *(local mock data)* |
+| `/register` | Student self-registration (name, email, student no., program, year level, strong password). Supabase email confirmation is ON, so rows are created at first login |
+| `/(tabs)/home` | Student home: next session from Supabase (tap the card for the shared details/cancel sheet), announcements, quick actions, breathing exercise, mood check |
+| `/(tabs)/sessions` | Upcoming / Past / Canceled tabs from Supabase: tap a card for details (assigned counselor, schedule, reference), cancel, reschedule, and post-session rating |
 | `/(tabs)/profile` | Student card, onboarding replay, log out *(local mock data)* |
 | `/book` | Booking step 1 of 2: concern, mode (in person / online), day and time, anonymous toggle |
 | `/check-in` | Booking step 2 of 2: PSS-10 questions; submits the assessment and creates the appointment, then opens chat |
-| `/chat` | Anonymous counselor chat with canned replies *(mock conversation)* |
+| `/chat` | Two-level messaging: an inbox of the student's `chat_threads` (counselor, last message, closed state), then the conversation. Sends via `sendMessage`, first message lazily calls `openThread`, and counselor replies arrive through a realtime `chat_messages` subscription. Back from a dialog returns to the inbox; back from the inbox leaves Chat. |
 
-Tab bar: `components/TabBar.tsx` (home, sessions, profile). Stack screens hide the tab bar and navigate with `router.push` / `router.replace`.
+Tab bar: `components/TabBar.tsx` (home, book, chat, sessions, profile). Chat is a root stack screen but renders the same tab bar at the bottom (with a `TAB_BAR_BASE` margin above the composer); `/book` still hides it.
 
 ---
 
@@ -69,14 +69,17 @@ Tab bar: `components/TabBar.tsx` (home, sessions, profile). Stack screens hide t
 
 - Authentication: login, logout, student registration (`registerStudentSchema`, strong-password rule), session persistence.
 - Profile bootstrap: `lib/supabase/ensureStudent.ts` creates the `profiles` + `students` rows for a signed-in student (RLS-safe, idempotent, alias collision retry).
-- Home: upcoming appointments and notifications via `listStudentAppointments`, `listNotifications`; cancellation via `cancelAppointment`.
-- Booking: `bookAppointment` (`@dorsu/shared-services`) after a completed PSS-10 via `submitPss10`.
+- Home: upcoming appointments and notifications via `listStudentAppointments`; cancellation via `cancelAppointment`. Notifications now have a real screen (`app/notifications.tsx`) with per-item mark-read, an exact unread badge on the bell/tab bar, and a single realtime subscription (`lib/notifications-context.tsx`) scoped to the signed-in student.
+- Reminders: `00065_session_reminders` runs in Postgres every minute and inserts a generic “starts in 10 minutes” notification for the student and the assigned counselor; it arrives through the same realtime bell/toast/inbox path as other notifications.
+- Profile: real `profiles` + `students` data; private-bucket photo upload (`expo-image-picker` → `avatars`, signed URL for display), remove, and a student-only “Share photo with my counselor” opt-in that is off by default.
+- Sessions: own appointments via `listStudentAppointments` (refresh on focus + pull-to-refresh), a status + assigned-counselor pill on each card, a tap-through details sheet (including a rectangular “Updated by …” badge once staff or the student have moved the session), cancel via `cancelAppointment`, reschedule via the shared reschedule sheet + `rescheduleAppointment` (pending/assigned only — confirmed sessions are locked to the Guidance Office), and one rating per completed session via `submitFeedback`. Home and Sessions share the same details/cancel/reschedule sheets (`components/SessionDetailsModal.tsx`, `components/RescheduleModal.tsx`). Update attribution comes from the student-scoped `appointment_update_info(uuid)` RPC (00064); nothing from `audit_events` is exposed.
+- Booking: real counselor availability from `counselor_availability` (`bookableDays` / `bookableSlots`), then `bookAppointment` / `submitPss10` (`@dorsu/shared-services`). Requests land as `pending` for the head to assign.
+- Chat: an inbox fed by `listThreads` (counselor, latest message preview, closed state), then `getThreadWithMessages` for the selected dialog, `sendMessage` for sends (first message lazily calls `openThread`, so browsing never creates empty threads), and a `chat_messages` INSERT subscription for live staff replies. The Chat back button is plain (no card); back from a dialog returns to the inbox, then back from the inbox exits. Opening a dialog clears unread chat notifications. Quick replies are plain outline buttons.
+- Stress check: `/check-in` without booking params records the PSS-10 only (Home shortcut).
 - Stress check-in: scored and persisted with the PSS-10 band; the total is never shown to the student.
 
 **Still local mock data (`data/mock.ts`):**
 
-- Sessions tab content, stats, ratings, and cancel state.
-- Chat conversation, counselor replies, and quick replies.
 - Profile identity card.
 - PSS-10 question wording/labels (scoring itself is real) and booking day/time presentation.
 
@@ -95,11 +98,11 @@ app/
   (tabs)/
     _layout.tsx        Custom tab bar
     home.tsx           Home dashboard (live data)
-    sessions.tsx       Session list (mock)
+    sessions.tsx       Session list (live data)
     profile.tsx        Student profile (mock)
   book.tsx             Booking step 1
   check-in.tsx         PSS-10 + booking step 2 (live writes)
-  chat.tsx             Anonymous chat (mock)
+  chat.tsx             Student ↔ Guidance chat (live data + realtime)
 components/            Button, Card, Chip, Field, ChatBubble, StatusChip, TabBar,
                        MoodPicker, StarRating, ProgressSegments, mascot, illustrations
 lib/
@@ -107,7 +110,7 @@ lib/
   supabase/ensureStudent.ts Profile/student bootstrap + friendly DB errors
   onboarding.ts            First-launch flag (AsyncStorage)
 data/
-  mock.ts                  Local mock content (sessions, chat, student card, PSS questions)
+  mock.ts                  Local mock content (student card, PSS questions)
   academics.ts              DOrSU faculties and year levels for registration
 theme.ts               Colors, type scale, spacing, radii, button/input sizes, hit slop
 ```

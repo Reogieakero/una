@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { removeAvatar, uploadAvatar } from "@dorsu/shared-services";
 import { SETTINGS_BOARD_KEY, useSettingsBoard } from "@/lib/hooks/use-settings-board";
+import { useAvatarUrl } from "@/lib/hooks/use-avatar-url";
 import { Card } from "@/components/ui/primitives";
 import { ProfileAbout, ProfileForm } from "@/components/settings/ProfileForm";
 import { PasswordForm } from "@/components/settings/PasswordForm";
@@ -35,6 +38,7 @@ const EMPTY_GLANCE = { sessionsToday: 0, openReferrals: 0, published: 0 };
  */
 export default function SettingsPage() {
   const qc = useQueryClient();
+  const router = useRouter();
   const { data: board, isLoading, isError } = useSettingsBoard();
   const me = board?.me ?? null;
   const role = board?.role ?? null;
@@ -45,6 +49,7 @@ export default function SettingsPage() {
   const posts = board?.posts ?? EMPTY_POSTS;
   const glance = board?.glance ?? EMPTY_GLANCE;
   const loading = isLoading && !board;
+  const { data: avatarDisplay = null } = useAvatarUrl(board?.avatarUrl);
   // Editable copies — seeded from the cache once per visit so typing never
   // fights a background refetch.
   const [email, setEmail] = useState("");
@@ -126,6 +131,51 @@ export default function SettingsPage() {
       toast.success("Profile updated.");
     } catch {
       toast.error("Couldn't update profile — please try again.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  /** Uploaded photos live in the private `avatars` bucket (00066). */
+  const pickAvatar = async (file: File) => {
+    if (!me) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast.error("Use a JPG, PNG, or WebP image.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Keep the photo under 5 MB.");
+      return;
+    }
+    setSaving("avatar");
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await uploadAvatar(createClient(), {
+        profileId: me,
+        previousPath: board?.avatarUrl ?? null,
+        bytes,
+        contentType: file.type,
+      });
+      await qc.invalidateQueries({ queryKey: [...SETTINGS_BOARD_KEY] });
+      router.refresh(); // re-render the server layout so the nav avatar updates
+      toast.success("Profile photo updated.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't upload that photo — please try again.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const dropAvatar = async () => {
+    if (!me || !board?.avatarUrl) return;
+    setSaving("avatar");
+    try {
+      await removeAvatar(createClient(), me, board.avatarUrl);
+      await qc.invalidateQueries({ queryKey: [...SETTINGS_BOARD_KEY] });
+      router.refresh();
+      toast.success("Profile photo removed.");
+    } catch {
+      toast.error("Couldn't remove that photo — please try again.");
     } finally {
       setSaving(null);
     }
@@ -247,7 +297,11 @@ export default function SettingsPage() {
             completeness={completeness}
             editing={editing}
             saving={saving}
+            avatarUrl={avatarDisplay}
+            avatarBusy={saving === "avatar"}
             onFullNameChange={setFullName}
+            onAvatarPick={(file) => void pickAvatar(file)}
+            onAvatarRemove={() => void dropAvatar()}
             onEditToggle={() => (editing ? void saveProfile() : setEditing(true))}
           />
 

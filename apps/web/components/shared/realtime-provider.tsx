@@ -21,6 +21,7 @@ import {
   type NotificationsBoardData,
   type NotificationsRow,
 } from "@/lib/hooks/use-notifications-board";
+import { SIDEBAR_COUNTS_KEY } from "@/lib/hooks/use-sidebar-counts";
 import {
   APPOINTMENTS_BOARD_KEY,
   type AppointmentsBoardData,
@@ -136,8 +137,22 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const wasConnectedRef = useRef(false);
   const hadDropRef = useRef(false);
   const coalesceRef = useRef(new Map<string, { count: number; timer: ReturnType<typeof setTimeout> }>());
+  const sidebarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const routerRef = useRef(router);
   routerRef.current = router;
+
+  /**
+   * Sidebar counters are derived from appointments/referrals/notifications.
+   * Any of those changing can move a number, so refresh the single RPC query
+   * (debounced: a burst of inserts costs one round-trip).
+   */
+  const refreshSidebarCounts = useCallback(() => {
+    if (sidebarTimerRef.current) clearTimeout(sidebarTimerRef.current);
+    sidebarTimerRef.current = setTimeout(() => {
+      sidebarTimerRef.current = null;
+      qc.invalidateQueries({ queryKey: [...SIDEBAR_COUNTS_KEY] }).catch(() => {});
+    }, 300);
+  }, [qc]);
 
   const bumpLink = useCallback((link: string | null, delta: 1 | -1) => {
     const key = linkKey(link);
@@ -261,7 +276,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           if (!apptId) return;
           const { data } = await supabase
             .from("appointments")
-            .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of")
+            .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of, created_at")
             .eq("id", apptId)
             .single();
           const row = data as BoardAppointment | null;
@@ -346,6 +361,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       // board reconcile right after (fills aliases, trails, stats).
       void patchEntityRow(row.dedupe_key ?? null).catch(() => {});
       touchBoards(row.link ?? null);
+      refreshSidebarCounts();
       if (!row.title?.trim()) return;
       fireToast(row);
     };
@@ -418,6 +434,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       logEvent("REALTIME_EVENT_RECEIVED", { entityId: row.id, link: row.link ?? null, kind: "update" });
       removeUnread(row.id, row.link ?? null);
       setLastSeenAt(new Date().toISOString());
+      refreshSidebarCounts();
     };
 
     // Reconnect reconcile — the DB is the source of truth, realtime is the
@@ -454,6 +471,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       }
       setLastSeenAt(new Date().toISOString());
       logEvent("SUBSCRIPTION_RECONNECTED", { missed: missed.length });
+      refreshSidebarCounts();
     };
 
     const setup = async (uid: string) => {
@@ -484,6 +502,14 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
             if (alive) onUpdate(payload.new as IncomingNotification);
           }
         )
+        // Shared-queue truth: one head assigning a request must move every
+        // other head's counter without a page visit (00063).
+        .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => {
+          if (alive) refreshSidebarCounts();
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "referrals" }, () => {
+          if (alive) refreshSidebarCounts();
+        })
         .subscribe((status) => {
           if (!alive) return;
           if (status === "SUBSCRIBED") {
@@ -496,6 +522,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
             } else if (!wasConnectedRef.current) {
               wasConnectedRef.current = true;
               logEvent("SUBSCRIPTION_CONNECTED", { channel: `global-notif-${uid}` });
+              // Close the loadUnread() → subscribe() gap: rows inserted while
+              // the channel was still connecting would otherwise be invisible
+              // until the next reconnect.
+              void resync(uid).catch(() => {});
             }
           } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
             // Supabase retries with backoff internally; resync runs on the
@@ -532,6 +562,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
     return () => {
       alive = false;
+      if (sidebarTimerRef.current) clearTimeout(sidebarTimerRef.current);
       subscription.unsubscribe();
       teardownChannel();
     };

@@ -1,20 +1,25 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { colors, fontFamily, fontSize, radius, spacing } from '@/theme';
-import type { AppointmentStatus } from '@/data/mock';
 
-type Props = { status: AppointmentStatus };
-
-const bg: Record<AppointmentStatus, string> = {
-  Confirmed: colors.sky,
-  Pending: colors.sunSoft,
-  Completed: colors.disabledBg,
-  Canceled: colors.disabledBg,
+/**
+ * DB statuses (`appointments.status`) with student-facing labels. Kept as a
+ * plain string map so realtime/refresh rows from Supabase render without casts.
+ */
+const TONES: Record<string, { label: string; bg: string }> = {
+  pending: { label: 'Pending', bg: colors.sunSoft },
+  assigned: { label: 'Assigned', bg: colors.sky },
+  confirmed: { label: 'Confirmed', bg: colors.sky },
+  completed: { label: 'Completed', bg: colors.disabledBg },
+  cancelled: { label: 'Cancelled', bg: colors.disabledBg },
+  rejected: { label: 'Rejected', bg: colors.disabledBg },
+  no_show: { label: 'No-show', bg: colors.disabledBg },
 };
 
-export function StatusChip({ status }: Props) {
+export function StatusChip({ status }: { status: string }) {
+  const tone = TONES[status] ?? { label: status.replace(/_/g, ' '), bg: colors.disabledBg };
   return (
-    <View style={[styles.base, { backgroundColor: bg[status] }]}>
-      <Text style={styles.text}>{status}</Text>
+    <View style={[styles.base, { backgroundColor: tone.bg }]}>
+      <Text style={styles.text}>{tone.label}</Text>
     </View>
   );
 }
