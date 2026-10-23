@@ -1,0 +1,382 @@
+# P1 — Close the Honesty Gaps (Plan)
+
+**Project:** DOrSU Guidance / Chekie (`una`)
+**Scope:** The P1 recommendations from `Objective_Achievement_Report.md` §8
+**Status:** Planned — not executed
+**Date:** 24 October 2026
+**Precondition:** P0 is complete on staging (`00059`, `00061`, `00067`; E1 concurrency passes). See report §1.5.
+
+> This is a plan, not a claim. The P1 items are a mix of code work, test infrastructure, and **human-run research**. The research cannot be completed by an agent alone.
+
+---
+
+## 1. What P1 actually is
+
+The report defines four P1 items:
+
+1. Replace residual mobile mock data.
+2. Add automated tests.
+3. Run a usability and accessibility study.
+4. Decide what “event management” means.
+
+P1 is **not** “make every objective fully achieved.” It is the smallest set of work that removes the report’s honesty caveats and makes the capstone claims defensible.
+
+### P1 exit criterion
+
+A reader can verify every remaining objective claim from **reproducible evidence**, not from source-code reading alone:
+
+- no user-facing mobile identity or PSS-10 text comes from `data/mock.ts`;
+- unit tests run locally and in CI;
+- one E2E smoke path per role exists;
+- the P0 concurrency test is part of a scheduled/manual CI job;
+- a usability/accessibility report exists with real participants and fixes for high-severity findings;
+- the “events” objective is either implemented or honestly renamed.
+
+---
+
+## 2. Current state (verified before planning)
+
+| Area | Reality | Evidence |
+|---|---|---|
+| Mobile profile | **Already live** — reads `profiles` and `students`, uploads avatars, shares opt-in | `apps/mobile/app/(tabs)/profile.tsx`, lines 52–90 |
+| Mobile README | **Stale** — still says profile is mock | `apps/mobile/README.md`, lines 57, 81–84, 102, 113 |
+| PSS-10 text | **Still mock** — questions, labels, reverse indexes in `data/mock.ts` | `apps/mobile/data/mock.ts`, lines 105–123; used by `apps/mobile/app/check-in.tsx`, line 14 |
+| PSS-10 scoring | Real and pure | `packages/shared-services/src/assessments/pss10-scoring.ts` |
+| Test runner | **None** | no `*.test.*`, no Vitest/Jest config |
+| CI | **None** | no `.github/workflows/` |
+| Playwright | Only in the separate `perf-tests` npm project | `perf-tests/package.json` |
+| Events | Announcements only; no calendar, venue, RSVP, attendance | `/announcements`, no `events` table |
+| Next migration number | `00068` | latest is `00067_fix_slot_overlap_guard.sql` |
+
+**Consequence:** P1-A is smaller than the report implies. Do **not** rebuild the profile screen. Fix the stale documentation, move the PSS-10 instrument to a shared source, and remove only dead mock exports.
+
+---
+
+## 3. Workstreams
+
+### P1-A — Mobile data truth
+
+**Goal:** no user-facing identity or PSS-10 text is local fake data.
+
+#### A1. Create one shared PSS-10 instrument
+
+Add `packages/shared-services/src/assessments/pss10-instrument.ts`:
+
+- `PSS10_ITEMS`: the 10 item stems, in order, with stable ids.
+- `PSS10_LABELS`: `Never` → `Very often`.
+- `PSS10_REVERSE_INDEXES`: derived from the same order (currently `[3, 4, 6, 7]`).
+- `PSS10_INSTRUCTIONS`: the short “last month” instruction in plain language.
+- Keep scoring in `pss10-scoring.ts`; import the reverse indexes from the instrument so the two cannot drift.
+
+Export from `packages/shared-services/src/index.ts`.
+
+**Important:** the wording is a validated instrument. Do not paraphrase it during the move. If the project does not own a licensed copy of the PSS-10 wording, record that as a scope/legal note rather than inventing text.
+
+#### A2. Rewire mobile check-in
+
+- `apps/mobile/app/check-in.tsx`: import `PSS10_ITEMS` and `PSS10_LABELS` from `@dorsu/shared-services`.
+- Delete `pssQuestions`, `pssLabels`, and `pssReverseIndexes` from `apps/mobile/data/mock.ts`.
+- Keep all flow behavior unchanged: one question per screen, progress segments, no score shown to the student.
+
+#### A3. Remove dead mock identity, fix README
+
+- Confirm `student` from `data/mock.ts` is unused (profile already reads Supabase). Delete it if so.
+- Do not delete `appointments`, `events`, `concerns`, `meetModes`, `days`, `timeSlots`, `counselorReplies`, `quickReplies`, or `stats` blindly — inventory imports first. Delete only exports with zero references.
+- Update `apps/mobile/README.md`:
+  - profile row → live data;
+  - “still mocked” section → only genuinely remaining items;
+  - project-structure labels (`profile.tsx`, `mock.ts`) → accurate.
+
+#### P1-A acceptance
+
+- [ ] `grep` shows no PSS-10 item text outside the shared instrument (except tests/docs).
+- [ ] `apps/mobile/data/mock.ts` contains no `student` identity and no `pss*` exports.
+- [ ] `pnpm --filter @dorsu/mobile typecheck` passes.
+- [ ] Manual smoke: login → profile shows real name/alias/photo; booking → check-in shows all 10 items and submits.
+
+**Estimate:** 1–1.5 days.
+
+---
+
+### P1-B — Test foundation
+
+**Goal:** fast, deterministic tests for domain rules, plus a CI gate.
+
+There is no test runner. Adding one is a deliberate change; keep it small.
+
+#### B1. Choose one runner
+
+Recommended: **Vitest** in `packages/shared-services` because the highest-value logic is pure TypeScript and framework-free.
+
+- Add `vitest` as a devDependency of `@dorsu/shared-services`.
+- Add `"test": "vitest run"` and `"test:watch": "vitest"`.
+- Add a root `"test": "pnpm -r --if-present test"` script.
+- Do **not** put Vitest in `apps/web` or `apps/mobile` for this phase; JSX/Expo test setup expands the surface.
+
+#### B2. Unit tests (highest value first)
+
+| Test | Target |
+|---|---|
+| PSS-10 scoring | `pss10-scoring.ts`: reverse items, total 0–40, bands, invalid answer counts |
+| PSS-10 instrument integrity | 10 items, 5 labels, reverse indexes match scoring |
+| Booking freshness | `booking-service.ts`: 29 days passes, 31 days fails, no assessment fails |
+| Booking idempotency | duplicate key returns the existing appointment, does not insert twice |
+| `23P01` mapping | `confirmAppointment` converts the DB race error to “That time was just taken…” |
+| Meet URL validation | `isMeetUrl()` valid/invalid cases |
+| RBAC | `routePolicy` / `actionPolicy` / `canPerform` for every role, especially `admin` and `guidance_personnel` |
+| Referral transitions | pure transition guards: assign → confirm → resolve/escalate/reject |
+
+Use fake `DbClient` objects rather than a live database for these tests.
+
+#### B3. RLS integration tests
+
+These need a database. Options, in order of preference:
+
+1. **Local Supabase** (`supabase start`) on CI, seeded with minimal test users.
+2. A dedicated non-production test project with secrets in CI.
+
+Assert at minimum:
+
+- a student cannot read another student's `appointments`, `pss10_assessments`, or `session_notes`;
+- a counselor cannot read an unrelated student's notes;
+- the assigned counselor and head can read what policy allows;
+- `audit_logs` are append-only for authenticated users;
+- anonymous aliases do not leak into staff reads that should not see them.
+
+If neither database option is available, mark these as `describe.skip` unless `TEST_DATABASE_URL` is set. Do not fake RLS with mocks.
+
+#### B4. CI
+
+Create `.github/workflows/ci.yml`:
+
+- trigger: `pull_request` and push to `main`;
+- job `verify`: install → typecheck (web + mobile + shared) → unit tests → web build;
+- no database secrets in the PR job;
+- a second job `schema-staging`, trigger `workflow_dispatch` and a nightly schedule:
+  - runs `node perf-tests/check-schema.mjs` with staging secrets;
+  - runs `node perf-tests/concurrency-slots.mjs`;
+  - uploads `perf-tests/results/concurrency.json` as an artifact.
+
+Why split: the concurrency test writes and cancels rows. It must not run on every pull request against shared staging.
+
+#### P1-B acceptance
+
+- [ ] `pnpm test` passes locally.
+- [ ] PR CI is green and blocks on failing tests.
+- [ ] The scheduled/manual job covers the P0 concurrency case and stores evidence.
+- [ ] RLS tests either run against a real database or skip explicitly with a logged reason.
+
+**Estimate:** 2–3 days, plus CI iteration.
+
+---
+
+### P1-C — End-to-end smoke per role
+
+**Goal:** prove the main workflow is reachable through the real UI, not just unit-tested.
+
+#### C1. Isolated Playwright project
+
+Recommended: a root workspace package `e2e/` (`@dorsu/e2e`) using `@playwright/test`.
+
+Why not reuse `perf-tests`? That project is a measurement sandbox with its own lockfile and npm workflow. Mixing regression assertions into it makes both roles worse.
+
+#### C2. Four smoke paths
+
+| Role | Path |
+|---|---|
+| Student | login → book → PSS-10 → appointment appears in sessions |
+| Counselor | login → assigned appointment → confirm → complete → write note |
+| Faculty | login → refer student → referral appears for head |
+| Head | login → assign referral → reports page loads with RPC data |
+
+One spec per role, one worker, deterministic seed accounts. Use a dedicated E2E seed file, not the performance manifest.
+
+#### C3. Data hygiene
+
+- E2E must create uniquely tagged rows and clean them up.
+- Never assert on real student names or note content.
+- Fail the run if a secret or PHI appears in logs/artifacts.
+- Prefer local Supabase + `next start` for PR runs; staging smoke only on schedule/manual.
+
+#### P1-C acceptance
+
+- [ ] `pnpm e2e` runs four specs locally.
+- [ ] PR CI runs them against local Supabase (or a dedicated test project).
+- [ ] Artifacts on failure contain traces/screenshots, no secrets.
+- [ ] The head report spec asserts populated sections, not just HTTP 200.
+
+**Estimate:** 2–3 days.
+
+---
+
+### P1-D — Usability and accessibility study (human-run)
+
+**Goal:** replace heuristic UX claims with measured results.
+
+This workstream needs real participants and a facilitator. The agent can prepare materials, run automated accessibility checks, fix findings, and write the report; it cannot be the study participant.
+
+#### D1. Protocol
+
+- **Participants:** 5–8 per role (student, counselor, faculty, head). If time is short, prioritize students and counselors.
+- **Tasks:**
+  - student: book a session, find a session, reschedule/cancel, take check-in;
+  - counselor: confirm, complete, write note, find referral;
+  - faculty: submit a referral;
+  - head: assign a referral, read the weekly report.
+- **Metrics:** task success, time on task, errors, assistance needed, SUS (10-item), one open question.
+- **Consent:** explain that no real counseling data is used; use seeded accounts.
+
+#### D2. Accessibility audit (WCAG 2.1 AA)
+
+Run against web and mobile-web where possible:
+
+- automated: axe DevTools / Lighthouse;
+- keyboard-only: focus order, visible focus, no traps, dialogs restore focus;
+- screen reader: NVDA on Windows and VoiceOver on iOS for the student flow;
+- contrast: all text and status chips;
+- text scaling: 200% browser zoom and mobile font scaling;
+- forms: labels, error identification, required-field cues;
+- motion: reduced-motion behavior.
+
+#### D3. Fix and document
+
+- Fix all high-severity blockers found (unreachable action, missing label, keyboard trap, contrast failure).
+- Write `docs/p1-usability-accessibility-report.md`: method, participants, task results, SUS, WCAG findings, fixes, remaining issues.
+- Update `Objective_Achievement_Report.md` Objective 11 and the ISO 25010 table with the measured evidence.
+
+#### P1-D acceptance
+
+- [ ] Study report exists with real participant counts and results.
+- [ ] WCAG findings are listed with pass/fail/not-tested.
+- [ ] High-severity issues are fixed or explicitly accepted with a reason.
+- [ ] No claim of “fully accessible” or “ISO compliant” beyond what was tested.
+
+**Estimate:** 1–2 weeks elapsed, mostly human scheduling; 2–4 days of agent/developer work.
+
+---
+
+### P1-E — Decide “event management”
+
+This is a scope decision, not a coding task. Do it before P1-D so the UI is stable during usability testing.
+
+**Option 1 — Rename honestly (decided, 24 October 2026)**
+
+- Change the manuscript/objective wording from “event management” to “announcement management.”
+- Document that announcements are one-to-many news posts with realtime updates, not events.
+- Cost: documentation only.
+
+**Option 2 — Build a minimal events MVP**
+
+If the panel expects real events, the smallest defensible version is:
+
+- migration `00068_events.sql`:
+  - `events` (title, description, starts_at, ends_at, venue, online_link, capacity, status, created_by);
+  - `event_rsvps` (event_id, student_id, status, unique pair);
+  - RLS: students read published events and manage their own RSVP; head/admin manage events; counselors read published events;
+  - indexes for upcoming events and RSVP counts;
+- web: head event create/edit list + student-facing event list;
+- mobile: events list + RSVP;
+- reminders: extend the existing pg_cron reminder pattern (`00065`) or skip reminders in the MVP;
+- E2E: create event → student RSVP → head sees count.
+
+Do **not** call an announcement page “events” without calendar/date/venue/RSVP. That is the current honesty gap.
+
+**Estimate:** 0 days for Option 1; 3–7 days for Option 2.
+
+---
+
+### P1-F — Consolidate the evidence
+
+**Goal:** make the capstone report match reality.
+
+- Update `Objective_Achievement_Report.md`:
+  - Objective 2: concurrency evidence already updated in §1.5;
+  - Objective 3/4/5: unchanged unless tests find defects;
+  - Objective 7 (events): mark implemented or renamed;
+  - Objective 11: replace “partially achieved” with the measured usability/accessibility evidence;
+  - ISO 25010 table: cite test results, CI artifacts, and the study report.
+- Add a short “How to reproduce” section with exact commands.
+- Keep dated evidence; do not rewrite the original findings.
+
+**Estimate:** 0.5–1 day.
+
+---
+
+## 4. Recommended phasing
+
+Dependencies matter more than raw effort.
+
+| Phase | Work | Depends on | Estimate |
+|---|---|---|---|
+| **P1.0** | Decisions: event scope, test DB approach, study participants | — | 0.5 day |
+| **P1.1** | Mobile data truth (P1-A) | P1.0 event decision (only if nav changes) | 1–1.5 days |
+| **P1.2** | Unit tests + CI (P1-B1/B2/B4) | — (can run parallel with P1.1) | 1.5–2 days |
+| **P1.3** | RLS integration tests (P1-B3) | P1.0 test DB choice | 1 day |
+| **P1.4** | Playwright smoke (P1-C) | P1.2 CI + stable seed accounts | 2–3 days |
+| **P1.5** | Events rename / scope note (P1-E Option 1) | P1.0 decision | 0 days (documentation) |
+| **P1.6** | Usability + accessibility (P1-D) | UI frozen (P1.5 scope note done) | 2–4 dev days + 1–2 weeks elapsed |
+| **P1.7** | Report consolidation (P1-F) | All evidence | 0.5–1 day |
+
+**Critical path:** P1.0 → P1.1/P1.2 → P1.4 → P1.6 → P1.7.
+
+**Realistic calendar:** 2–3 weeks if the usability sessions can be scheduled in parallel with engineering. Events Option 2 adds up to a week.
+
+---
+
+## 5. Acceptance checklist
+
+- [ ] PSS-10 instrument has one shared source; mobile imports it; mock exports removed.
+- [ ] Mobile profile is documented as live, not mock.
+- [ ] `pnpm test` runs unit tests locally and in PR CI.
+- [ ] RLS tests run against a real database or explicitly skip with a reason.
+- [ ] Four role-based Playwright smoke specs pass.
+- [ ] Nightly/manual CI runs `check:schema` and the P0 concurrency test and uploads evidence.
+- [ ] Event scope is decided: implemented MVP or renamed objective.
+- [ ] Usability study report exists with participants, task metrics, SUS, and WCAG findings.
+- [ ] High-severity accessibility findings are fixed or accepted in writing.
+- [ ] `Objective_Achievement_Report.md` and the ISO 25010 table cite the new evidence.
+- [ ] Web and mobile typecheck/build pass; no secrets committed.
+
+---
+
+## 6. Risks and mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Moving PSS-10 text accidentally changes validated wording | Copy verbatim; add an integrity test for item count/order; review the diff manually |
+| Test framework expands into JSX/Expo setup and stalls | Start with Vitest in `shared-services` only; add UI/E2E separately |
+| CI concurrency test writes to shared staging on every PR | Run only on schedule/manual; tag and clean rows; keep `assertStaging()` |
+| RLS tests give false confidence through mocks | Use a real database; skip explicitly if unavailable; never mock RLS |
+| Playwright tests are flaky | Dedicated seed accounts, unique data tags, one worker, retries only on CI |
+| Usability study is rushed or unrepresentative | Pre-register tasks/metrics; record participant roles; report limitations |
+| Events MVP balloons | Fixed MVP scope: no ticketing, no attendance hardware, no external calendar sync |
+| P0 regression returns | Keep `check:schema` and concurrency in the scheduled CI job; never bypass the constraint |
+
+---
+
+## 7. Decisions (recorded 24 October 2026)
+
+1. **Events — decided: rename to “announcement management.”** No `events` table or RSVP build in P1. Update the manuscript/objective wording and state the scope honestly. (Option 1 in P1-E.)
+2. **Test database — decided: local Supabase in CI.** RLS integration tests use `supabase start`; no shared-staging writes for integration tests. Concurrency/schema checks remain the separate scheduled/manual staging job.
+3. **Usability participants:** who recruits the 5–8 users per role, and what is the target date? *(still open)*
+4. **PSS-10 licensing/wording:** does the project have the validated PSS-10 item wording and permission to reproduce it? If not, that is a manuscript/legal note, not a coding problem. *(still open)*
+5. **CI provider:** GitHub Actions is assumed (repo is on GitHub); confirm it is enabled and staging secrets can be stored. *(to verify during P1-B)*
+
+---
+
+## 8. Deliverables
+
+- `packages/shared-services/src/assessments/pss10-instrument.ts`
+- Updated `apps/mobile/app/check-in.tsx` and `apps/mobile/data/mock.ts`
+- Corrected `apps/mobile/README.md`
+- Vitest config + `packages/shared-services/src/**/*.test.ts`
+- `.github/workflows/ci.yml`
+- `e2e/` Playwright workspace + four role specs
+- `docs/p1-usability-accessibility-report.md`
+- Migration `00068_events.sql` (only if Option 2)
+- Updated `Objective_Achievement_Report.md`
+- One or more commits pushed to `origin/main`
+
+---
+
+*End of P1 plan.*
