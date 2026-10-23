@@ -32,6 +32,32 @@ A reader can verify every remaining objective claim from **reproducible evidence
 - a usability/accessibility report exists with real participants and fixes for high-severity findings;
 - the “events” objective is either implemented or honestly renamed.
 
+### Objective traceability matrix
+
+Every P1 task must name the objective it protects. If a task cannot, it is out of scope.
+
+| # | Objective (short) | Current verdict | P1 workstream | Evidence P1 produces |
+|---:|---|---|---|---|
+| 1 | User-friendly mobile + web interfaces | Substantially achieved | P1-A, P1-C, P1-D | Mobile typecheck; role E2E paths; task success/time/SUS; WCAG findings |
+| 2 | Booking, reschedule, cancel + PSS-10 before sessions | Substantially achieved | P0 (done), P1-A, P1-B, P1-C | Shared PSS instrument; scoring/freshness/`23P01` unit tests; student booking E2E; P0 concurrency evidence retained |
+| 3 | Secure anonymous identity | Substantially achieved | P1-B, P1-C | RLS integration tests for cross-student access; student/counselor E2E paths; alias checks |
+| 4 | Counselor dashboard: schedules, records, notes | Substantially achieved | P1-B, P1-C, P1-D | RBAC tests; counselor confirm → complete → note E2E; usability findings |
+| 5 | Analytics: data, stress trends, reports | Substantially achieved | P0 (done), P1-B, P1-C | Report RPCs verified in P0; analytics query tests; head report E2E with populated sections |
+| 6 | Real-time chat | Fully achieved | Regression guard only | Existing realtime perf evidence remains the primary proof; no P1 feature change |
+| 7 | Event management / announcements | Partially achieved | P1-E | Decision record: rename to announcement management, or events MVP + E2E |
+| 8 | Google Meet link | Partially achieved | P1-B (validation test only) | `isMeetUrl()` unit tests; feature scope remains P2 |
+| 9 | Break-glass emergency access + audit | Fully achieved | P1-B | Audit/RLS tests proving append-only logs and role boundaries |
+| 10 | Faculty referral feature | Fully achieved | P1-B, P1-C | Referral transition unit tests; faculty referral E2E; head assignment path |
+| 11 | ISO/IEC 25010 evaluation | Partially achieved | P1-B, P1-C, P1-D, P1-F | CI artifacts, E2E results, usability/SUS/WCAG report, updated ISO 25010 table |
+
+**How to read this**
+
+- P1 does **not** re-implement Objectives 6, 9, or 10. They are already fully achieved; P1 only adds regression evidence where cheap.
+- P1-A and P1-B are **enabling** work: they make Objectives 1, 2, and 11 verifiable.
+- P1-D is the only direct evidence for the usability half of Objective 11 and the “non-technical users” lens in Objective 1.
+- Objective 8 remains P2. Adding a validation test does not make Google Meet integration complete.
+- Objective 7 is a **scope-honesty** decision, not a hidden feature build.
+
 ---
 
 ## 2. Current state (verified before planning)
