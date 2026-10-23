@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"] as const;
+const ACTIVE_APPOINTMENTS = ["pending", "assigned", "confirmed"] as const;
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
   pending: { label: "Pending", color: "#F59E0B" },
@@ -27,11 +28,54 @@ function dayLabel(d: Date): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+type AppointmentFeedRow = {
+  id: string;
+  scheduled_at: string;
+  created_at: string;
+  status: string;
+  concern: string;
+  student_id: string | null;
+  is_anonymous: boolean;
+};
+
+type FacultyReferralRow = {
+  id: string;
+  reason: string;
+  priority: string;
+  status: string;
+  student_id: string | null;
+  referring_faculty_id: string | null;
+  created_at: string;
+};
+
 export type HeadDashboardPayload = {
   kpis: { sessionsToday: number | null; referralsWaiting: number | null; openChats: number | null };
-  referralsWaiting: { id: string; reason: string; priority: string; studentAlias: string; createdAt: string }[];
-  upcomingSessions: { id: string; scheduledAt: string; status: string; concern: string }[];
-  unassigned: { id: string; reason: string; priority: string; studentAlias: string; createdAt: string }[];
+  latestBookings: {
+    id: string;
+    scheduledAt: string;
+    createdAt: string;
+    status: string;
+    concern: string;
+    studentAlias: string;
+    isAnonymous: boolean;
+  }[];
+  facultyReferrals: {
+    id: string;
+    reason: string;
+    priority: string;
+    status: string;
+    studentAlias: string;
+    facultyName: string;
+    createdAt: string;
+  }[];
+  unassignedAppointments: {
+    id: string;
+    scheduledAt: string;
+    createdAt: string;
+    status: string;
+    concern: string;
+    studentAlias: string;
+  }[];
   announcements: { id: string; title: string; publishedAt: string | null }[];
   weekChart: { key: string; day: string; sessions: number }[];
   statusChart: { name: string; value: number; color: string }[];
@@ -74,9 +118,9 @@ export async function GET() {
     todayCount,
     referralsCount,
     chatsCount,
-    referralsRecent,
-    upcoming,
-    unassigned,
+    latestBookings,
+    facultyReferrals,
+    unassignedAppointments,
     announcements,
     weekRows,
     statusRows,
@@ -99,25 +143,22 @@ export async function GET() {
       .eq("recipient_profile_id", user.id)
       .eq("is_read", false),
     supabase
+      .from("appointments")
+      .select("id, scheduled_at, created_at, status, concern, student_id, is_anonymous")
+      .order("created_at", { ascending: false })
+      .limit(6),
+    supabase
       .from("referrals")
-      .select("id, reason, priority, status, student_id, created_at")
-      .in("status", [...OPEN_REFERRALS])
+      .select("id, reason, priority, status, student_id, referring_faculty_id, created_at")
       .order("created_at", { ascending: false })
       .limit(6),
     supabase
       .from("appointments")
-      .select("id, scheduled_at, status, concern")
-      .gte("scheduled_at", new Date().toISOString())
-      .in("status", ["pending", "assigned", "confirmed"])
-      .order("scheduled_at", { ascending: true })
-      .limit(5),
-    supabase
-      .from("referrals")
-      .select("id, reason, priority, student_id, created_at")
-      .in("status", [...OPEN_REFERRALS])
-      .is("assigned_counselor_id", null)
+      .select("id, scheduled_at, created_at, status, concern, student_id, is_anonymous")
+      .in("status", [...ACTIVE_APPOINTMENTS])
+      .is("counselor_id", null)
       .order("created_at", { ascending: false })
-      .limit(5),
+      .limit(6),
     supabase
       .from("announcements")
       .select("id, title, published_at")
@@ -132,20 +173,52 @@ export async function GET() {
     supabase.rpc("head_referral_status_counts"),
   ]);
 
-  type ReferralRow = {
-    id: string;
-    reason: string;
-    priority: string;
-    student_id: string;
-    created_at: string;
-  };
-  const recentRows = ((referralsRecent.data ?? []) as ReferralRow[]);
-  const unassignedRows = (((unassigned as { data: unknown }).data ?? []) as ReferralRow[]);
-  const studentIds = [...new Set([...recentRows, ...unassignedRows].map((r) => r.student_id))];
+  const bookingRows = (latestBookings.data ?? []) as AppointmentFeedRow[];
+  const unassignedRows = (unassignedAppointments.data ?? []) as AppointmentFeedRow[];
+  const referralRows = (facultyReferrals.data ?? []) as FacultyReferralRow[];
+
+  // Student aliases: one lookup shared by all three feeds.
+  const studentIds = [
+    ...new Set(
+      [...bookingRows, ...unassignedRows, ...referralRows]
+        .map((r) => r.student_id)
+        .filter((id): id is string => !!id)
+    ),
+  ];
   let aliasById = new Map<string, string>();
   if (studentIds.length) {
     const { data } = await supabase.from("students").select("id, anonymous_alias").in("id", studentIds);
-    aliasById = new Map(((data ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => [s.id, s.anonymous_alias ?? "Student"]));
+    aliasById = new Map(
+      ((data ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => [
+        s.id,
+        s.anonymous_alias ?? "Student",
+      ])
+    );
+  }
+
+  // Faculty names: referrals store the faculty_members row, whose display
+  // name lives on the linked profile. Two batched lookups, no N+1.
+  const facultyIds = [
+    ...new Set(referralRows.map((r) => r.referring_faculty_id).filter((id): id is string => !!id)),
+  ];
+  let facultyNameById = new Map<string, string>();
+  if (facultyIds.length) {
+    const { data: facultyRows } = await supabase
+      .from("faculty_members")
+      .select("id, profile_id")
+      .in("id", facultyIds);
+    const rows = (facultyRows ?? []) as { id: string; profile_id: string }[];
+    const profileIds = [...new Set(rows.map((f) => f.profile_id))];
+    if (profileIds.length) {
+      const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", profileIds);
+      const nameByProfile = new Map(
+        ((profiles ?? []) as { id: string; full_name: string | null }[]).map((p) => [
+          p.id,
+          p.full_name ?? "Faculty",
+        ])
+      );
+      facultyNameById = new Map(rows.map((f) => [f.id, nameByProfile.get(f.profile_id) ?? "Faculty"]));
+    }
   }
 
   const buckets = Array.from({ length: 7 }, (_, i) => {
@@ -168,37 +241,46 @@ export async function GET() {
     .filter(([, v]) => v > 0)
     .map(([k, v]) => ({ name: STATUS_META[k]?.label ?? k, value: v, color: STATUS_META[k]?.color ?? "#94A3B8" }));
 
+  const aliasOf = (r: { student_id: string | null }) =>
+    (r.student_id ? aliasById.get(r.student_id) : undefined) ?? "Student";
+
   const payload: HeadDashboardPayload = {
     kpis: {
       sessionsToday: todayCount.error ? null : (todayCount.count ?? 0),
       referralsWaiting: referralsCount.error ? null : (referralsCount.count ?? 0),
       openChats: chatsCount.error ? null : (chatsCount.count ?? 0),
     },
-    referralsWaiting: referralsRecent.error
+    latestBookings: latestBookings.error
       ? []
-      : recentRows.map((r) => ({
-          id: r.id,
-          reason: r.reason,
-          priority: r.priority,
-          studentAlias: aliasById.get(r.student_id) ?? "Student",
-          createdAt: r.created_at,
-        })),
-    upcomingSessions: upcoming.error
-      ? []
-      : (((upcoming.data ?? []) as { id: string; scheduled_at: string; status: string; concern: string }[]).map((a) => ({
+      : bookingRows.map((a) => ({
           id: a.id,
           scheduledAt: a.scheduled_at,
+          createdAt: a.created_at,
           status: a.status,
           concern: a.concern,
-        }))),
-    unassigned: unassigned.error
+          studentAlias: aliasOf(a),
+          isAnonymous: a.is_anonymous,
+        })),
+    facultyReferrals: facultyReferrals.error
       ? []
-      : unassignedRows.map((r) => ({
+      : referralRows.map((r) => ({
           id: r.id,
           reason: r.reason,
           priority: r.priority,
-          studentAlias: aliasById.get(r.student_id) ?? "Student",
+          status: r.status,
+          studentAlias: aliasOf(r),
+          facultyName: (r.referring_faculty_id ? facultyNameById.get(r.referring_faculty_id) : undefined) ?? "Faculty",
           createdAt: r.created_at,
+        })),
+    unassignedAppointments: unassignedAppointments.error
+      ? []
+      : unassignedRows.map((a) => ({
+          id: a.id,
+          scheduledAt: a.scheduled_at,
+          createdAt: a.created_at,
+          status: a.status,
+          concern: a.concern,
+          studentAlias: aliasOf(a),
         })),
     announcements: announcements.error
       ? []
