@@ -13,7 +13,9 @@ test.describe("student role", () => {
     await login(page, seed.users.student.email, seed.password);
 
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByText(/Davao Oriental State University/i).first()).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Counseling that feels/i }),
+    ).toBeVisible();
 
     // (staff) layout calls requireRole and redirects a student back to "/".
     await page.goto("/appointments");

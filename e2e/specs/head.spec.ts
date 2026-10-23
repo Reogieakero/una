@@ -11,7 +11,7 @@ test.describe("head role", () => {
     const seed = loadSeed();
     await login(page, seed.users.head.email, seed.password);
     await expect(page).toHaveURL(/\/dashboard/);
-    await expect(page.getByRole("heading", { name: /Welcome back/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
 
     await page.goto("/referrals");
     await expect(page.getByRole("heading", { name: "Referrals", exact: true })).toBeVisible();

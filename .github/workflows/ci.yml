@@ -129,6 +129,7 @@ jobs:
           echo "TEST_SUPABASE_SERVICE_ROLE_KEY=$(jq -r '.SERVICE_ROLE_KEY // .SECRET_KEY' /tmp/supabase-status.json)" >> "$GITHUB_ENV"
           echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
           echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$(jq -r '.SERVICE_ROLE_KEY // .SECRET_KEY' /tmp/supabase-status.json)" >> "$GITHUB_ENV"
           test -n "$API_URL"
 
       - name: Install Chromium
