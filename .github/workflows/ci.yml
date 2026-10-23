@@ -48,8 +48,50 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
           SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
 
-  staging-guards:
-    name: Staging schema + P0 concurrency
+  rls:
+    name: RLS integration (local Supabase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Apply migrations and seed
+        run: supabase db reset
+
+      - name: Export local Supabase credentials
+        run: |
+          supabase status -o json > /tmp/supabase-status.json
+          echo "TEST_SUPABASE_URL=$(jq -r '.API_URL' /tmp/supabase-status.json)" >> "$GITHUB_ENV"
+          echo "TEST_SUPABASE_ANON_KEY=$(jq -r '.ANON_KEY // .PUBLISHABLE_KEY' /tmp/supabase-status.json)" >> "$GITHUB_ENV"
+          echo "TEST_SUPABASE_SERVICE_ROLE_KEY=$(jq -r '.SERVICE_ROLE_KEY // .SECRET_KEY' /tmp/supabase-status.json)" >> "$GITHUB_ENV"
+          test -n "$(jq -r '.API_URL' /tmp/supabase-status.json)"
+
+      - name: RLS integration tests
+        run: pnpm --filter @dorsu/rls-tests test:rls
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
+
+  staging-guards:    name: Staging schema + P0 concurrency
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:

@@ -416,7 +416,7 @@ Updated 24 October 2026.
 - [x] **P1.1 — Mobile data truth:** PSS-10 content moved to `packages/shared-services/src/assessments/pss10-instrument.ts`; scoring imports the same reverse indexes; `apps/mobile/app/check-in.tsx` uses the shared instrument; `apps/mobile/data/mock.ts` removed; mobile README corrected; licence/provenance note added at `docs/pss10-license-note.md`.
 - [x] **P1.2 — Unit test foundation:** Vitest added to `@dorsu/shared-services`; 41 tests cover instrument integrity, scoring/bands, PSS-10 freshness, booking gate/idempotency/`23P01`, confirm `23P01` mapping, Meet URL validation, and RBAC.
 - [x] **P1.2 — CI:** `.github/workflows/ci.yml` runs typecheck, unit tests, and web build on PRs; a scheduled/manual job runs staging `check:schema` + P0 concurrency when staging secrets exist.
-- [ ] **P1.3 — RLS integration tests:** not started.
+- [ ] **P1.3 — RLS integration tests:** implemented in `tests/rls` (8 cases) and wired to a dedicated CI job that starts local Supabase; awaiting first green CI run.
 - [ ] **P1.4 — Role-based E2E:** not started.
 - [ ] **P1.5 — Event scope note:** decision recorded; manuscript wording still to update.
 - [ ] **P1.6 — Usability/accessibility study:** not started (human-dependent).
