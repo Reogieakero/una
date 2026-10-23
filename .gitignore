@@ -30,3 +30,6 @@ supabase/config.toml.bak
 
 # pnpm
 .pnpm-store/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
