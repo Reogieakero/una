@@ -91,7 +91,8 @@ jobs:
         if: always()
         run: supabase stop --no-backup
 
-  staging-guards:    name: Staging schema + P0 concurrency
+  staging-guards:
+    name: Staging schema + P0 concurrency
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:
