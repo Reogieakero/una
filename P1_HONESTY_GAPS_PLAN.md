@@ -417,7 +417,7 @@ Updated 24 October 2026.
 - [x] **P1.2 — Unit test foundation:** Vitest added to `@dorsu/shared-services`; 41 tests cover instrument integrity, scoring/bands, PSS-10 freshness, booking gate/idempotency/`23P01`, confirm `23P01` mapping, Meet URL validation, and RBAC.
 - [x] **P1.2 — CI:** `.github/workflows/ci.yml` runs typecheck, unit tests, and web build on PRs; a scheduled/manual job runs staging `check:schema` + P0 concurrency when staging secrets exist.
 - [x] **P1.3 — RLS integration tests:** `tests/rls` has 8 cases covering cross-student appointment/PSS/profile isolation, cross-role insert denial, counselor note isolation with head oversight, self-promotion blocking, audit read scope + append-only behavior, and notification content minimization. CI job starts local Supabase, applies all migrations, runs the suite, and stops the stack. First green run: `CI` #39990715576 (RLS job 3m19s).
-- [ ] **P1.4 — Role-based E2E:** not started.
+- [ ] **P1.4 — Role-based E2E:** `e2e/` (Playwright, 4 specs) seeds one account per role plus a past confirmed session, pending referral, and PSS-10 row, then asserts the student route boundary, counselor Complete → session-note save, faculty referral history + form modal, and head referral board + populated report KPIs/sections. CI job builds the web app against local Supabase and uploads traces/screenshots on every run; awaiting first green CI run.
 - [ ] **P1.5 — Event scope note:** decision recorded; manuscript wording still to update.
 - [ ] **P1.6 — Usability/accessibility study:** not started (human-dependent).
 - [ ] **P1.7 — Report consolidation:** not started.

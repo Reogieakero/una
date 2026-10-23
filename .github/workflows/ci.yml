@@ -91,6 +91,73 @@ jobs:
         if: always()
         run: supabase stop --no-backup || true
 
+  e2e:
+    name: Role smoke (Playwright, local Supabase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.0
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Apply migrations and seed
+        run: supabase db reset
+
+      - name: Export local Supabase credentials
+        run: |
+          supabase status -o json > /tmp/supabase-status.json
+          API_URL="$(jq -r '.API_URL' /tmp/supabase-status.json)"
+          ANON_KEY="$(jq -r '.ANON_KEY // .PUBLISHABLE_KEY' /tmp/supabase-status.json)"
+          echo "TEST_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "TEST_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "TEST_SUPABASE_SERVICE_ROLE_KEY=$(jq -r '.SERVICE_ROLE_KEY // .SECRET_KEY' /tmp/supabase-status.json)" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          test -n "$API_URL"
+
+      - name: Install Chromium
+        run: pnpm --filter @dorsu/e2e exec playwright install --with-deps chromium
+
+      - name: Build web against local Supabase
+        run: pnpm --filter @dorsu/web build
+
+      - name: Role smoke tests
+        run: pnpm --filter @dorsu/e2e test:e2e
+        env:
+          # The build ran above; only start the server here.
+          E2E_WEB_COMMAND: pnpm --filter @dorsu/web start
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup || true
+
   staging-guards:
     name: Staging schema + P0 concurrency
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
