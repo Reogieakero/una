@@ -28,7 +28,7 @@ test.describe("head role", () => {
     await form.getByRole("button", { name: "Close", exact: true }).click();
     await expect(form).toBeHidden();
 
-    await page.goto("/reports");
+    await page.goto("/reports?section=all");
     await expect(page.getByRole("heading", { name: "Reports", exact: true })).toBeVisible();
 
     // KPIs come from the same API the charts use; labels only render once data
