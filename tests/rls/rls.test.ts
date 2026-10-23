@@ -455,7 +455,7 @@ describe.skipIf(!configured)("RLS integration", () => {
     expect(appended).toHaveLength(1);
   });
 
-  it("uses the anonymous alias, never the real name, in notifications", async () => {
+  it("does not leak identity or concern text into appointment notifications", async () => {
     const { data: inserted, error } = await asStudentA
       .from("appointments")
       .insert({
@@ -471,20 +471,26 @@ describe.skipIf(!configured)("RLS integration", () => {
     expect(error).toBeNull();
     expect(inserted).toBeTruthy();
 
+    // 00063 replaced the old alias+concern body with a generic, content-free
+    // fan-out. The alert must still reach the counselor (and head), but must
+    // never expose the alias, real name, email, student number, or concern.
     const { data: notifications, error: notifyError } = await asCounselorA
       .from("notifications")
-      .select("title, body")
+      .select("id, title, body, ref_id")
       .eq("type", "appointment")
-      .eq("link", "/appointments")
-      .ilike("body", `%${anonymousAlias}%`);
+      .eq("ref_id", inserted.id);
     expect(notifyError).toBeNull();
     expect(notifications?.length).toBeGreaterThan(0);
 
+    const serialized = JSON.stringify(notifications);
+    expect(serialized).not.toContain(anonymousAlias);
+    expect(serialized).not.toContain(realName);
+    expect(serialized).not.toContain(studentA.email);
+    expect(serialized).not.toContain(`A-${runId}`);
+    expect(serialized).not.toContain("Please keep this anonymous");
     for (const notification of notifications ?? []) {
-      expect(notification.body).toContain(anonymousAlias);
-      expect(notification.body).not.toContain(realName);
-      expect(notification.body).not.toContain(studentA.email);
-      expect(notification.body).not.toContain(`A-${runId}`);
+      expect(notification.title).toBe("New session request");
+      expect(notification.body).toBeNull();
     }
   });
 });

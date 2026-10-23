@@ -40,8 +40,8 @@ when those variables are missing.
 - A student cannot promote their own `profiles.role`.
 - Audit logs are head/admin-readable, append-only (no update/delete for any
   authenticated client), and still accept service-side appends.
-- The booking notification fan-out carries the anonymous alias, never the real
-  name, email, or student number.
+- The booking notification fan-out reaches the counselor but carries no alias,
+  real name, email, student number, or concern text (migration `00063`).
 
 ## Safety
 
