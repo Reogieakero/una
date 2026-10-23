@@ -54,7 +54,7 @@ Flat expo-router structure (no `(auth)` / `(student)` groups):
 | `/register` | Student self-registration (name, email, student no., program, year level, strong password). Supabase email confirmation is ON, so rows are created at first login |
 | `/(tabs)/home` | Student home: next session from Supabase (tap the card for the shared details/cancel sheet), announcements, quick actions, breathing exercise, mood check |
 | `/(tabs)/sessions` | Upcoming / Past / Canceled tabs from Supabase: tap a card for details (assigned counselor, schedule, reference), cancel, reschedule, and post-session rating |
-| `/(tabs)/profile` | Student card, onboarding replay, log out *(local mock data)* |
+| `/(tabs)/profile` | Student card from `profiles` + `students`, avatar upload, onboarding replay, log out |
 | `/book` | Booking step 1 of 2: concern, mode (in person / online), day and time, anonymous toggle |
 | `/check-in` | Booking step 2 of 2: PSS-10 questions; submits the assessment and creates the appointment, then opens chat |
 | `/chat` | Two-level messaging: an inbox of the student's `chat_threads` (counselor, last message, closed state), then the conversation. Sends via `sendMessage`, first message lazily calls `openThread`, and counselor replies arrive through a realtime `chat_messages` subscription. Back from a dialog returns to the inbox; back from the inbox leaves Chat. |
@@ -78,12 +78,13 @@ Tab bar: `components/TabBar.tsx` (home, book, chat, sessions, profile). Chat is 
 - Stress check: `/check-in` without booking params records the PSS-10 only (Home shortcut).
 - Stress check-in: scored and persisted with the PSS-10 band; the total is never shown to the student.
 
-**Still local mock data (`data/mock.ts`):**
+**No local mock data remains in `data/mock.ts`.** That file was removed in P1. The
+profile card reads `profiles` + `students`, and the PSS-10 wording/labels now come
+from `@dorsu/shared-services` (`pss10-instrument.ts`). Booking day/time presentation
+uses real counselor availability, not fixtures.
 
-- Profile identity card.
-- PSS-10 question wording/labels (scoring itself is real) and booking day/time presentation.
-
-When replacing mock data, keep the same flow: call `getSupabase()` and a function from `@dorsu/shared-services` — do not add direct table logic to screens.
+When adding data, keep the same flow: call `getSupabase()` and a function from
+`@dorsu/shared-services` — do not add direct table logic to screens.
 
 ---
 
@@ -99,7 +100,7 @@ app/
     _layout.tsx        Custom tab bar
     home.tsx           Home dashboard (live data)
     sessions.tsx       Session list (live data)
-    profile.tsx        Student profile (mock)
+    profile.tsx        Student profile (live)
   book.tsx             Booking step 1
   check-in.tsx         PSS-10 + booking step 2 (live writes)
   chat.tsx             Student ↔ Guidance chat (live data + realtime)
@@ -110,7 +111,6 @@ lib/
   supabase/ensureStudent.ts Profile/student bootstrap + friendly DB errors
   onboarding.ts            First-launch flag (AsyncStorage)
 data/
-  mock.ts                  Local mock content (student card, PSS questions)
   academics.ts              DOrSU faculties and year levels for registration
 theme.ts               Colors, type scale, spacing, radii, button/input sizes, hit slop
 ```

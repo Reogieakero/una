@@ -10,6 +10,7 @@
     "build:web": "turbo build --filter=@dorsu/web",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
+    "test": "pnpm -r --if-present test",
     "db:types": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID --schema public > packages/shared-types/src/database.ts",
     "db:generate": "pnpm --filter @dorsu/db db:generate",
     "db:validate": "pnpm --filter @dorsu/db db:validate",

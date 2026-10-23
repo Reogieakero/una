@@ -11,10 +11,15 @@ import { IconButton } from '@/components/IconButton';
 import { ProgressSegments } from '@/components/ProgressSegments';
 import { Chip } from '@/components/Chip';
 import { SunCorner } from '@/components/illustrations/SunCorner';
-import { pssQuestions, pssLabels } from '@/data/mock';
 import { getSupabase } from '@/lib/supabase/client';
 import { ensureStudentRows, friendlyDbError } from '@/lib/supabase/ensureStudent';
-import { submitPss10, bookAppointment } from '@dorsu/shared-services';
+import {
+  submitPss10,
+  bookAppointment,
+  PSS10_ITEMS as pssQuestions,
+  PSS10_LABELS as pssLabels,
+  PSS10_INSTRUCTIONS,
+} from '@dorsu/shared-services';
 
 function combineDateTime(dateIso: string, timeLabel: string): Date | null {
   const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateIso);
@@ -198,7 +203,7 @@ export default function CheckIn() {
             <View style={styles.face}>
               <Meh size={sizes.tabIcon} color={colors.blue} />
             </View>
-            <Text style={styles.stem}>In the last month, how often have you…</Text>
+            <Text style={styles.stem}>{PSS10_INSTRUCTIONS}</Text>
             <Text style={styles.q}>{pssQuestions[index]}</Text>
             <View style={styles.row}>
               {[0, 1, 2, 3, 4].map((v) => {

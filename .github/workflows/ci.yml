@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # 18:00 UTC = 02:00 Asia/Manila — nightly schema/concurrency guard.
+    - cron: "0 18 * * *"
+
+jobs:
+  verify:
+    name: Typecheck, unit tests, web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck shared services
+        run: pnpm --filter @dorsu/shared-services typecheck
+
+      - name: Typecheck web
+        run: pnpm --filter @dorsu/web typecheck
+
+      - name: Typecheck mobile
+        run: pnpm --filter @dorsu/mobile typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build web
+        run: pnpm --filter @dorsu/web build
+        env:
+          # Placeholders only — no database is touched during the build.
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+
+  staging-guards:
+    name: Staging schema + P0 concurrency
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check staging secrets
+        id: staging
+        env:
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_DIRECT_URL: ${{ secrets.STAGING_DIRECT_URL }}
+        run: |
+          if [ -n "$STAGING_SUPABASE_URL" ] && [ -n "$STAGING_SUPABASE_ANON_KEY" ] && [ -n "$STAGING_SUPABASE_SERVICE_ROLE_KEY" ] && [ -n "$STAGING_DIRECT_URL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Staging secrets are not configured; guard checks skipped."
+          fi
+
+      - name: Write staging env
+        if: steps.staging.outputs.configured == 'true'
+        env:
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          STAGING_DIRECT_URL: ${{ secrets.STAGING_DIRECT_URL }}
+        run: |
+          cat > .env <<EOF
+          NEXT_PUBLIC_SUPABASE_URL=${STAGING_SUPABASE_URL}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=${STAGING_SUPABASE_ANON_KEY}
+          SUPABASE_SERVICE_ROLE_KEY=${STAGING_SUPABASE_SERVICE_ROLE_KEY}
+          DIRECT_URL=${STAGING_DIRECT_URL}
+          EOF
+
+      - name: Install perf-test deps
+        if: steps.staging.outputs.configured == 'true'
+        working-directory: perf-tests
+        run: npm install
+
+      - name: Schema regression check
+        if: steps.staging.outputs.configured == 'true'
+        working-directory: perf-tests
+        run: node check-schema.mjs
+
+      - name: P0 concurrency (E1/E2)
+        if: steps.staging.outputs.configured == 'true'
+        working-directory: perf-tests
+        run: node concurrency-slots.mjs
+
+      - name: Upload concurrency evidence
+        if: always() && steps.staging.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: concurrency-evidence
+          path: perf-tests/results/concurrency.json
+          if-no-files-found: warn
