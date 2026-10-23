@@ -15,8 +15,18 @@ test.describe("head role", () => {
 
     await page.goto("/referrals");
     await expect(page.getByRole("heading", { name: "Referrals", exact: true })).toBeVisible();
-    await expect(page.getByText(seed.studentAlias).first()).toBeVisible();
-    await expect(page.getByText(seed.referralReason).first()).toBeVisible();
+    const referralRow = page.getByRole("row").filter({ hasText: seed.studentAlias });
+    await expect(referralRow).toBeVisible();
+    await expect(referralRow.getByText("High", { exact: true })).toBeVisible();
+
+    // The board deliberately shows the alias/priority/status only; the reason
+    // lives in the official form overlay opened from this row.
+    await referralRow.getByRole("button", { name: "View reason" }).click();
+    const form = page.getByRole("dialog", { name: "Counseling Referral Form" });
+    await expect(form).toBeVisible();
+    await expect(form.getByText(seed.referralReason)).toBeVisible();
+    await form.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(form).toBeHidden();
 
     await page.goto("/reports");
     await expect(page.getByRole("heading", { name: "Reports", exact: true })).toBeVisible();
