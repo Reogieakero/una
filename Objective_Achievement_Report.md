@@ -44,8 +44,8 @@ The report separates three things that are often confused:
 
 **Honest weaknesses**
 
-- The performance artifacts contain a **failed same-slot concurrency test**: 50 concurrent confirmations of overlapping appointments produced **50 confirmed rows** where exactly 1 was expected (`perf-tests/results/concurrency.json`, E1 `pass: false`). The code contains an exclusion constraint intended to prevent this (`00059_phase1_perf_indexes_slotguard.sql`), but the constraint is wrapped in a `DO … EXCEPTION` block that silently skips creation if overlapping rows already exist. This must be verified in the deployed database. **This is the single highest-risk finding in the review.**
-- The same artifacts show the analytics RPCs `head_appointment_daily_counts` and `head_referral_status_counts` as **missing** in the measured environment (`perf-tests/results/explain.json`), even though they exist in migration `00061_phase3b_report_rpcs.sql`. This is migration drift, not necessarily a code defect — but it means reports may silently degrade if deployment is not verified.
+- The performance artifacts contain a **failed same-slot concurrency test**: 50 concurrent confirmations of overlapping appointments produced **50 confirmed rows** where exactly 1 was expected (`perf-tests/results/concurrency.json`, E1 `pass: false`). The code contains an exclusion constraint intended to prevent this (`00059_phase1_perf_indexes_slotguard.sql`), but the constraint is wrapped in a `DO … EXCEPTION` block that silently skips creation if overlapping rows already exist. This must be verified in the deployed database. **This is the single highest-risk finding in the review.** **Fixed and re-measured on staging on 24 October 2026 — see §1.5.**
+- The same artifacts show the analytics RPCs `head_appointment_daily_counts` and `head_referral_status_counts` as **missing** in the measured environment (`perf-tests/results/explain.json`), even though they exist in migration `00061_phase3b_report_rpcs.sql`. This is migration drift, not necessarily a code defect — but it means reports may silently degrade if deployment is not verified. **Resolved on staging on 24 October 2026 — see §1.5.**
 - The mobile app still uses **local mock data** for the profile identity card and the PSS-10 question wording/labels (`apps/mobile/README.md`, lines 81–84). Scoring and persistence are real; presentation is not fully real.
 - “Event management” is really **announcement/newsfeed management**. There is no event calendar, venue, date range, RSVP, or attendance tracking.
 - Google Meet is a **manually pasted URL field with validation**, not a Google Calendar/Meet API integration.
@@ -59,7 +59,47 @@ For a capstone defense, the honest claim is:
 
 > “Ten of eleven objectives are implemented in software to a substantial degree; one objective (ISO/IEC 25010 evaluation) is only partially evidenced because the evaluation is performance-focused and not yet supported by formal usability testing or a complete quality test suite.”
 
+### 1.5 Post-review P0 remediation — 24 October 2026
+
+This section records work done **after** the original review. The findings above are preserved as the state at review time; they are not retracted.
+
+**Both P0 findings were real, and both are now fixed and re-measured on staging.**
+
+Root cause of the slot-guard failure was worse than “seed rows exist”:
+
+- `00059_phase1_perf_indexes_slotguard.sql` used `tstzrange(scheduled_at, coalesce(ends_at, scheduled_at + interval '1 hour'))` in an exclusion constraint.
+- `timestamptz + interval` is **STABLE, not IMMUTABLE** (it depends on the session TimeZone), so PostgreSQL rejects that expression in an index/constraint. The `DO … EXCEPTION` block hid the error.
+- Therefore the guard could not be created **even on a clean database**, and `00059`/`00061` were also missing from the measured database.
+
+Remediation applied in order: `00059`, `00061`, then new `00067_fix_slot_overlap_guard.sql`.
+
+`00067` does four things:
+
+1. Backfills `ends_at` for all rows that lacked it (136 rows) and installs a `BEFORE INSERT/UPDATE` trigger so it stays filled. The constraint can then index the immutable `tstzrange(scheduled_at, ends_at)`.
+2. Resolves connected overlap groups per counselor: keep earliest `confirmed`, else earliest `assigned`; cancel the rest and write one `audit_logs` row per cancellation. On staging this cancelled **21** duplicate active rows (27 pending rows untouched).
+3. Fails loudly if any overlap remains — it does not repeat `00059`’s silent skip.
+4. Adds the constraint and verifies `convalidated = true`.
+
+**Dated verification evidence (staging `xueqvjozlyayggsyfzsq`):**
+
+| Check | Result |
+|---|---|
+| `perf-tests/concurrency-slots.mjs` E1 (50 confirms racing into one slot) | `success: 1`, `fail: 49`, all 49 rejected with `23P01`, `confirmed: 1`, `pass: true` |
+| Same run, E2 (50 distinct-slot inserts) | `50/50`, `pass: true` |
+| `perf-tests/check-schema.mjs` | all required objects present; `SCHEMA OK` |
+| `perf-tests/check-rpc.mjs` | both report RPCs return `OK` |
+| `no_counselor_overlap` | present and validated |
+| Overlap pairs remaining | `0` |
+| Web typecheck | passed |
+| Web production build | passed (47 routes generated) |
+| Web lint | **not available** — `next lint` opens the interactive ESLint setup because the repo has no ESLint config; this is pre-existing and not a P0 regression |
+
+The stale review artifact was replaced by `perf-tests/results/concurrency.json` (`at: 2026-10-23T16:07:55Z`, E1/E2 both `pass: true`), and `perf-tests/check-schema.mjs` was added as a cheap regression gate.
+
+**What this does not prove:** the fix was validated against the approved **staging** database, not production. No browser-driven E2E or live role smoke test was added in P0. The report’s broader conclusions about analytics depth, mobile mock data, events, and formal usability testing are unchanged.
+
 ---
+
 
 ## 2. Scope, Method, and Evidence Rules
 
@@ -107,10 +147,10 @@ When sources disagreed, this report trusted them in this order:
 | # | Objective (short form) | Verdict | Strongest evidence | Main gap |
 |---:|---|---|---|---|
 | 1 | User-friendly mobile and web interface | Substantially achieved | `apps/web/app/**`, `apps/mobile/app/**`, design tokens, onboarding, role-specific navigation | Mobile profile card and PSS-10 labels are still mock; no usability test with non-technical users |
-| 2 | Book / reschedule / cancel + PSS-10 before session | Substantially achieved | `apps/mobile/app/book.tsx`, `check-in.tsx`, `booking-service.ts`, `00008`, `00059` | PSS-10 gate is 30-day freshness at booking, not literally before every session; E1 concurrency test failed |
+| 2 | Book / reschedule / cancel + PSS-10 before session | Substantially achieved | `apps/mobile/app/book.tsx`, `check-in.tsx`, `booking-service.ts`, `00008`, `00059`, `00067` | PSS-10 gate is 30-day freshness at booking, not literally before every session; E1 concurrency fixed 2026-10-24 (1 confirmed / 49 rejected) |
 | 3 | Secure anonymous identity | Substantially achieved | Alias system, `is_anonymous`, RLS, reveal API, audit logs | Pseudonymity, not cryptographic anonymity; staff with database access can correlate IDs |
 | 4 | Counselor dashboard for schedules, records, notes | Substantially achieved | `/dashboard`, `/appointments`, `/sessions`, `/students`, `/availability`, session-note API | No dedicated “student record” timeline; notes are per completed session |
-| 5 | Analytics module: collect data, stress trends, reports | Substantially achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061` | Aggregate reporting, not predictive analytics; measured env missing RPCs; no scheduled report delivery |
+| 5 | Analytics module: collect data, stress trends, reports | Substantially achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061` | Aggregate reporting, not predictive analytics; report RPC drift resolved 2026-10-24; no scheduled report delivery |
 | 6 | Real-time chat | Fully achieved | `/chat` (web + mobile), Supabase Realtime, `realtime.json` | No typing indicators/read receipts verified; no offline queue |
 | 7 | Event management for announcements/activities | Partially achieved | `/announcements`, drafts, audience targeting, images, insights, mobile home feed | No event calendar, date/venue, RSVP, or attendance |
 | 8 | Embedded Google Meet link | Partially achieved | `meeting_url` column, `isMeetUrl()` validation, online-confirm gate | Manual URL paste; no Google Calendar/Meet API or automatic link creation |
@@ -782,8 +822,8 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 
 | ID | Risk | Likelihood | Impact | Evidence | Priority |
 |---|---|---|---|---|---|
-| R1 | Double-booking / overlapping confirmed sessions under concurrency | Medium | High | `concurrency.json` E1: 50 confirmed vs expected 1; `00059` constraint can be skipped | **P0** |
-| R2 | Report RPCs missing in deployed DB, causing degraded/failed analytics | Medium | High | `explain.json`: functions do not exist; defined in `00061` | **P0** |
+| R1 | Double-booking / overlapping confirmed sessions under concurrency | Medium | High | Original: `concurrency.json` E1 50 confirmed vs expected 1; `00059` constraint could be skipped. **Fixed 2026-10-24 — see §1.5; E1 now 1 confirmed / 49 × `23P01`.** | **P0 — resolved** |
+| R2 | Report RPCs missing in deployed DB, causing degraded/failed analytics | Medium | High | Original: `explain.json` functions did not exist. **Fixed 2026-10-24 — `00061` applied; both RPCs return OK.** | **P0 — resolved** |
 | R3 | No automated tests; regressions reach production | High | High | `AGENTS.md`: no test runner | **P1** |
 | R4 | Mobile profile and PSS-10 wording are mock data | High | Medium–High | `apps/mobile/README.md`, lines 81–84 | **P1** |
 | R5 | “Events” lacks calendar/date/venue/RSVP | High | Medium | `/announcements` only | **P1** |
@@ -800,13 +840,15 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 
 ### P0 — Before claiming production readiness
 
-1. **Verify and enforce the slot exclusion constraint.**
+> **Status: completed on staging, 24 October 2026.** See §1.5 for the migration, cleanup, and re-measured evidence. Production still needs the same migrations applied and verified.
+
+1. **Verify and enforce the slot exclusion constraint.** *(done — see §1.5)*
    - Check `pg_constraint` for `no_counselor_overlap` in the deployed database.
    - Remove the silent `EXCEPTION` fallback, or replace it with a migration that fails loudly and a cleanup script for overlapping rows.
    - Re-run `perf-tests/concurrency-slots.mjs`; require E1 `confirmed === 1` and `pass: true`.
    - **Acceptance:** 50 concurrent confirms of the same slot produce exactly 1 success and 49 friendly rejections; no overlapping `assigned`/`confirmed` rows for a counselor.
 
-2. **Apply and verify migration `00061_phase3b_report_rpcs.sql`.**
+2. **Apply and verify migration `00061_phase3b_report_rpcs.sql`.** *(done — see §1.5)*
    - Confirm `head_appointment_daily_counts` and `head_referral_status_counts` exist in the deployed schema.
    - Add a startup/health check that fails visibly if report RPCs are missing.
    - **Acceptance:** `/reports` and the head dashboard load with no RPC errors; explain plans resolve.

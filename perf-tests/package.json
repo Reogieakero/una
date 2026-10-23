@@ -11,7 +11,8 @@
     "measure:mutations": "node measure-mutations.mjs",
     "concurrency": "node concurrency-slots.mjs",
     "realtime": "node realtime-latency.mjs",
-    "explain": "node explain-slowest.mjs"
+    "explain": "node explain-slowest.mjs",
+    "check:schema": "node check-schema.mjs"
   },
   "dependencies": {
     "@playwright/test": "^1.49.0",

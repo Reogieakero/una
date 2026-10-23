@@ -1,9 +1,14 @@
 /**
  * Concurrency tests (STAGING ONLY — host gate enforced).
- * E1: 50 concurrent CONFIRMS of different assigned appointments for the SAME
- *     counselor + slot. The app-level overlap gate is check-then-write (racy);
- *     the 00059 exclusion constraint is the backstop. Expect EXACTLY 1
- *     confirmed; anything else (esp. >1 confirmed) is CRITICAL.
+ * E1: 50 assigned appointments on DISTINCT slots are concurrently re-confirmed
+ *     into the SAME counselor + target slot. The app-level overlap gate is
+ *     check-then-write (racy); the 00059 exclusion constraint is the backstop.
+ *     Expect EXACTLY 1 confirmed at the target slot and 49 rejected with 23P01.
+ *
+ *     Why distinct setup slots: the constraint also protects `assigned` rows,
+ *     so seeding 50 assigned rows in one slot would fail before the race. The
+ *     race being tested is the confirmation move into a contended slot.
+ *
  * E2: 50 concurrent booking inserts on distinct slots (throughput sanity).
  * Cleans up: race rows + measurement bookings are cancelled afterwards
  * (keeps the staging board usable; verification queries run first).
@@ -66,27 +71,48 @@ async function main() {
 
   const counselor = manifest.counselors[0];
   const cc = await signIn(counselor.email);
-  const raceStart = futureWeekday10am(100);
+  const raceStart = futureWeekday10am(160);
   const raceEnd = new Date(raceStart.getTime() + 3600000);
-  console.log(`E1: race slot ${raceStart.toISOString()} counselor ${counselor.id}`);
+  console.log(`E1: target slot ${raceStart.toISOString()} counselor ${counselor.id}`);
 
-  // Setup: 50 assigned appointments, distinct students, same slot.
+  // Target slot must be clear before the race; otherwise the result is not
+  // attributable to the concurrent confirms.
+  const { data: activeRows, error: activeErr } = await svc
+    .from("appointments")
+    .select("id, scheduled_at, ends_at, status")
+    .eq("counselor_id", counselor.id)
+    .in("status", ["assigned", "confirmed"]);
+  if (activeErr) throw activeErr;
+  const conflicts = (activeRows ?? []).filter((a) => {
+    const s = new Date(a.scheduled_at).getTime();
+    const e = a.ends_at ? new Date(a.ends_at).getTime() : s + 3600000;
+    return s < raceEnd.getTime() && e > raceStart.getTime();
+  });
+  if (conflicts.length) {
+    throw new Error(`target slot already has ${conflicts.length} active row(s); pick another day`);
+  }
+
+  // Setup: 50 assigned appointments on distinct, non-overlapping slots.
+  // They are moved into the contended target slot by the concurrent confirms.
   const ids = [];
   for (let i = 0; i < N; i += 10) {
-    const batch = manifest.students.slice(i, i + 10).map((s) => ({
-      student_id: s.id,
-      counselor_id: counselor.id,
-      scheduled_at: raceStart.toISOString(),
-      ends_at: raceEnd.toISOString(),
-      mode: "in_person",
-      status: "assigned",
-      concern: "[perf] race confirm",
-    }));
+    const batch = manifest.students.slice(i, i + 10).map((s, j) => {
+      const slot = new Date(raceStart.getTime() + (i + j + 1) * 3 * 3600000);
+      return {
+        student_id: s.id,
+        counselor_id: counselor.id,
+        scheduled_at: slot.toISOString(),
+        ends_at: new Date(slot.getTime() + 3600000).toISOString(),
+        mode: "in_person",
+        status: "assigned",
+        concern: "[perf] race confirm",
+      };
+    });
     const { data, error } = await svc.from("appointments").insert(batch).select("id");
     if (error) throw error;
     ids.push(...data.map((r) => r.id));
   }
-  console.log(`  setup: ${ids.length} assigned rows`);
+  console.log(`  setup: ${ids.length} assigned rows on distinct slots`);
 
   const t0 = performance.now();
   const results = await Promise.all(ids.map((id) => confirmOnce(cc, id, raceStart, raceEnd)));
@@ -103,10 +129,23 @@ async function main() {
   console.log(`  confirm latency: ${row("confirm", stats(results.map((r) => r.ms)))}`);
 
   // Ground truth from service role.
-  const { data: states } = await svc.from("appointments").select("id, status").in("id", ids);
+  const { data: states } = await svc
+    .from("appointments")
+    .select("id, status, scheduled_at, ends_at")
+    .in("id", ids);
   const confirmed = states.filter((r) => r.status === "confirmed");
-  console.log(`  final: confirmed=${confirmed.length} (expected EXACTLY 1)`);
-  const pass = confirmed.length === 1 && ok.length === 1;
+  const atTarget = confirmed.filter(
+    (r) => new Date(r.scheduled_at).getTime() === raceStart.getTime(),
+  );
+  const stillAssigned = states.filter((r) => r.status === "assigned");
+  console.log(`  final: confirmed=${confirmed.length}, at-target=${atTarget.length} (expected exactly 1 at target)`);
+  console.log(`  remaining assigned: ${stillAssigned.length} (expected ${N - 1})`);
+  const pass =
+    confirmed.length === 1 &&
+    atTarget.length === 1 &&
+    stillAssigned.length === N - 1 &&
+    ok.length === 1 &&
+    fail.length === N - 1;
   console.log(pass ? "  E1 PASS" : "  E1 FAIL — DOUBLE BOOKING OR LOST UPDATE (CRITICAL if >1 confirmed)");
 
   // Cleanup race rows.

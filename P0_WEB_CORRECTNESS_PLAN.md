@@ -2,12 +2,14 @@
 
 **Project:** DOrSU Guidance / Chekie (`una`)
 **Scope:** P0 blockers only — slot-race concurrency and analytics/report migration drift
-**Status:** Planned, not executed
+**Status:** P0 executed on staging, 24 October 2026 — see `Objective_Achievement_Report.md` §1.5 for results
 **Date:** 24 October 2026
 **Owner:** Web/backend implementation agent
 
-> This document is a plan. No repository files, migrations, or database rows have been changed.
-> To execute it, switch from Plan mode to the build agent.
+> **Execution note:** The database-side P0 work (`00059`, `00061`, `00067`) was applied to
+> the approved staging project, the 21-row overlap cleanup was approved and executed, and
+> the concurrency test now passes (1 confirmed / 49 rejected with `23P01`). Web typecheck
+> and build pass. Production still needs the same migrations applied and verified.
 
 ---
 
