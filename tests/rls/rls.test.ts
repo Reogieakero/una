@@ -470,6 +470,7 @@ describe.skipIf(!configured)("RLS integration", () => {
       .single();
     expect(error).toBeNull();
     expect(inserted).toBeTruthy();
+    if (!inserted) throw new Error("appointment insert returned no row");
 
     // 00063 replaced the old alias+concern body with a generic, content-free
     // fan-out. The alert must still reach the counselor (and head), but must
