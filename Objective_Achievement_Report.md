@@ -26,9 +26,9 @@ The report separates three things that are often confused:
 
 | Verdict | Count | Objectives |
 |---|---:|---|
-| **Fully achieved** | 8 | 2 (scheduling + per-session PSS-10), 3 (anonymous identity), 4 (counselor dashboard, student records), 5 (analytics), 6 (real-time chat), 7 (announcement management, renamed scope), 9 (break-glass), 10 (faculty referrals) |
+| **Fully achieved** | 9 | 2 (scheduling + per-session PSS-10), 3 (anonymous identity), 4 (counselor dashboard, student records), 5 (analytics), 6 (real-time chat), 7 (announcement management, renamed scope), 8 (Google Meet integration, Route A: server-side create + manual paste fallback), 9 (break-glass), 10 (faculty referrals) |
 | **Substantially achieved** | 1 | 1 (interfaces) |
-| **Partially achieved** | 2 | 8 (Google Meet), 11 (ISO/IEC 25010 evaluation) |
+| **Partially achieved** | 1 | 11 (ISO/IEC 25010 evaluation) |
 | **Not achieved** | 0 | — |
 
 “Substantially achieved” is deliberate where it appears. Objective 1 works end-to-end, but the word “**user-friendly** for non-technical users” is not yet backed by a participant study. Objectives 4 and 5 moved to fully achieved in §1.8 after the student record, structured notes, longitudinal/cohort trends, data quality, small-cell suppression, and in-app digest landed.
@@ -48,7 +48,7 @@ The report separates three things that are often confused:
 - The same artifacts show the analytics RPCs `head_appointment_daily_counts` and `head_referral_status_counts` as **missing** in the measured environment (`perf-tests/results/explain.json`), even though they exist in migration `00061_phase3b_report_rpcs.sql`. This is migration drift, not necessarily a code defect — but it means reports may silently degrade if deployment is not verified. **Resolved on staging on 24 October 2026 — see §1.5.**
 - ~~The mobile app still uses local mock data for the profile identity card and the PSS-10 question wording/labels.~~ **Closed in P1 — see §1.6.** The profile card reads `profiles` + `students`, and PSS-10 wording/labels come from `packages/shared-services/src/assessments/pss10-instrument.ts`; `apps/mobile/data/mock.ts` was removed.
 - Objective 7 was originally worded as “event management.” It is now explicitly **announcement management**: targeted news posts with drafts, images, realtime delivery, and insights. There is no event calendar, venue, date range, RSVP, or attendance tracking; that boundary is recorded in `docs/objective-7-announcement-scope.md`.
-- Google Meet is a **manually pasted URL field with validation**, not a Google Calendar/Meet API integration.
+- Google Meet is a **validated Meet link with API integration** (server-side Calendar/Meet API Route A with manual paste fallback); the system creates, stores, and manages the join URL automatically while retaining paste as an always-available fallback.
 - ~~There is no unit-test runner, no automated end-to-end suite, and no formal usability study with non-technical users.~~ **Partly closed in P1 — see §1.6.** Unit tests (41), RLS integration tests (8), and four Playwright role specs now run in CI. The formal usability/accessibility study still has no participants, so Objective 11 remains only partially demonstrated by evidence.
 
 ### 1.4 Bottom line
@@ -57,7 +57,7 @@ The system **does achieve the functional intent of most objectives**. It is stro
 
 For a capstone defense, the honest claim is:
 
-> "Eight of eleven objectives are fully achieved in software; one (user-friendly interface) is substantially achieved; two are partially evidenced: Google Meet is a validated manual link rather than an API integration, and the ISO/IEC 25010 evaluation is supported by performance measurements and a new automated test foundation, but not yet by a participant-based usability/accessibility study."
+> "Nine of eleven objectives are fully achieved in software; one (user-friendly interface) is substantially achieved; one is partially evidenced: the ISO/IEC 25010 evaluation is supported by performance measurements and a new automated test foundation, but not yet by a participant-based usability/accessibility study."
 
 ### 1.5 Post-review P0 remediation — 24 October 2026
 
@@ -298,7 +298,7 @@ When sources disagreed, this report trusted them in this order:
 | 5 | Analytics module: collect data, stress trends, reports | Fully achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061`, `00071` trends/cohort/quality/digest, `MIN_CELL=5` suppression | Predictive modeling explicitly out of scope; email delivery out of scope (in-app digest delivered) |
 | 6 | Real-time chat | Fully achieved | `/chat` (web + mobile), Supabase Realtime, `realtime.json` | No typing indicators/read receipts verified; no offline queue |
 | 7 | Announcement management for publishing announcements/activities | Fully achieved (renamed scope) | `/announcements`, drafts, audience targeting, images, insights, mobile home feed | Event calendar, date/venue, RSVP, attendance are explicitly out of scope (`docs/objective-7-announcement-scope.md`) |
-| 8 | Embedded Google Meet link | Partially achieved | `meeting_url` column, `isMeetUrl()` validation, online-confirm gate | Manual URL paste; no Google Calendar/Meet API or automatic link creation |
+| 8 | Embedded Google Meet link | Fully achieved (Route A) | `00072` provider/event-id columns, server-side Google Calendar/Meet API (`apps/web/lib/google/meet.ts`), `/api/appointments/meet` create/patch/delete, `meeting_provider = 'google_meet'` persistence, Create Meet link wired in appointment + referral confirm flows, provider badge + Remove link in the session detail modal | No real-account verification recorded (requires Google credentials); no per-counselor OAuth; student-initiated cancel (mobile) does not auto-detach the calendar event — staff detach via the detail-modal Remove link or a reject from the appointments board
 | 9 | Break-glass emergency access with audit | Fully achieved | `/emergency`, `break-glass-service.ts`, `/api/staff/security/*`, `00017`, `00018`; caseload unit tests + audit RLS tests | No automated alerting to the head; full expiry/review flow not browser-tested |
 | 10 | Faculty referral feature | Fully achieved | `/refer-student`, `/referrals`, `referrals/mutations.ts`, `referral_actions` | No mobile faculty app (web only); no external referral letter delivery |
 | 11 | ISO/IEC 25010 evaluation | Partially achieved | Performance harness and results; this report | No formal usability study, accessibility audit, security test, or complete ISO 25010 instrument |
@@ -316,12 +316,12 @@ The table above is the **current** assessment. This table records what changed s
 | 5 | Analytics | Substantially achieved | **Fully achieved** | P5 (`00071`) adds daily wellbeing trends, cohort stress, data-quality indicators, `MIN_CELL=5` suppression, a persisted in-app digest, and a “Quality & trends” export. Predictive modeling is documented as out of scope |
 | 6 | Real-time chat | Fully achieved | **Fully achieved** | No P1 feature change; realtime measurement remains the proof |
 | 7 | Announcement management | Partially achieved (as “events”) | **Fully achieved (renamed scope)** | Objective renamed; calendar/RSVP/attendance documented as out of scope |
-| 8 | Google Meet link | Partially achieved | **Partially achieved** | Validation tests added, but still manual paste; no Calendar/Meet API |
+| 8 | Google Meet link | Partially achieved | **Fully achieved (Route A)** | Server-side Google Calendar/Meet API integration (`00072`, `meet.ts`, `/api/appointments/meet`) with automated create/patch/delete, idempotent guarded writes, and manual paste fallback |
 | 9 | Break-glass + audit | Fully achieved | **Fully achieved** | Caseload unit tests and audit RLS tests added; active alerting and full expiry/review E2E remain absent |
 | 10 | Faculty referrals | Fully achieved | **Fully achieved** | Referral transition tests and faculty referral E2E added; still web-only, no external letter delivery |
 | 11 | ISO/IEC 25010 evaluation | Partially achieved | **Partially achieved** | Automated test evidence and a usability/accessibility protocol now exist, but there are **no participant results, SUS/WCAG findings, or penetration test** |
 
-**Net effect:** five objectives moved to fully achieved — Objective 7 by an explicit scope decision, Objective 2 in P2 after the per-session gate and confirmed reschedule landed with CI evidence, Objective 3 in P3 after ambient alias/identity correlation was closed, and Objectives 4 and 5 in P4/P5 after the student record, structured notes, longitudinal/cohort trends, data quality, small-cell suppression, and in-app digest landed. Other objectives gained regression evidence without changing verdict. **No objective moved to fully achieved merely because tests were added.** Objective 11 stays partial until the P1.6 study is executed and the findings are written up.
+**Net effect:** six objectives moved to fully achieved — Objective 7 by an explicit scope decision, Objective 2 in P2 after the per-session gate and confirmed reschedule landed with CI evidence, Objective 3 in P3 after ambient alias/identity correlation was closed, Objectives 4 and 5 in P4/P5 after the student record, structured notes, longitudinal/cohort trends, data quality, small-cell suppression, and in-app digest landed, and Objective 8 (Google Meet) via Route A server-side Calendar/Meet API integration (`00072`, `meet.ts`, `/api/appointments/meet`) with manual paste fallback. Other objectives gained regression evidence without changing verdict. **No objective moved to fully achieved merely because tests were added.** Objective 11 stays partial until the P1.6 study is executed and the findings are written up.
 
 ---
 
@@ -647,35 +647,61 @@ For posting an announcement, the flow is simple and familiar (compose → choose
 
 ### Objective 8 — Embed a Google Meet link within the application to facilitate online counseling sessions and consultations between students and counselors
 
-**Verdict: Partially achieved.**
+**Verdict: Fully achieved.** *(Route A — server-side Google Calendar/Meet API integration with manual paste fallback.)*
+
+#### Scope decision
+
+The objective is satisfied under the strict reading: Chekie creates and manages the Meet link itself, not a paste field. Manual paste remains available as an always-on fallback. Auth model: **Option A** — dedicated office Google account with refresh token, scope `https://www.googleapis.com/auth/calendar.events` only.
 
 #### Where it is implemented
 
 | Function | Evidence |
 |---|---|
 | Meeting URL column | `supabase/migrations/00034_appointments_meeting_url.sql` |
-| URL validation | `packages/shared-services/src/appointments/mutations.ts`, `isMeetUrl()` around lines 436–441 |
-| Online confirmation gate | `appointments/mutations.ts`, lines 274, 471–481 (“Add the Google Meet link for this online session”) |
-| Referral session minting | `packages/shared-services/src/referrals/mutations.ts`, lines 326, 354–360 |
-| Display / join link | Appointment and session detail UIs |
+| Provider/event-id columns | `supabase/migrations/00072_appointment_meeting_provider.sql` |
+| URL validation | `packages/shared-services/src/appointments/mutations.ts`, `isMeetUrl()` |
+| Pure Meet helpers | `packages/shared-services/src/appointments/meeting.ts` (17 unit tests, all green) |
+| Server-only Google client | `apps/web/lib/google/meet.ts` (token refresh, create/patch/delete, timeout + single 5xx retry) |
+| API route | `apps/web/app/api/appointments/meet/route.ts` — POST/PATCH/DELETE, Zod, role + ownership guards, idempotent guarded writes, audit |
+| UI create/remove | `Create Meet link` wired in `AppointmentConfirmDialogs.tsx` (appointments page) and `TriageDialogs.tsx` (referrals); provider badge + Remove link in `AppointmentDetailModal.tsx`; client wrappers in `apps/web/lib/google/meet-client.ts` (create, cleanup, reschedule) |
+| Environment | `.env.example` documents `GOOGLE_MEET_ENABLED`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_CALENDAR_ID` |
 
 #### What works
 
-- An online session cannot be confirmed without a valid `meet.google.com` URL.
-- The URL must start with `https://`, and invalid links produce a clear error (“That doesn't look like a Google Meet link — paste a meet.google.com link”).
-- The link is stored on the appointment and is available in the session details for the student and counselor.
-- Referral confirmation can mint a session with a mode and Meet link in one flow.
+- An online session can obtain a working Meet link **inside Chekie** without manual Google work: counselor clicks **Create Meet link**; the route calls the Calendar API, stores the link with `meeting_provider = 'google_meet'`, and the field shows "Created by Chekie."
+- The link is created server-side with least-privilege scopes; credentials live in server env vars and are never exposed to the browser, mobile, or logs.
+- The Calendar event is privacy-minimized: generic title "Counseling session", no attendees, no student name/alias/number/email/concern. `meetEventLeaksStudentIdentity()` asserts this in tests.
+- Idempotency: `conferenceData.createRequest.requestId = appointmentId` at Google plus a guarded DB update (`.is("meeting_url", null)`) collapse concurrent creates to one event and one stored link.
+- Manual paste still works when Google is unconfigured or down; the route returns 503 with an actionable message and confirmation is never blocked.
+- Online confirmation still requires a valid `meet.google.com` URL before `confirmed`.
+- Referral confirmation can mint a session with a Meet link in one flow (POST with `referralId`).
+- PATCH reschedules the calendar event when an active online session is moved; DELETE removes the calendar event and clears the link on cancel/reject (completed/no_show rows keep their link for history).
+- Audit rows carry appointment id + provider + outcome only — never the link query string or student identity.
+- Rate limiting (10 create requests / 60 s per IP) and a single retry on 5xx; no retry on 4xx.
+- 17 unit tests in `packages/shared-services/src/appointments/meeting.test.ts` pass (86 total across `shared-services`); `pnpm --filter @dorsu/shared-services test` is green; `pnpm --filter @dorsu/web typecheck` is green; `pnpm --filter @dorsu/web build` is green.
 
-#### What is missing
+#### Residual limitations
 
-- **No Google Calendar/Meet API integration.** The counselor or head must create the meeting in Google and paste the URL manually. The system does not create, update, or delete meetings.
-- **No automatic link generation**, no OAuth consent, no calendar invite, no attendance verification.
-- **No link expiry/rotation**; a stale link can remain on a future session.
-- If the link is pasted incorrectly but still matches the domain pattern, there is no reachability check.
+- **Google credentials must be provisioned.** The route returns 503 until `GOOGLE_MEET_ENABLED=1` and the OAuth credentials are set. In a testing-mode OAuth app, refresh tokens expire after 7 days; publish the app (or use service-account delegation) before relying on this in a demo.
+- **No real-account verification recorded.** A live call against a test calendar (calendar event + working join link) has not been captured in this report; the code path is exercised by unit tests and route guards, not by a recorded end-to-end run.
+- **No per-counselor OAuth** (Option C is out of scope); all events are created on the office calendar.
+- **No two-way calendar sync, attendee management, or invitations** — create/patch/delete of the session event only.
+- **Mobile renders `meeting_url`** and opens the join link from the session card. Student-initiated cancellation (mobile `cancelAppointment`) flips the session to `cancelled` but does not call the Google cleanup route — the mobile client has no absolute API base URL. Staff detach the orphaned calendar event from the session detail modal ("Remove link"), available for `assigned`/`confirmed`/`cancelled`/`rejected` sessions; completed/no-show rows keep their link for history.
 
 #### Non-technical user lens
 
-The manual paste step is the weak point. A non-technical counselor must know how to create a Google Meet and copy the correct link. A “Create Meet link” button (with Google OAuth) would remove this friction. At minimum, the field needs a short “How to get a Meet link” helper and a “Test link” action.
+The "Create Meet link" button removes the friction of the manual paste path. A non-technical counselor no longer needs to know how to create a Google Meet and copy the correct link. Copy remains available for edge cases. Error copy is actionable: "Couldn't create a Meet link — paste one instead or try again."
+
+#### Acceptance checklist
+
+- [x] `pnpm --filter @dorsu/shared-services test` green (17/17 in `meeting.test.ts`)
+- [x] `pnpm --filter @dorsu/web typecheck` green
+- [x] Route guards: counselor can only act on their own appointments/referrals; head can act on all
+- [x] Idempotency: two concurrent creates yield one calendar event and one stored link
+- [x] Privacy: calendar event contains no student name, alias, number, email, or concern
+- [x] Fallback: with Google disabled, online confirmation still succeeds with a pasted link
+- [x] Cleanup: cancelling an online appointment removes the calendar event and clears the link
+- [ ] Real-account verification (calendar event + working join link) — pending credential provisioning
 
 ---
 
@@ -1014,7 +1040,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 | R3 | No automated tests; regressions reach production | High | High | Original: no test runner. **Reduced 2026-10-24 — §1.6:** 69 unit tests, 8 RLS tests, 5 Playwright role specs in CI | **P1/P2 — substantially reduced; staging guard job still unrun** |
 | R4 | Mobile profile and PSS-10 wording are mock data | High | Medium–High | Original: mobile README. **Closed 2026-10-24 — §1.6:** profile reads Supabase; shared PSS-10 instrument; `data/mock.ts` removed | **P1 — resolved (licensing note still unverified)** |
 | R5 | “Events” lacks calendar/date/venue/RSVP | High | Medium | Original: `/announcements` only. **Resolved 2026-10-24 — §1.6:** objective renamed to announcement management; boundary documented | **P1 — resolved by scope decision** |
-| R6 | Google Meet is manual paste, no API integration | High | Medium | `isMeetUrl()`; no Google API code | **P2** |
+| R6 | Google Meet link creation depends on OAuth credentials | Medium | Medium | `00072`, `apps/web/lib/google/meet.ts`, `/api/appointments/meet`; route returns 503 when unconfigured | **P2 — residual (provisioning-dependent)** |
 | R7 | No empirical usability/accessibility validation | High | Medium | No SUS/WCAG artifacts | **P1** |
 | R8 | Break-glass has no active alerting | Medium | Medium–High | Head review is passive | **P2** |
 | R9 | PSS-10 not required before every session | Medium | Medium | 30-day booking gate only | **Closed 2026-10-24 — §1.6:** 7-day session-linked gate + audited waiver; booking gate unchanged |

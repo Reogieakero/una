@@ -546,8 +546,15 @@ function ReferralsPageInner() {
     ref: Referral,
     to: TriageKind,
     note?: string,
-    opts?: { scheduledIso?: string; endsAtIso?: string; mode?: "in_person" | "online"; meetingUrl?: string | null }
-  ) => {
+     opts?: {
+       scheduledIso?: string;
+       endsAtIso?: string;
+       mode?: "in_person" | "online";
+       meetingUrl?: string | null;
+       meetingProvider?: "manual" | "google_meet";
+       meetingEventId?: string | null;
+     }
+   ) => {
     if (!me) return;
     const result = await runMutation(
       ref.id,
@@ -565,6 +572,8 @@ function ReferralsPageInner() {
             mode: opts.mode ?? "in_person",
             meetingUrl: opts.meetingUrl ?? null,
             endsAt: opts.endsAtIso ? new Date(opts.endsAtIso) : null,
+            meetingProvider: opts.meetingProvider,
+            meetingEventId: opts.meetingEventId,
           });
         } else if (to === "rejected") return rejectReferral(db, ref.id, me);
         return triageReferral(db, { referralId: ref.id, actorProfileId: me, status: to, actionNote: note });

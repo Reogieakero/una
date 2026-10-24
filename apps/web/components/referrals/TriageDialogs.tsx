@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { isMeetUrl } from "@dorsu/shared-services";
+import { requestMeetCreate, MEET_CREATE_FALLBACK } from "@/lib/google/meet-client";
 import { type BoardSlot } from "@/lib/hooks/use-referrals-board";
-import { Badge, Button, Card, FieldError, Input, Textarea } from "@/components/ui/primitives";
+import { Badge, Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
+import { MeetLinkField } from "@/components/appointments/MeetLinkField";
 import { SlotSchedulePicker, composeLocal, defaultSchedule, selectionFitsScope, type ScheduleSelection } from "@/components/appointments/SlotSchedulePicker";
 import { Dropdown } from "@/components/shared/dropdown";
 import { IconAction } from "@/components/shared/icon-action";
@@ -55,7 +57,14 @@ export function TriageConfirmDialog({
     ref: Referral,
     to: TriageKind,
     note: string | undefined,
-    opts: { scheduledIso?: string; endsAtIso?: string; mode?: "in_person" | "online"; meetingUrl?: string | null }
+    opts: {
+      scheduledIso?: string;
+      endsAtIso?: string;
+      mode?: "in_person" | "online";
+      meetingUrl?: string | null;
+      meetingProvider?: "manual" | "google_meet";
+      meetingEventId?: string | null;
+    }
   ) => Promise<void>;
 }) {
   // Dialog stays open with a spinner while the move (confirm mints a
@@ -68,6 +77,9 @@ export function TriageConfirmDialog({
   const [sessionMode, setSessionMode] = useState<"in_person" | "online">("in_person");
   const [meetInput, setMeetInput] = useState("");
   const [meetError, setMeetError] = useState<string | null>(null);
+  const [meetManaged, setMeetManaged] = useState(false);
+  const [meetEventId, setMeetEventId] = useState<string | null>(null);
+  const [createBusy, setCreateBusy] = useState(false);
 
   const resetFields = () => {
     setEscalateNote("");
@@ -77,6 +89,9 @@ export function TriageConfirmDialog({
     setSessionMode("in_person");
     setMeetInput("");
     setMeetError(null);
+    setMeetManaged(false);
+    setMeetEventId(null);
+    setCreateBusy(false);
   };
 
   // Confirm dialog prefill — existing session time when it still fits the
@@ -95,6 +110,8 @@ export function TriageConfirmDialog({
         setSessionMode("in_person");
         setMeetInput("");
         setMeetError(null);
+        setMeetManaged(false);
+        setMeetEventId(null);
       }
     } else {
       schedSeedRef.current = null;
@@ -122,6 +139,33 @@ export function TriageConfirmDialog({
   }, [confirming, busy, onClose]);
 
   if (!confirming) return null;
+
+  const createMeet = async () => {
+    if (createBusy || !confirming || confirming.to !== "confirmed") return;
+    if (!sched) {
+      setMeetError("Pick a session time before creating a Meet link.");
+      return;
+    }
+    const scheduledIso = composeLocal(sched.date, sched.start).toISOString();
+    const end = sched.end ? composeLocal(sched.date, sched.end) : null;
+    const endsAtIso = end ? end.toISOString() : null;
+    setCreateBusy(true);
+    setMeetError(null);
+    try {
+      const res = await requestMeetCreate({
+        referralId: confirming.ref.id,
+        scheduledAt: scheduledIso,
+        endsAt: endsAtIso,
+      });
+      setMeetInput(res.meetingUrl);
+      setMeetEventId(res.eventId ?? null);
+      setMeetManaged(res.provider === "google_meet");
+    } catch (e) {
+      setMeetError((e as Error)?.message ?? MEET_CREATE_FALLBACK);
+    } finally {
+      setCreateBusy(false);
+    }
+  };
 
   const run = async () => {
     if (busy) return;
@@ -183,7 +227,14 @@ export function TriageConfirmDialog({
     // knows the confirm is processing (session mint + notifications).
     setBusy(true);
     try {
-      await onSubmit(ref, to, note, { scheduledIso, endsAtIso, mode: sessionMode, meetingUrl });
+      await onSubmit(ref, to, note, {
+        scheduledIso,
+        endsAtIso,
+        mode: sessionMode,
+        meetingUrl: meetingUrl ?? null,
+        meetingProvider: meetManaged && isMeetUrl(meetInput) ? "google_meet" : undefined,
+        meetingEventId: meetManaged ? meetEventId : undefined,
+      });
     } finally {
       resetFields();
       setBusy(false);
@@ -259,24 +310,18 @@ export function TriageConfirmDialog({
                 <label className="mb-1 block text-xs font-bold text-ink-muted" htmlFor="ref-meet-link">
                   Google Meet link
                 </label>
-                <Input
+                <MeetLinkField
                   id="ref-meet-link"
-                  type="url"
-                  inputMode="url"
-                  placeholder="https://meet.google.com/abc-defg-hij"
                   value={meetInput}
-                  onChange={(e) => {
-                    setMeetInput(e.target.value);
+                  onChange={(v) => {
+                    setMeetInput(v);
                     setMeetError(null);
                   }}
+                  error={meetError}
+                  managed={meetManaged}
+                  createBusy={createBusy}
+                  onCreate={createMeet}
                 />
-                {meetError ? (
-                  <p className="mt-1.5 text-xs font-semibold text-red-600">{meetError}</p>
-                ) : (
-                  <p className="mt-1.5 text-[11px] font-medium text-ink-faint">
-                    Paste the Google Meet for this session — the student joins with this link.
-                  </p>
-                )}
               </div>
             )}
           </div>

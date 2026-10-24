@@ -2,6 +2,7 @@ export * from "./platform";
 export * from "./rbac";
 export * from "./appointments/queries";
 export * from "./appointments/mutations";
+export * from "./appointments/meeting";
 export * from "./appointments/availability";
 export * from "./appointments/booking-service";
 export * from "./appointments/pre-session-pss10";

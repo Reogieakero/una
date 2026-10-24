@@ -1,6 +1,9 @@
 import type { DbClient } from "../platform";
 import { pss10SubmitSchema, feedbackSchema } from "@dorsu/shared-schemas";
 import { calculatePss10 } from "../assessments/pss10-scoring";
+import { isMeetUrl } from "./meeting";
+
+export { isMeetUrl } from "./meeting";
 import {
   PreSessionPss10RequiredError,
   getValidPreSessionPss10,
@@ -458,14 +461,6 @@ export async function syncFollowUpSession(
     .single();
   if (error || !data) throw error ?? new Error("Couldn't schedule the follow-up session.");
   return { ...(data as Omit<FollowUpSessionResult, "action">), action: "minted" };
-}
-
-/** Google Meet links live at meet.google.com/<code>. */
-const MEET_URL_RE = /^https:\/\/meet\.google\.com\/[A-Za-z0-9-]+(?:\?.*)?\/?$/;
-
-/** Loose check shared by callers that collect the link client-side. */
-export function isMeetUrl(url: string): boolean {
-  return MEET_URL_RE.test(url.trim());
 }
 
 export async function confirmAppointment(

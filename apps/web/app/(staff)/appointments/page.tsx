@@ -5,7 +5,13 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import { assignAppointment, completeAppointment, isMeetUrl, PSS10_REQUIRED_CODE } from "@dorsu/shared-services";
+import { assignAppointment, completeAppointment, isMeetUrl, meetingRemoveAllowed, PSS10_REQUIRED_CODE } from "@dorsu/shared-services";
+import {
+  requestMeetCreate,
+  requestMeetCleanup,
+  requestMeetReschedule,
+  MEET_CREATE_FALLBACK,
+} from "@/lib/google/meet-client";
 import {
   fetchAppointmentCard,
   patchAppointmentRow,
@@ -120,6 +126,9 @@ function AppointmentsPageInner() {
   const [confirming, setConfirming] = useState<{ appt: Appt; kind: ActionKind } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const confirmBusyRef = useRef(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const createBusyRef = useRef(false);
+  const [meetingManaged, setMeetingManaged] = useState(false);
   const [waiverFor, setWaiverFor] = useState<Appt | null>(null);
   const [waiverReason, setWaiverReason] = useState("");
   const [waiverError, setWaiverError] = useState<string | null>(null);
@@ -247,6 +256,9 @@ function AppointmentsPageInner() {
         setScheduleError(null);
         setMeetingInput(confirming.appt.meeting_url ?? "");
         setMeetingError(null);
+        setMeetingManaged(
+          confirming.appt.meeting_provider === "google_meet" && isMeetUrl(confirming.appt.meeting_url ?? ""),
+        );
       }
     } else {
       schedSeedRef.current = null;
@@ -266,6 +278,7 @@ function AppointmentsPageInner() {
     setConfirming(null);
     setMeetingInput("");
     setMeetingError(null);
+    setMeetingManaged(false);
   };
 
   useEffect(() => {
@@ -322,6 +335,36 @@ function AppointmentsPageInner() {
     window.dispatchEvent(new Event("hashchange"));
   }, [loading, board, rows, isCounselor, ensureAppt]);
 
+  const onCreateMeet = async () => {
+    if (!confirming || createBusyRef.current) return;
+    const { appt } = confirming;
+    if (appt.mode !== "online") return;
+    if (confirming.kind === "confirm" && !sched) {
+      setMeetingError("Pick a session time before creating a Meet link.");
+      return;
+    }
+    let scheduledIso: string | undefined;
+    let endsAtIso: string | null | undefined;
+    if (sched) {
+      scheduledIso = composeLocal(sched.date, sched.start).toISOString();
+      const end = sched.end ? composeLocal(sched.date, sched.end) : null;
+      endsAtIso = end ? end.toISOString() : null;
+    }
+    createBusyRef.current = true;
+    setCreateBusy(true);
+    setMeetingError(null);
+    try {
+      const res = await requestMeetCreate({ appointmentId: appt.id, scheduledAt: scheduledIso, endsAt: endsAtIso });
+      setMeetingInput(res.meetingUrl);
+      setMeetingManaged(res.provider === "google_meet");
+    } catch (e) {
+      setMeetingError((e as Error)?.message ?? MEET_CREATE_FALLBACK);
+    } finally {
+      createBusyRef.current = false;
+      setCreateBusy(false);
+    }
+  };
+
   const runConfirming = async () => {
     if (!confirming || confirmBusyRef.current) return;
     const { appt, kind } = confirming;
@@ -365,15 +408,34 @@ function AppointmentsPageInner() {
         void notifyHeadsAppt({ ...appt, scheduled_at: scheduledAt?.toISOString() ?? appt.scheduled_at }, kind);
         toast.success(def.doneTitle, { description: def.okBody(when), position: "top-right" });
         // The session just ended — hand the counselor straight to the private
-        // record so the note is documented while it's fresh.
+         // record so the note is documented while it's fresh.
         if (kind === "complete") setNotesAppt({ ...appt, status: "completed" });
-      }
+        // Lifecycle: keep the Google Calendar event in step with the appointment.
+        if (
+          appt.mode === "online" &&
+          appt.meeting_provider === "google_meet" &&
+          appt.meeting_event_id &&
+          meetingRemoveAllowed(appt.status)
+        ) {
+          if (kind === "reschedule" && scheduledAt && endsAt) {
+            void requestMeetReschedule(appt.id, scheduledAt.toISOString(), endsAt.toISOString()).catch(
+              () => {},
+            );
+          } else if (kind === "reject") {
+            // Fire-and-forget: never block staff on a Google outage. A failed
+            // detach leaves the calendar event; the detail modal's Remove link
+            // still clears it, and manual clean-up is documented.
+            void requestMeetCleanup(appt.id).catch(() => {});
+          }
+        }
+       }
     } finally {
       confirmBusyRef.current = false;
       setConfirmBusy(false);
       setConfirming(null);
       setMeetingInput("");
       setMeetingError(null);
+      setMeetingManaged(false);
     }
   };
 
@@ -538,6 +600,7 @@ function AppointmentsPageInner() {
         confirming={confirming} aliases={aliases}
         slots={slots} sched={sched} onSchedChange={(v) => { setSched(v); setScheduleError(null); }} scheduleError={scheduleError}
         meetingInput={meetingInput} onMeetingChange={(v) => { setMeetingInput(v); setMeetingError(null); }} meetingError={meetingError}
+        meetingManaged={meetingManaged} createBusy={createBusy} onCreateMeet={onCreateMeet}
         confirmBusy={confirmBusy} onClose={closeConfirming} onSubmit={runConfirming}
       />
       <AppointmentPss10WaiverDialog
@@ -553,6 +616,8 @@ function AppointmentsPageInner() {
         detail={detail}
         aliases={aliases}
         counselorName={counselorName}
+        canManageMeet={isCounselor || role === "guidance_head"}
+        onRemoved={() => { setDetail(null); scheduleReconcile(); }}
         onClose={() => setDetail(null)}
         canSeeNotes={isCounselor || role === "guidance_head"}
         onNotes={(a) => { setDetail(null); setNotesAppt(a); }}

@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { CalendarDays, ClipboardCheck, FileText, MapPin, Video, X } from "lucide-react";
-import { preSessionPss10State } from "@dorsu/shared-services";
+import { toast } from "sonner";
+import { meetingRemoveAllowed, preSessionPss10State } from "@dorsu/shared-services";
+import { requestMeetCleanup, MEET_CREATE_FALLBACK } from "@/lib/google/meet-client";
 import { Badge, Button } from "@/components/ui/primitives";
 import { formatLong, formatScheduleRange, formatWhen, hasSetSchedule, statusLabel, statusTone } from "./status";
 import type { Appt } from "./status";
@@ -18,6 +21,8 @@ export function AppointmentDetailModal({
   onClose,
   canSeeNotes,
   onNotes,
+  canManageMeet,
+  onRemoved,
 }: {
   detail: Appt | null;
   aliases: Map<string, string>;
@@ -26,7 +31,12 @@ export function AppointmentDetailModal({
   /** Counselor (own ended sessions) or head (oversight) — shows the notes entry. */
   canSeeNotes?: boolean;
   onNotes?: (appt: Appt) => void;
+  /** Staff who may detach a managed or pasted Meet link. */
+  canManageMeet?: boolean;
+  /** Parent refreshes its board after a link is removed. */
+  onRemoved?: () => void;
 }) {
+  const [removing, setRemoving] = useState(false);
   if (!detail) return null;
   const checkin = preSessionPss10State({
     required: detail.pss10_required,
@@ -44,8 +54,24 @@ export function AppointmentDetailModal({
           : checkin === "missing"
             ? "No pre-session check-in yet"
             : checkin === "not_due"
-              ? "Check-in opens 7 days before the session"
-              : null;
+               ? "Check-in opens 7 days before the session"
+               : null;
+
+  const handleRemoveLink = async () => {
+    if (!canManageMeet || removing || !detail.meeting_url) return;
+    setRemoving(true);
+    try {
+      await requestMeetCleanup(detail.id);
+      toast.success("Meet link removed", { position: "top-right" });
+      onRemoved?.();
+      onClose();
+    } catch (e) {
+      toast.error((e as Error)?.message ?? MEET_CREATE_FALLBACK, { position: "top-right" });
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -142,12 +168,20 @@ export function AppointmentDetailModal({
           )}
 
           {/* Mode */}
-          <div className="mt-3 flex items-center gap-2 rounded-lg bg-cream px-4 py-3 text-sm">            {detail.mode === "online" ? (
+          <div className="mt-3 flex items-center gap-2 rounded-lg bg-cream px-4 py-3 text-sm">
+            {detail.mode === "online" ? (
               <Video className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
             ) : (
               <MapPin className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
             )}
             <span className="font-bold text-ink">{detail.mode === "online" ? "Online" : "In person"}</span>
+            {detail.mode === "online" && detail.meeting_url && (
+              <span className="ml-2 whitespace-nowrap">
+                <Badge tone={detail.meeting_provider === "google_meet" ? "info" : "muted"}>
+                  {detail.meeting_provider === "google_meet" ? "Managed by Chekie" : "Pasted link"}
+                </Badge>
+              </span>
+            )}
             {detail.mode === "online" && detail.meeting_url && (
               <a
                 href={detail.meeting_url}
@@ -203,6 +237,17 @@ export function AppointmentDetailModal({
             >
               Join Google Meet
             </a>
+          )}
+
+          {canManageMeet && detail.meeting_url && meetingRemoveAllowed(detail.status) && (
+            <button
+              type="button"
+              onClick={handleRemoveLink}
+              disabled={removing}
+              className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded border-2 border-ink/15 bg-white px-4 text-sm font-bold text-ink transition-colors hover:border-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            >
+              {removing ? "Removing…" : "Remove link"}
+            </button>
           )}
 
           <div className="mt-4 flex justify-end">

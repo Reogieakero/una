@@ -55,3 +55,17 @@ export const availabilitySchema = z
     path: ["endTime"],
   });
 export type AvailabilityInput = z.infer<typeof availabilitySchema>;
+
+/** POST/PATCH/DELETE /api/appointments/meet — appointment-scoped Meet lifecycle. */
+export const appointmentMeetSchema = z
+  .object({
+    appointmentId: z.string().uuid("Unknown session.").optional(),
+    referralId: z.string().uuid("Unknown referral.").optional(),
+    scheduledAt: z.string().datetime({ offset: true }).optional(),
+    endsAt: z.string().datetime({ offset: true }).optional().nullable(),
+  })
+  .refine((v) => Boolean(v.appointmentId || v.referralId), {
+    message: "Choose a session or referral.",
+    path: ["appointmentId"],
+  });
+export type AppointmentMeetInput = z.infer<typeof appointmentMeetSchema>;

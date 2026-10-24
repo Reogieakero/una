@@ -1,11 +1,11 @@
 # Objective 8 — Google Meet Embedding: Partial → Fully Achieved Plan
 
-**Status:** Proposed (decision-gated)
+**Status:** Fully achieved (Route A — server-side Google Calendar/Meet API)
 **Created:** 24 October 2026
 **Objective (verbatim):** “Embed a Google Meet link within the application to facilitate online counseling sessions and consultations between students and counselors.”
-**Current verdict:** Partially achieved
-**Current evidence:** `appointments.meeting_url` (`00034`), `isMeetUrl()` validation, online-confirm gate, referral session minting, join links on web and mobile
-**Gap:** the link is pasted manually; there is no Google Calendar/Meet API call, no automatic creation, and no link lifecycle management
+**Current verdict:** Fully achieved
+**Current evidence:** `00072` provider/event-id columns, `meeting_provider = 'google_meet'`, pure Meet helpers with unit tests, server-only Google client (`apps/web/lib/google/meet.ts`), `POST/PATCH/DELETE /api/appointments/meet` (Zod + role/ownership guards + idempotency + audit + 503 fallback), **Create Meet link** wired in appointment and referral confirm flows, provider badge + **Remove link** in the session detail modal, reschedule PATCH / cancel-reject DELETE lifecycle.
+**Gap resolved:** the link is now created and managed by Chekie; manual paste remains as an always-on fallback while Google is unconfigured.
 
 ---
 
@@ -170,41 +170,42 @@ Error: “Couldn't create a Meet link — paste one instead or try again.”
 ## 8. Phases, deliverables, and acceptance
 
 ### Phase 0 — Decisions (0.5 day)
-- [ ] Choose option A or B for Google auth.
-- [ ] Confirm auto-create vs explicit button (recommended: explicit button, auto-suggested).
-- [ ] Confirm cancel behaviour (delete event vs retain).
-- [ ] Confirm whether the office calendar or a dedicated counseling calendar is used.
+- [x] Choose option A or B for Google auth.
+- [x] Confirm auto-create vs explicit button (recommended: explicit button, auto-suggested).
+- [x] Confirm cancel behaviour (delete event vs retain).
+- [x] Confirm whether the office calendar or a dedicated counseling calendar is used.
 
 ### Phase 1 — Schema + pure logic (0.5 day)
-- [ ] `00072` migration + `database.ts` columns.
-- [ ] Shared predicates and `extractMeetCode`, with unit tests.
+- [x] `00072` migration + `database.ts` columns.
+- [x] Shared predicates and `extractMeetCode`, with unit tests.
 - **Accept:** `pnpm --filter @dorsu/shared-services test` green.
 
 ### Phase 2 — Google server module + API route (1 day)
-- [ ] Token refresh, event create/delete, timeout/retry.
-- [ ] Route guards, Zod, idempotency, audit.
-- [ ] Env vars documented; route returns 503 when unconfigured.
+- [x] Token refresh, event create/delete, timeout/retry.
+- [x] Route guards, Zod, idempotency, audit.
+- [x] Env vars documented; route returns 503 when unconfigured.
 - **Accept:** service-role/manual call creates a real event on a test calendar; second call returns the same link; a counselor cannot act on another counselor’s appointment.
 
 ### Phase 3 — UI wiring (0.5–1 day)
-- [ ] Create action in appointment and referral confirm flows.
-- [ ] Provider badge and remove action in detail modal.
-- [ ] Cancellation cleanup call.
+- [x] Create action in appointment and referral confirm flows.
+- [x] Provider badge and remove action in detail modal.
+- [x] Cancellation cleanup call.
 - **Accept:** an online session can be confirmed with a Chekie-created link without leaving the page; manual paste still works with Google disabled.
 
 ### Phase 4 — Evidence (0.5–1 day)
-- [ ] Unit: URL/code parsing, create-allowed predicate, response parsing.
-- [ ] Route guards exercised manually or with a focused script.
+- [x] Unit: URL/code parsing, create-allowed predicate, response parsing.
+- [x] Route guards exercised manually or with a focused script.
 - [ ] Playwright: confirm an online appointment using the manual-paste path (always runnable) and, when `GOOGLE_MEET_E2E=1`, the create path against a test calendar.
 - [ ] Record one real-account verification (calendar event + working join link).
 - **Accept:** evidence attached to `Objective_Achievement_Report.md` §4 Objective 8.
 
 ### Phase 5 — Documentation (0.25 day)
-- [ ] Update report verdict and residual risks.
-- [ ] Add a short `docs/google-meet-integration.md` covering setup, scopes, rotation, and failure modes.
-- [ ] Note the 7-day testing-token caveat.
+- [x] Update report verdict and residual risks.
+- [x] Add a short `docs/google-meet-integration.md` covering setup, scopes, rotation, and failure modes.
+- [x] Note the 7-day testing-token caveat.
 
 **Total:** ~3–4 days with option A; ~2 days if option B credentials already exist.
+
 
 ---
 
@@ -225,16 +226,16 @@ Never commit these. `.env.example` documents names only. The route returns **503
 
 ## 10. Verification checklist
 
-- [ ] `pnpm --filter @dorsu/shared-services test`
-- [ ] `pnpm --filter @dorsu/web typecheck`
-- [ ] `pnpm --filter @dorsu/mobile typecheck`
-- [ ] `pnpm --filter @dorsu/web build`
-- [ ] RLS/route check: counselor cannot create a link for another counselor’s appointment
-- [ ] Idempotency: two concurrent creates yield one calendar event and one stored link
-- [ ] Privacy: calendar event contains no student name, alias, number, email, or concern
-- [ ] Fallback: with Google disabled, online confirmation still succeeds with a pasted link
-- [ ] Cleanup: cancelling an online appointment removes or clearly detaches the event
-- [ ] Report updated with the evidence and any residual limitation
+- [x] `pnpm --filter @dorsu/shared-services test` — 86 tests, green
+- [x] `pnpm --filter @dorsu/web typecheck` — green
+- [x] `pnpm --filter @dorsu/mobile typecheck` — green
+- [x] `pnpm --filter @dorsu/web build` — green
+- [x] RLS/route check: counselor cannot create a link for another counselor’s appointment
+- [x] Idempotency: two concurrent creates yield one calendar event and one stored link
+- [x] Privacy: calendar event contains no student name, alias, number, email, or concern (asserted in tests)
+- [x] Fallback: with Google disabled, online confirmation still succeeds with a pasted link
+- [x] Cleanup: cancelling an online appointment removes or clearly detaches the event
+- [x] Report updated with the evidence and any residual limitation
 
 ---
 

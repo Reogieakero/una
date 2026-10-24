@@ -1,10 +1,11 @@
 "use client";
 
-import { Button, Input } from "@/components/ui/primitives";
+import { Button } from "@/components/ui/primitives";
 import { CONFIRM_COPY, formatWhen } from "./status";
 import type { ActionKind, Appt } from "./status";
 import { SlotSchedulePicker, type ScheduleSelection } from "./SlotSchedulePicker";
 import type { BoardSlot } from "@/lib/hooks/use-appointments-board";
+import { MeetLinkField } from "./MeetLinkField";
 
 /** Minimal record the dialogs read — full board rows satisfy this. */
 export type ConfirmAppt = Pick<Appt, "id" | "student_id" | "scheduled_at" | "mode" | "meeting_url">;
@@ -26,6 +27,9 @@ export function AppointmentConfirmDialogs({
   onMeetingChange,
   meetingError,
   confirmBusy,
+  meetingManaged,
+  createBusy,
+  onCreateMeet,
   onClose,
   onSubmit,
 }: {
@@ -39,6 +43,9 @@ export function AppointmentConfirmDialogs({
   onMeetingChange: (v: string) => void;
   meetingError: string | null;
   confirmBusy: boolean;
+  meetingManaged?: boolean;
+  createBusy?: boolean;
+  onCreateMeet?: () => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
@@ -78,24 +85,16 @@ export function AppointmentConfirmDialogs({
         )}
         {(confirming.kind === "confirm" || confirming.kind === "reschedule") && confirming.appt.mode === "online" && (
           <div className="mt-3">
-            <label className="mb-1.5 block text-xs font-bold text-ink-muted" htmlFor="confirm-meet-link">
-              Google Meet link
-            </label>
-            <Input
+            <MeetLinkField
               id="confirm-meet-link"
-              type="url"
-              inputMode="url"
-              placeholder="https://meet.google.com/abc-defg-hij"
               value={meetingInput}
-              onChange={(e) => onMeetingChange(e.target.value)}
+              onChange={onMeetingChange}
+              error={meetingError}
+              disabled={confirmBusy}
+              managed={meetingManaged}
+              createBusy={createBusy}
+              onCreate={onCreateMeet}
             />
-            {meetingError ? (
-              <p className="mt-1.5 text-xs font-semibold text-red-600">{meetingError}</p>
-            ) : (
-              <p className="mt-1.5 text-[11px] font-medium text-ink-faint">
-                Paste the Google Meet for this session — the student joins with this link.
-              </p>
-            )}
           </div>
         )}
         <div className="mt-4 flex justify-end gap-2">

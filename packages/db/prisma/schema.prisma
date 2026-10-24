@@ -354,6 +354,10 @@ model Appointment {
   endsAt            DateTime?         @map("ends_at") @db.Timestamptz(6)
   // Google Meet link for online sessions — set by the counselor on confirm.
   meetingUrl        String?           @map("meeting_url") @db.Text
+  // 00072: provenance. `manual` = pasted; `google_meet` = Calendar API.
+  meetingProvider   String            @default("manual") @map("meeting_provider")
+  meetingEventId    String?           @map("meeting_event_id") @db.Text
+  meetingCreatedAt  DateTime?         @map("meeting_created_at") @db.Timestamptz(6)
   isAnonymous       Boolean           @default(false) @map("is_anonymous")
   // Legacy back-reference (00008): the PSS-10 that gated this booking.
   // Dictionary models the link from the other side

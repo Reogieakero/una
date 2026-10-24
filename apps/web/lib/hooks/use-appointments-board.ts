@@ -18,6 +18,9 @@ export type BoardAppointment = {
   status: string;
   concern: string;
   meeting_url: string | null;
+  meeting_provider?: "manual" | "google_meet" | null;
+  meeting_event_id?: string | null;
+  meeting_created_at?: string | null;
   /** True for sessions minted as follow-ups from a session note (00054). */
   is_follow_up: boolean;
   /** Origin session the follow-up was documented from; null for regular bookings. */
@@ -138,7 +141,7 @@ export async function fetchAppointmentCard(id: string): Promise<{ row: BoardAppo
   const supabase = createClient();
   const { data, error } = await supabase
     .from("appointments")
-    .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of, created_at, updated_at, pss10_required, pss10_waived_at, pss10_waiver_reason")
+    .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, meeting_provider, meeting_event_id, meeting_created_at, is_follow_up, follow_up_of, created_at, updated_at, pss10_required, pss10_waived_at, pss10_waiver_reason")
     .eq("id", id)
     .single();
   if (error || !data) throw new Error("Session not found.");

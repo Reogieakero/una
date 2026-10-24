@@ -145,6 +145,12 @@ export type AppointmentRow = {
   concern: string;
   /** Google Meet link for online sessions (set on counselor confirm). */
   meeting_url: string | null;
+  /** `manual` = pasted; `google_meet` = created through Calendar API (00072). */
+  meeting_provider: "manual" | "google_meet";
+  /** Google Calendar event id when the link was created by Chekie (00072). */
+  meeting_event_id: string | null;
+  /** When Chekie created the Calendar/Meet event (00072). */
+  meeting_created_at: string | null;
   is_anonymous: boolean;
   pss10_id: string | null;
   /** Session needs a linked PSS-10 within 7 days before start (00068). */

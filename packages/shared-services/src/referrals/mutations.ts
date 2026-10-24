@@ -337,6 +337,8 @@ export async function confirmReferralWithSession(
     mode: "in_person" | "online";
     meetingUrl?: string | null;
     endsAt?: Date | null;
+    meetingProvider?: "manual" | "google_meet";
+    meetingEventId?: string | null;
   },
 ) {
   if (input.mode !== "in_person" && input.mode !== "online") {
@@ -424,6 +426,13 @@ export async function confirmReferralWithSession(
     status: "confirmed",
     confirmed_datetime: nowIso,
     meeting_url: input.mode === "online" ? link : link || null,
+    ...(input.meetingProvider === "google_meet"
+      ? {
+          meeting_provider: "google_meet" as const,
+          meeting_event_id: input.meetingEventId ?? null,
+          meeting_created_at: nowIso,
+        }
+      : {}),
     ...(input.endsAt !== undefined && input.endsAt !== null ? { ends_at: new Date(endMs).toISOString() } : {}),
   };
   if (refreshingId) {
