@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Activity, ChevronDown, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DEFAULT_REFERRALS_SCOPE, useReferralsBoard, type ReferralStudentOption } from "@/lib/hooks/use-referrals-board";
+import { DEFAULT_REFERRALS_SCOPE, useReferralsBoard } from "@/lib/hooks/use-referrals-board";
 import { Button, Card, Badge } from "@/components/ui/primitives";
 import { IconAction } from "@/components/shared/icon-action";
 import {
@@ -30,7 +30,6 @@ import {
 import { formatSessionMode, formatWhen, hasReschedule, latestSessionSchedule, parseScheduleNote, parseSessionMode, timeAgo } from "@/components/referrals/format-helpers";
 
 const EMPTY_MAP = new Map<string, string>();
-const EMPTY_STUDENTS: ReferralStudentOption[] = [];
 const EMPTY_IDS: string[] = [];
 const EMPTY_TRAIL: Map<string, RefAction[]> = new Map();
 
@@ -206,7 +205,6 @@ export default function ReferStudentPage() {
           <ReferralExcelModal
             open={excelOpen}
             myName={board.myName}
-            students={board.students ?? EMPTY_STUDENTS}
             facultyId={board.facultyId}
             headIds={board.headIds ?? EMPTY_IDS}
             onSubmitted={() => {

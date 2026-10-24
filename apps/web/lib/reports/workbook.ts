@@ -106,7 +106,7 @@ export async function fetchReportData(scope?: ReportScope): Promise<ReportBundle
   for (let i = 0; i < studentIds.length; i += 200) {
     const chunk = studentIds.slice(i, i + 200);
     if (!chunk.length) break;
-    const { data } = await supabase.from("students").select("id,anonymous_alias").in("id", chunk);
+    const { data } = await supabase.rpc("get_student_aliases", { ids: chunk });
     for (const s of (data ?? []) as any[]) aliasByStudent.set(s.id, s.anonymous_alias ?? aliasOrMasked(null, s.id));
   }
 

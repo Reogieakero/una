@@ -260,7 +260,7 @@ function StudentsPageInner() {
       .filter((s) =>
         !q
           ? true
-          : `${s.anonymous_alias ?? ""} ${s.student_no} ${s.program ?? ""}`.toLowerCase().includes(q)
+          : `${s.anonymous_alias ?? ""} ${s.program ?? ""} ${s.year_level ?? ""}`.toLowerCase().includes(q)
       );
   }, [rows, programFilter, yearFilter, collegeFilter, query]);
 

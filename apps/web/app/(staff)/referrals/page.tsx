@@ -9,7 +9,6 @@ import {
   fetchReferralCard,
   patchReferralRow,
   useReferralsBoard,
-  type ReferralStudentOption,
 } from "@/lib/hooks/use-referrals-board";
 import { clampPage, clampPageSize } from "@/lib/pagination";
 import { useMutationAction } from "@/lib/hooks/use-mutation-action";
@@ -58,7 +57,6 @@ const EMPTY_TRAIL = new Map<string, RefAction[]>();
 const EMPTY_MAP = new Map<string, string>();
 const EMPTY_COUNSELORS: { id: string; name: string }[] = [];
 const EMPTY_IDS: string[] = [];
-const EMPTY_STUDENTS: ReferralStudentOption[] = [];
 const EMPTY_READY = new Set<string>();
 const EMPTY_REFERRAL_STATS = { total: 0, pending: 0, assigned: 0, confirmed: 0, resolved: 0, unassigned: 0 };
 
@@ -156,7 +154,6 @@ function ReferralsPageInner() {
   const boardFacultyNames = board?.facultyNames ?? EMPTY_MAP;
   const facultyProfiles = board?.facultyProfiles ?? EMPTY_MAP;
   const headIds = board?.headIds ?? EMPTY_IDS;
-  const students = board?.students ?? EMPTY_STUDENTS;
   const me = board?.me ?? null;
   const role = board?.role ?? null;
   const facultyId = board?.facultyId ?? null;
@@ -874,7 +871,6 @@ function ReferralsPageInner() {
       {canSubmit && (
         <FacultyReferralSection
           facultyId={facultyId}
-          students={students}
           headIds={headIds}
           rows={rows}
           aliases={aliases}

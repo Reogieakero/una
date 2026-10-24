@@ -261,12 +261,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           if (!row?.id) return;
           let alias: string | null = null;
           if (row.student_id) {
-            const { data: s } = await supabase
-              .from("students")
-              .select("anonymous_alias")
-              .eq("id", row.student_id)
-              .single();
-            alias = (s as { anonymous_alias: string | null } | null)?.anonymous_alias ?? null;
+            const { data: s } = await supabase.rpc("get_student_aliases", { ids: [row.student_id] });
+            alias = ((s ?? []) as { anonymous_alias: string | null }[])[0]?.anonymous_alias ?? null;
           }
           upsertReferralRow(qc, row, alias);
           return;

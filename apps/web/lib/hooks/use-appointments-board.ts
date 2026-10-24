@@ -145,8 +145,8 @@ export async function fetchAppointmentCard(id: string): Promise<{ row: BoardAppo
   const [row] = await attachLinkedCheckins(supabase, [data as BoardAppointment]);
   let alias: string | null = null;
   if (row.student_id) {
-    const { data: s } = await supabase.from("students").select("anonymous_alias").eq("id", row.student_id).single();
-    alias = (s as { anonymous_alias: string | null } | null)?.anonymous_alias ?? null;
+    const { data: s } = await supabase.rpc("get_student_aliases", { ids: [row.student_id] });
+    alias = ((s ?? []) as { anonymous_alias: string | null }[])[0]?.anonymous_alias ?? null;
   }
   return { row, alias };
 }
@@ -310,10 +310,7 @@ export async function fetchAppointmentsBoard(scope: AppointmentsScope): Promise<
   let aliases = EMPTY_MAP;
   let studentProfiles = EMPTY_MAP;
   if (studentIds.length) {
-    const { data: students } = await supabase
-      .from("students")
-      .select("id, profile_id, anonymous_alias")
-      .in("id", studentIds.slice(0, 500));
+    const { data: students } = await supabase.rpc("get_student_aliases", { ids: studentIds.slice(0, 500) });
     const studentRows = ((students ?? []) as { id: string; profile_id: string; anonymous_alias: string | null }[]);
     aliases = new Map(studentRows.map((s) => [s.id, s.anonymous_alias ?? "Student"]));
     studentProfiles = new Map(studentRows.map((s) => [s.id, s.profile_id]));

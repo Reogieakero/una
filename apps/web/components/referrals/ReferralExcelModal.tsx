@@ -11,7 +11,6 @@ import { notifyStaff } from "@/lib/notify";
 import { Badge, Button, FieldError, Input, Textarea } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
 import { CLASSIFICATION_COLUMNS, PRIORITIES, classificationSummary, statusLabel } from "./status";
-import type { ReferralStudentOption } from "@/lib/hooks/use-referrals-board";
 import { upsertReferralRow, type ReferralsRow } from "@/lib/hooks/use-referrals-board";
 import { ReferralExcelPreview } from "./ReferralExcelPreview";
 import { buildFilledReferralWorkbook } from "@/lib/referrals/referral-form-excel";
@@ -51,7 +50,6 @@ const labelCls = "mb-1 block text-xs font-bold text-ink-muted";
 export function ReferralExcelModal({
   open,
   myName,
-  students,
   facultyId,
   headIds,
   onSubmitted,
@@ -59,8 +57,6 @@ export function ReferralExcelModal({
 }: {
   open: boolean;
   myName: string;
-  /** Enrolled students — the typed I.D. is matched against these on Refer. */
-  students: ReferralStudentOption[];
   facultyId: string | null;
   headIds: string[];
   onSubmitted: () => void;
@@ -246,11 +242,18 @@ export function ReferralExcelModal({
 
   const refer = async () => {
     if (busy || !validate()) return;
-    // No I.D. check: most referred students have no account yet. When the
-    // typed I.D. matches an enrolled student the referral links to them;
-    // otherwise it files as a walk-in under the typed name/number.
-    const match =
-      students.find((s) => s.studentNo.trim().toLowerCase() === studentNo.trim().toLowerCase()) ?? null;
+    // 00069: exact-match lookup only. Most referred students have no account
+    // yet, so a miss files as a walk-in under the typed name/number. There is
+    // no browse-all list to search or enumerate.
+    const supabase = createClient();
+    const { data: matchRows, error: matchError } = await supabase.rpc("lookup_student_for_referral", {
+      p_student_no: studentNo.trim(),
+    });
+    if (matchError) {
+      toast.error("Couldn't check that student number — please try again.");
+      return;
+    }
+    const match = ((matchRows ?? []) as { id: string; anonymous_alias: string | null }[])[0] ?? null;
     if (!facultyId) {
       toast.error("Your faculty record isn't linked yet — ask the guidance head to finish setup.");
       return;
@@ -275,7 +278,7 @@ export function ReferralExcelModal({
       // Instant list update: prepend the created row (with its alias) so the
       // history shows it with the toast — onSubmitted refetch reconciles after.
       if (created?.id) {
-        const alias = match ? (students.find((s) => s.id === match.id)?.alias ?? null) : null;
+        const alias = match?.anonymous_alias ?? null;
         upsertReferralRow(qc, created as unknown as ReferralsRow, alias);
       }
       const kinds = classificationSummary(classifications);

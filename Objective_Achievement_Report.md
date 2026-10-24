@@ -120,6 +120,42 @@ This section records the P1 work completed after the review. The findings in §4
 - No penetration test, SAST/DAST, or production deployment verification.
 - Staging guard secrets are not configured, so the scheduled staging job has not run in CI.
 
+### 1.7 Post-review P3 identity hardening — 24 October 2026
+
+Objective 3's remaining gap was **ambient re-identification**: a routine staff
+session could read every `students` row (including `student_no` and
+`profile_id`) and, for counselors/personnel, every student `profiles` row
+(`full_name`, `email`). The alias was therefore cosmetic.
+
+Migration `00069_identity_rls_hardening.sql` closes that path:
+
+- `students` select is now owner + `guidance_head`/`admin` oversight only.
+- `profiles_select_staff` excludes student profiles for counselor/personnel;
+  head/admin keep oversight access.
+- `list_student_directory()` returns alias-level columns only and scopes
+  counselors to their caseload.
+- `list_emergency_students()` is alias-only (no student numbers).
+- `get_student_aliases(ids)` resolves only students the caller can already
+  reach; `profile_id` is an opaque notification routing key.
+- `lookup_student_for_referral(student_no)` is exact-match only for referral
+  creators; no browse-all picker.
+- `get_referral_student(referral_id)` serves the official referral form.
+
+Routine UI removed the remaining leaks: `/students` no longer renders or
+searches `student_no`; `/emergency` shows `alias` only; the faculty referral
+modal performs one exact lookup instead of loading 200 student rows.
+`docs/anonymity-threat-model.md` records the security property, boundaries,
+and residual risks.
+
+**Verification:** `pnpm --filter @dorsu/web typecheck`; RLS coverage for
+cross-role student/profile isolation, caseload-scoped directory, exact-only
+referral lookup, and alias scoping; Playwright asserts `/students` and
+`/emergency` contain no seeded student number or real name.
+
+**Verdict unchanged: Substantially achieved.** The claim is now precise —
+pseudonymous by default, with audited break-glass re-identification — not
+cryptographic anonymity.
+
 **How to reproduce locally**
 
 ```bash
@@ -219,7 +255,7 @@ When sources disagreed, this report trusted them in this order:
 |---:|---|---|---|---|
 | 1 | User-friendly mobile and web interface | Substantially achieved | `apps/web/app/**`, `apps/mobile/app/**`, design tokens, onboarding, role-specific navigation; P1 removed mobile mock data | No participant-based usability test with non-technical users yet |
 | 2 | Book / reschedule / cancel + PSS-10 before session | Fully achieved | `apps/mobile/app/book.tsx`, `check-in.tsx`, `booking-service.ts`, `pre-session-pss10.ts`, `00008`, `00059`, `00067`, `00068` | Gate is enforced at counselor completion, with an audited waiver for documented exceptions; PSS-10 licensing unverified; E1 concurrency fixed 2026-10-24 (1 confirmed / 49 rejected) |
-| 3 | Secure anonymous identity | Substantially achieved | Alias system, `is_anonymous`, RLS, reveal API, audit logs | Pseudonymity, not cryptographic anonymity; staff with database access can correlate IDs |
+| 3 | Secure anonymous identity | Substantially achieved | Alias system, `is_anonymous`, `00069` alias-only RLS/RPCs, reveal API, audit logs | Pseudonymity with audited re-identification, not cryptographic anonymity; service-role/DB admins can correlate |
 | 4 | Counselor dashboard for schedules, records, notes | Substantially achieved | `/dashboard`, `/appointments`, `/sessions`, `/students`, `/availability`, session-note API | No dedicated “student record” timeline; notes are per completed session |
 | 5 | Analytics module: collect data, stress trends, reports | Substantially achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061` | Aggregate reporting, not predictive analytics; report RPC drift resolved 2026-10-24; no scheduled report delivery |
 | 6 | Real-time chat | Fully achieved | `/chat` (web + mobile), Supabase Realtime, `realtime.json` | No typing indicators/read receipts verified; no offline queue |
@@ -237,7 +273,7 @@ The table above is the **current** assessment. This table records what changed s
 |---:|---|---|---|---|
 | 1 | User-friendly interface | Substantially achieved | **Substantially achieved** | Mobile mock data and PSS-10 wording removed; no participant-based usability or accessibility evidence yet |
 | 2 | Scheduling + PSS-10 | Substantially achieved | **Fully achieved** | P2 added the 7-day pre-session check-in enforced at completion (`00068`, `pre-session-pss10.ts`), an audited waiver path, and confirmed reschedule until 24 hours before start. Booking gate remains 30 days; waiver exceptions are documented |
-| 3 | Anonymous identity | Substantially achieved | **Substantially achieved** | RLS tests now prove cross-student and cross-role isolation. Still pseudonymity, not cryptographic anonymity; no threat model |
+| 3 | Anonymous identity | Substantially achieved | **Substantially achieved** | Routine staff are now alias-only (`00069`): student rows/profiles are denied, directory is caseload-scoped, and referrals use exact lookup. RLS + Playwright cover isolation. Still pseudonymity with audited break-glass, not cryptographic anonymity; threat model at `docs/anonymity-threat-model.md` |
 | 4 | Counselor dashboard | Substantially achieved | **Substantially achieved** | Note authorization is RLS-tested and note-save is E2E-tested. No unified student timeline or structured note template |
 | 5 | Analytics | Substantially achieved | **Substantially achieved** | Report RPC drift fixed and verified; head E2E asserts populated report sections. Still aggregate, not predictive; no scheduled reports or small-cell suppression |
 | 6 | Real-time chat | Fully achieved | **Fully achieved** | No P1 feature change; realtime measurement remains the proof |
@@ -356,11 +392,15 @@ The two-step mobile flow is understandable: choose a concern → choose how/when
 | Break-glass logs | `supabase/migrations/00017_break_glass_logs.sql` |
 | Audit trail | `supabase/migrations/00018_audit_logs.sql`; `apps/web/lib/log-event.ts` |
 | Emergency UI | `apps/web/app/(staff)/emergency/page.tsx` |
+| Routine alias-only RLS/RPCs | `supabase/migrations/00069_identity_rls_hardening.sql` (`list_student_directory`, `get_student_aliases`, `lookup_student_for_referral`, `get_referral_student`) |
+| Threat model | `docs/anonymity-threat-model.md` |
 | No sensitive content in notifications | `AGENTS.md` rules; `notifyStaff()` usage; `docs/realtime-audit.md` |
 
 #### What works
 
-- Students are represented by an **alias** in staff-facing views. The real identity is not simply printed everywhere.
+- Students are represented by an **alias** in staff-facing views. Routine staff can no longer select the `students` table or a student's `profiles` row at all: the directory, emergency board, appointments, chat, dashboards, reports, feedback, and security-event views resolve aliases through scoped `SECURITY DEFINER` RPCs (`00069`).
+- `student_no`, `contact_no`, and student `full_name`/`email` are absent from routine UI. `/students` and `/emergency` search by alias only.
+- Faculty referrals use an exact student-number lookup, not a browse-all directory. Referral documents remain identifying by design.
 - Anonymous appointments carry `is_anonymous`, and the reveal path is a **separate, audited action**, not a normal read.
 - Counselor access is constrained by caseload in the break-glass flow (`isStudentOnCounselorCaseload()` in `break-glass-service.ts`, lines 27–63).
 - Identity reveals write separate `audit_logs` rows, and break-glass grants expire after **30 minutes** (`apps/web/app/(staff)/emergency/page.tsx`, lines 41–42).
@@ -369,10 +409,10 @@ The two-step mobile flow is understandable: choose a concern → choose how/when
 
 #### Gaps and honest caveats
 
-1. **This is pseudonymity, not mathematical anonymity.** The database links an alias to a `student_id`, and staff with sufficient access (or a service-role key) can correlate records. The system protects against casual disclosure, not against a determined insider.
+1. **This is pseudonymity, not mathematical anonymity.** The database keeps a recoverable alias → identity mapping for break-glass. Service-role and database administrators can still correlate records. What changed in `00069` is that a normal counselor, personnel, or faculty browser session can no longer do so ambiently: student rows and student profiles are denied, and identity requires an audited, time-limited reveal.
 2. **“During counseling sessions” is broader than the technical control.** Chat, session notes, and appointment records may still contain identity-revealing content typed by the student or counselor. The system cannot guarantee anonymity if a participant self-identifies.
 3. **No data-retention or alias-rotation policy is evidenced.** Old aliases, audit logs, and chat history can accumulate indefinitely unless a retention process exists.
-4. **No security test or threat model was found.** The design is thoughtful, but it has not been penetration-tested.
+4. **No penetration test has been run.** A threat model now exists (`docs/anonymity-threat-model.md`) and RLS/Playwright tests cover identity isolation, but the system has not been independently penetration-tested.
 
 #### Non-technical user lens
 

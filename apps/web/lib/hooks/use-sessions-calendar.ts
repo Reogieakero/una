@@ -75,10 +75,7 @@ export async function fetchSessionsCalendar(): Promise<SessionsCalendarData> {
   let aliases = EMPTY_MAP;
   let studentProfiles = EMPTY_MAP;
   if (studentIds.length) {
-    const { data: students } = await supabase
-      .from("students")
-      .select("id, profile_id, anonymous_alias")
-      .in("id", studentIds.slice(0, 500));
+    const { data: students } = await supabase.rpc("get_student_aliases", { ids: studentIds.slice(0, 500) });
     const studentRows = ((students ?? []) as { id: string; profile_id: string; anonymous_alias: string | null }[]);
     aliases = new Map(studentRows.map((s) => [s.id, s.anonymous_alias ?? "Student"]));
     studentProfiles = new Map(studentRows.map((s) => [s.id, s.profile_id]));

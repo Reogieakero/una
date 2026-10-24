@@ -3,9 +3,13 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 
+/**
+ * Alias-level directory row (00069). `student_no`, `contact_no`, `profile_id`
+ * and the student's name/email are intentionally absent — routine staff get
+ * aliases only; real identity needs break-glass or oversight.
+ */
 export type StudentsRow = {
   id: string;
-  student_no: string;
   program: string | null;
   year_level: string | null;
   college: string | null;
@@ -36,8 +40,6 @@ const EMPTY_APPTS: StudentsAppt[] = [];
 const EMPTY_REFS: StudentsRef[] = [];
 const EMPTY_SCREENS: StudentsScreen[] = [];
 
-const STUDENT_COLS = "id, student_no, program, year_level, college, anonymous_alias, created_at";
-
 export async function fetchStudentsBoard(): Promise<StudentsBoardData> {
   const supabase = createClient();
   const {
@@ -49,67 +51,61 @@ export async function fetchStudentsBoard(): Promise<StudentsBoardData> {
   if (!r || !["counselor", "guidance_head"].includes(r)) {
     return { role: r, counselorId: null, rows: EMPTY_ROWS, appts: EMPTY_APPTS, refs: EMPTY_REFS, screens: EMPTY_SCREENS };
   }
+  // Directory rows come from the 00069 RPC: alias-level only, caseload-scoped
+  // for counselors, directory-wide for head/admin. The table itself is no
+  // longer readable by routine staff.
+  const directoryPromise = supabase.rpc("list_student_directory");
+
   if (r === "counselor") {
     // Counselor scope — only students on my caseload: my sessions,
-    // referrals assigned to me, and my chat threads.
+    // referrals assigned to me, and my chat threads. The RPC enforces the
+    // same scope; these reads only supply workload aggregates.
     const { data: c } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
     const cid = (c as { id: string } | null)?.id ?? null;
     if (!cid) {
       return { role: r, counselorId: null, rows: EMPTY_ROWS, appts: EMPTY_APPTS, refs: EMPTY_REFS, screens: EMPTY_SCREENS };
     }
-    const [{ data: apptRows }, { data: refRows }, { data: threadRows }] = await Promise.all([
+    const [{ data: apptRows }, { data: refRows }, { data: directory, error: dirError }] = await Promise.all([
       supabase.from("appointments").select("student_id, scheduled_at, status").eq("counselor_id", cid).limit(1000),
       supabase.from("referrals").select("student_id, status, priority").eq("assigned_counselor_id", cid).limit(1000),
-      supabase.from("chat_threads").select("student_id").eq("counselor_id", cid).limit(500),
+      directoryPromise,
     ]);
-    const myIds = [
-      ...new Set([
-        ...(((apptRows ?? []) as { student_id: string }[]).map((a) => a.student_id)),
-        ...(((refRows ?? []) as { student_id: string | null }[]).map((x) => x.student_id)),
-        ...(((threadRows ?? []) as { student_id: string }[]).map((t) => t.student_id)),
-      ].filter((id): id is string => !!id)),
-    ];
-    const studentChunks: string[][] = [];
-    for (let i = 0; i < myIds.length; i += 200) {
-      const chunk = myIds.slice(i, i + 200);
-      if (chunk.length) studentChunks.push(chunk);
-    }
-    // P11: chunks fan out in parallel instead of awaiting one by one.
-    const [studentPages, screenPages] = await Promise.all([
-      Promise.all(studentChunks.map((chunk) => supabase.from("students").select(STUDENT_COLS).in("id", chunk))),
-      Promise.all(
-        studentChunks.map((chunk) =>
-          supabase
-            .from("pss10_assessments")
-            .select("student_id, band, created_at")
-            .in("student_id", chunk)
-            .order("created_at", { ascending: false })
-            .limit(1000)
-        )
-      ),
-    ]);
-    const studentList = studentPages.flatMap((p) => ((p.data ?? []) as StudentsRow[]));
-    studentList.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+    if (dirError) throw dirError;
+    const studentList = ((directory ?? []) as StudentsRow[]).slice(0, 300);
+    const myIds = studentList.map((s) => s.id);
+    const screenPages = await Promise.all(
+      myIds.length
+        ? [myIds.slice(0, 1000)].map((chunk) =>
+            supabase
+              .from("pss10_assessments")
+              .select("student_id, band, created_at")
+              .in("student_id", chunk)
+              .order("created_at", { ascending: false })
+              .limit(1000)
+          )
+        : []
+    );
     const screenList = screenPages.flatMap((p) => ((p.data ?? []) as StudentsScreen[]));
     return {
       role: r,
       counselorId: cid,
-      rows: studentList.slice(0, 300),
+      rows: studentList,
       appts: ((apptRows ?? []) as StudentsAppt[]),
       refs: ((refRows ?? []) as StudentsRef[]),
       screens: screenList,
     };
   }
-  const [{ data: studentRows }, { data: apptRows }, { data: refRows }, { data: screenRows }] = await Promise.all([
-    supabase.from("students").select(STUDENT_COLS).order("created_at", { ascending: false }).limit(300),
+  const [{ data: directory, error: dirError }, { data: apptRows }, { data: refRows }, { data: screenRows }] = await Promise.all([
+    directoryPromise,
     supabase.from("appointments").select("student_id, scheduled_at, status").limit(1000),
     supabase.from("referrals").select("student_id, status, priority").limit(1000),
     supabase.from("pss10_assessments").select("student_id, band, created_at").order("created_at", { ascending: false }).limit(1000),
   ]);
+  if (dirError) throw dirError;
   return {
     role: r,
     counselorId: null,
-    rows: ((studentRows ?? []) as StudentsRow[]),
+    rows: ((directory ?? []) as StudentsRow[]),
     appts: ((apptRows ?? []) as StudentsAppt[]),
     refs: ((refRows ?? []) as StudentsRef[]),
     screens: ((screenRows ?? []) as StudentsScreen[]),

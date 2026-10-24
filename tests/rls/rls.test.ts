@@ -303,15 +303,13 @@ describe.skipIf(!configured)("RLS integration", () => {
     expect(studentsError).toBeNull();
     expect(students).toEqual([{ id: studentRowA }]);
 
-    // Faculty can read the student directory (referrals) but not profiles.
+    // 00069: routine staff no longer read the students table at all.
     const { data: facultyStudents, error: facultyError } = await asFaculty
       .from("students")
       .select("id")
       .in("id", [studentRowA, studentRowB]);
     expect(facultyError).toBeNull();
-    expect(facultyStudents?.map((r: any) => r.id).sort()).toEqual(
-      [studentRowA, studentRowB].sort(),
-    );
+    expect(facultyStudents).toEqual([]);
 
     const { data: facultyProfiles, error: facultyProfileError } = await asFaculty
       .from("profiles")
@@ -319,6 +317,105 @@ describe.skipIf(!configured)("RLS integration", () => {
       .in("id", [studentA.id, studentB.id]);
     expect(facultyProfileError).toBeNull();
     expect(facultyProfiles).toEqual([]);
+  });
+
+  it("keeps routine staff out of student rows and identity profiles", async () => {
+    // Counselors have a caseload relationship with student A, but that must
+    // not grant ambient access to the students/profiles tables.
+    const { data: counselorStudents, error: counselorStudentsError } = await asCounselorA
+      .from("students")
+      .select("id, student_no, profile_id")
+      .in("id", [studentRowA, studentRowB]);
+    expect(counselorStudentsError).toBeNull();
+    expect(counselorStudents).toEqual([]);
+
+    const { data: counselorProfiles, error: counselorProfilesError } = await asCounselorA
+      .from("profiles")
+      .select("id")
+      .in("id", [studentA.id, studentB.id]);
+    expect(counselorProfilesError).toBeNull();
+    expect(counselorProfiles).toEqual([]);
+
+    // Head oversight retains the broader read.
+    const { data: headStudents, error: headStudentsError } = await asHead
+      .from("students")
+      .select("id")
+      .in("id", [studentRowA, studentRowB]);
+    expect(headStudentsError).toBeNull();
+    expect(headStudents?.map((r: any) => r.id).sort()).toEqual(
+      [studentRowA, studentRowB].sort(),
+    );
+
+    const { data: headProfiles, error: headProfilesError } = await asHead
+      .from("profiles")
+      .select("id")
+      .in("id", [studentA.id, studentB.id]);
+    expect(headProfilesError).toBeNull();
+    expect(headProfiles?.map((r: any) => r.id).sort()).toEqual(
+      [studentA.id, studentB.id].sort(),
+    );
+  });
+
+  it("returns alias-only directory rows scoped to the counselor caseload", async () => {
+    const { data, error } = await asCounselorA.rpc("list_student_directory");
+    expect(error).toBeNull();
+    const rows = (data ?? []) as { id: string; anonymous_alias: string | null }[];
+    expect(rows.map((r) => r.id)).toEqual([studentRowA]);
+    expect(rows[0]?.anonymous_alias).toBe(anonymousAlias);
+    expect(Object.keys(rows[0] ?? {})).not.toContain("student_no");
+    expect(Object.keys(rows[0] ?? {})).not.toContain("profile_id");
+
+    const { data: headRows, error: headError } = await asHead.rpc("list_student_directory");
+    expect(headError).toBeNull();
+    expect(((headRows ?? []) as { id: string }[]).map((r) => r.id).sort()).toEqual(
+      [studentRowA, studentRowB].sort(),
+    );
+
+    // Faculty has no directory access.
+    const { data: facultyRows, error: facultyError } = await asFaculty.rpc("list_student_directory");
+    expect(facultyError).toBeNull();
+    expect(facultyRows).toEqual([]);
+  });
+
+  it("resolves referral identity by exact student number only", async () => {
+    const { data: exact, error: exactError } = await asFaculty.rpc("lookup_student_for_referral", {
+      p_student_no: `A-${runId}`,
+    });
+    expect(exactError).toBeNull();
+    expect((exact ?? []) as { id: string }[]).toHaveLength(1);
+    expect(((exact ?? []) as { id: string }[])[0]?.id).toBe(studentRowA);
+
+    // Prefix / wildcard / empty lookups must not enumerate.
+    for (const probe of ["A-", `${runId}`, "", "   "]) {
+      const { data, error } = await asFaculty.rpc("lookup_student_for_referral", {
+        p_student_no: probe,
+      });
+      expect(error).toBeNull();
+      expect(data).toEqual([]);
+    }
+
+    // Counselors cannot use the referral lookup at all.
+    const { data: counselorLookup, error: counselorLookupError } = await asCounselorA.rpc(
+      "lookup_student_for_referral",
+      { p_student_no: `A-${runId}` },
+    );
+    expect(counselorLookupError).toBeNull();
+    expect(counselorLookup).toEqual([]);
+  });
+
+  it("resolves aliases only for records the caller can already reach", async () => {
+    const { data, error } = await asCounselorA.rpc("get_student_aliases", {
+      ids: [studentRowA, studentRowB],
+    });
+    expect(error).toBeNull();
+    const rows = (data ?? []) as { id: string; anonymous_alias: string | null }[];
+    expect(rows.map((r) => r.id)).toEqual([studentRowA]);
+
+    const { data: facultyData, error: facultyError } = await asFaculty.rpc("get_student_aliases", {
+      ids: [studentRowA, studentRowB],
+    });
+    expect(facultyError).toBeNull();
+    expect(facultyData).toEqual([]);
   });
 
   it("rejects a student writing an appointment or PSS-10 for someone else", async () => {

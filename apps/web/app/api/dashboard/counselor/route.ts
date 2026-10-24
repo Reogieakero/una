@@ -154,7 +154,7 @@ export async function GET() {
   const aliasIds = [...new Set([...sessionRows.map((r) => r.student_id), ...refList])];
   let aliasById = new Map<string, string>();
   if (aliasIds.length) {
-    const { data } = await supabase.from("students").select("id, anonymous_alias").in("id", aliasIds);
+    const { data } = await supabase.rpc("get_student_aliases", { ids: aliasIds });
     aliasById = new Map(((data ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => [s.id, s.anonymous_alias ?? "Student"]));
   }
 

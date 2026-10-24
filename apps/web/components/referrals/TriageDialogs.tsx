@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { isMeetUrl } from "@dorsu/shared-services";
 import { type BoardSlot } from "@/lib/hooks/use-referrals-board";
-import type { ReferralStudentOption } from "@/lib/hooks/use-referrals-board";
 import { Badge, Button, Card, FieldError, Input, Textarea } from "@/components/ui/primitives";
 import { SlotSchedulePicker, composeLocal, defaultSchedule, selectionFitsScope, type ScheduleSelection } from "@/components/appointments/SlotSchedulePicker";
 import { Dropdown } from "@/components/shared/dropdown";
@@ -326,7 +325,6 @@ export function TriageConfirmDialog({
  */
 export function FacultyReferralSection({
   facultyId,
-  students,
   headIds,
   rows,
   aliases,
@@ -336,7 +334,6 @@ export function FacultyReferralSection({
   onViewForm,
 }: {
   facultyId: string | null;
-  students: ReferralStudentOption[];
   headIds: string[];
   rows: Referral[];
   aliases: Map<string, string>;
@@ -366,7 +363,6 @@ export function FacultyReferralSection({
       <ReferralExcelModal
         open={excelOpen}
         myName={myName}
-        students={students}
         facultyId={facultyId}
         headIds={headIds}
         onSubmitted={() => {

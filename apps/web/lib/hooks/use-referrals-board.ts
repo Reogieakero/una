@@ -172,12 +172,8 @@ export async function fetchReferralCard(id: string): Promise<{
   const row = data as ReferralsRow;
   let alias: string | null = null;
   if (row.student_id) {
-    const { data: s } = await supabase
-      .from("students")
-      .select("anonymous_alias")
-      .eq("id", row.student_id)
-      .single();
-    alias = (s as { anonymous_alias: string | null } | null)?.anonymous_alias ?? null;
+    const { data: s } = await supabase.rpc("get_student_aliases", { ids: [row.student_id] });
+    alias = ((s ?? []) as { anonymous_alias: string | null }[])[0]?.anonymous_alias ?? null;
   }
   let facultyName: string | null = null;
   if (row.referring_faculty_id) {
@@ -242,27 +238,9 @@ export async function fetchReferralsBoard(scope: ReferralsScope): Promise<Referr
   if (r === "faculty") {
     const { data } = await supabase.from("faculty_members").select("id").eq("profile_id", user.id).single();
     facultyId = (data as { id: string } | null)?.id ?? null;
-    const { data: studentRows } = await supabase
-      .from("students")
-      .select("id, anonymous_alias, student_no, program, year_level")
-      .order("created_at", { ascending: false })
-      .limit(200);
-    students = (
-      (studentRows ?? []) as {
-        id: string;
-        anonymous_alias: string | null;
-        student_no: string;
-        program: string | null;
-        year_level: string | null;
-      }[]
-    ).map((s) => ({
-      id: s.id,
-      label: `${s.anonymous_alias ?? "Student"} · ${s.student_no}`,
-      alias: s.anonymous_alias ?? "Student",
-      studentNo: s.student_no,
-      program: s.program,
-      yearLevel: s.year_level,
-    }));
+    // 00069: no browse-all student directory. Referral creation resolves an
+    // exact student number through lookup_student_for_referral() instead.
+    students = EMPTY_STUDENTS;
   }
   if (!r || !["counselor", "guidance_head", "faculty"].includes(r)) {
     return {
@@ -354,7 +332,7 @@ export async function fetchReferralsBoard(scope: ReferralsScope): Promise<Referr
       ? supabase.from("profiles").select("id, full_name").in("id", actorIds.slice(0, 200))
       : emptyPage,
     studentIds.length
-      ? supabase.from("students").select("id, profile_id, anonymous_alias").in("id", studentIds.slice(0, 300))
+      ? supabase.rpc("get_student_aliases", { ids: studentIds.slice(0, 300) })
       : emptyPage,
     studentIds.length
       ? supabase

@@ -37,6 +37,23 @@ test.describe("counselor role", () => {
     await expect(notes).toBeHidden();
   });
 
+  test("routine boards expose aliases only, never real identity", async ({ page }) => {
+    const seed = loadSeed();
+    await login(page, seed.users.counselor.email, seed.password);
+
+    await page.goto("/students");
+    await expect(page.getByRole("heading", { name: /My students|Students/ })).toBeVisible();
+    await expect(page.getByText(seed.studentAlias).first()).toBeVisible();
+    // 00069: student numbers and real names are not part of routine boards.
+    await expect(page.getByText(seed.studentNo)).toHaveCount(0);
+    await expect(page.getByText(seed.studentName)).toHaveCount(0);
+
+    await page.goto("/emergency");
+    await expect(page.getByText(seed.studentAlias).first()).toBeVisible();
+    await expect(page.getByText(seed.studentNo)).toHaveCount(0);
+    await expect(page.getByText(seed.studentName)).toHaveCount(0);
+  });
+
   test("blocks completion without a check-in, then records an audited waiver", async ({ page }) => {
     const seed = loadSeed();
     await login(page, seed.users.counselor.email, seed.password);

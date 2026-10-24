@@ -77,9 +77,10 @@ export async function fetchSecurityBoard(): Promise<SecurityBoardData> {
   const studentIds = [...new Set(glassList.map((g) => g.student_id))];
   const [{ data: studentRows }, { data: directory }] = await Promise.all([
     studentIds.length
-      ? supabase.from("students").select("id, anonymous_alias").in("id", studentIds.slice(0, 200))
+      ? supabase.rpc("get_student_aliases", { ids: studentIds.slice(0, 200) })
       : Promise.resolve({ data: [] }),
-    supabase.from("students").select("id, anonymous_alias, student_no").order("created_at", { ascending: false }).limit(200),
+    // Oversight break-glass picker: aliases only, never student numbers.
+    supabase.rpc("list_emergency_students"),
   ]);
   return {
     me: user?.id ?? null,
@@ -89,9 +90,9 @@ export async function fetchSecurityBoard(): Promise<SecurityBoardData> {
     aliases: new Map(
       ((studentRows ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => [s.id, s.anonymous_alias ?? "Student"])
     ),
-    students: ((directory ?? []) as { id: string; anonymous_alias: string | null; student_no: string }[]).map((s) => ({
+    students: ((directory ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => ({
       id: s.id,
-      label: `${s.anonymous_alias ?? "Student"} · ${s.student_no}`,
+      label: s.anonymous_alias ?? "Student",
     })),
     roleCounts: counts,
     deactivated: off,

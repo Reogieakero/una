@@ -42,39 +42,12 @@ export async function fetchEmergencyBoard(): Promise<EmergencyBoardData> {
   if (!r || !["counselor", "guidance_head"].includes(r)) {
     return { role: r, me: user.id, myName, students: EMPTY_STUDENTS, headIds: EMPTY_IDS, grant: null };
   }
-  // Counselor scope — step 1 may only target students on their caseload:
-  // referrals assigned to them or appointments assigned to them.
-  // The head keeps the full directory.
-  let directory: { id: string; anonymous_alias: string | null; student_no: string }[] = [];
-  if (r === "counselor") {
-    const { data: c } = await supabase.from("counselors").select("id").eq("profile_id", user.id).single();
-    const cid = (c as { id: string } | null)?.id ?? null;
-    if (cid) {
-      const [{ data: apptRows }, { data: refRows }] = await Promise.all([
-        supabase.from("appointments").select("student_id").eq("counselor_id", cid).limit(1000),
-        supabase.from("referrals").select("student_id").eq("assigned_counselor_id", cid).limit(1000),
-      ]);
-      const ids = [
-        ...new Set([
-          ...(((apptRows ?? []) as { student_id: string }[]).map((a) => a.student_id)),
-          ...(((refRows ?? []) as { student_id: string | null }[]).map((x) => x.student_id)),
-        ].filter((id): id is string => !!id)),
-      ];
-      for (let i = 0; i < ids.length; i += 200) {
-        const chunk = ids.slice(i, i + 200);
-        if (!chunk.length) break;
-        const { data } = await supabase.from("students").select("id, anonymous_alias, student_no").in("id", chunk);
-        directory.push(...((data ?? []) as typeof directory));
-      }
-    }
-  } else {
-    const { data } = await supabase
-      .from("students")
-      .select("id, anonymous_alias, student_no")
-      .order("created_at", { ascending: false })
-      .limit(200);
-    directory = ((data ?? []) as typeof directory);
-  }
+  // Alias-level directory (00069): the break-glass picker never exposes a
+  // student number. Counselors see their caseload only (matching the reveal
+  // API's caseload gate); the head sees everyone.
+  const { data: directoryData, error: directoryError } = await supabase.rpc("list_student_directory");
+  if (directoryError) throw directoryError;
+  const directory = ((directoryData ?? []) as { id: string; anonymous_alias: string | null }[]).slice(0, 300);
   const [{ data: heads }, { data: mine }] = await Promise.all([
     supabase.from("profiles").select("id").eq("role", "guidance_head").eq("is_active", true),
     supabase
@@ -89,7 +62,7 @@ export async function fetchEmergencyBoard(): Promise<EmergencyBoardData> {
   const students = directory.map((s) => ({
     id: s.id,
     alias: s.anonymous_alias ?? "Student",
-    label: `${s.anonymous_alias ?? "Student"} · ${s.student_no}`,
+    label: s.anonymous_alias ?? "Student",
   }));
   const g = mine as { id: string; student_id: string; expires_at: string; reviewed_at: string | null } | null;
   return {

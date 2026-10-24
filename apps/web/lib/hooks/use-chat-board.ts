@@ -147,10 +147,7 @@ export async function fetchChatBoard(): Promise<ChatBoardData> {
 
     const studentIds = [...new Set(threads.map((t) => t.student_id))];
     if (studentIds.length) {
-      const { data: students } = await supabase
-        .from("students")
-        .select("id, profile_id, anonymous_alias")
-        .in("id", studentIds.slice(0, 200));
+      const { data: students } = await supabase.rpc("get_student_aliases", { ids: studentIds.slice(0, 200) });
       aliases = new Map(
         ((students ?? []) as { id: string; profile_id: string; anonymous_alias: string | null }[]).map((s) => [
           s.id,

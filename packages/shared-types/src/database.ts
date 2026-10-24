@@ -444,6 +444,46 @@ export interface Database {
         Args: Record<string, never>;
         Returns: number;
       };
+      // Added by hand (00069) — identity hardening: alias-only RPCs.
+      list_student_directory: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          anonymous_alias: string | null;
+          program: string | null;
+          year_level: string | null;
+          college: string | null;
+          created_at: string;
+        }[];
+      };
+      list_emergency_students: {
+        Args: Record<string, never>;
+        Returns: { id: string; anonymous_alias: string | null }[];
+      };
+      get_student_aliases: {
+        Args: { ids: string[] };
+        Returns: { id: string; anonymous_alias: string | null; profile_id: string }[];
+      };
+      lookup_student_for_referral: {
+        Args: { p_student_no: string };
+        Returns: {
+          id: string;
+          anonymous_alias: string | null;
+          student_no: string;
+          program: string | null;
+          year_level: string | null;
+        }[];
+      };
+      get_referral_student: {
+        Args: { p_referral_id: string };
+        Returns: {
+          student_id: string;
+          student_no: string;
+          anonymous_alias: string | null;
+          program: string | null;
+          year_level: string | null;
+        }[];
+      };
     };
     Enums: Record<string, never>;
   };

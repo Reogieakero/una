@@ -95,7 +95,7 @@ export async function fetchFeedbackBoard(): Promise<FeedbackBoardData> {
   const apptIds = [...new Set(list.map((f) => f.appointment_id))];
   const [{ data: studentRows }, { data: apptRows }] = await Promise.all([
     studentIds.length
-      ? supabase.from("students").select("id, anonymous_alias").in("id", studentIds.slice(0, 300))
+      ? supabase.rpc("get_student_aliases", { ids: studentIds.slice(0, 300) })
       : Promise.resolve({ data: [] }),
     apptIds.length
       ? supabase.from("appointments").select("id, concern, counselor_id, scheduled_at").in("id", apptIds.slice(0, 300))

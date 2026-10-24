@@ -8,7 +8,6 @@ import { formatWhen } from "@/lib/format";
 
 export type Student = {
   id: string;
-  student_no: string;
   program: string | null;
   year_level: string | null;
   college: string | null;
@@ -144,7 +143,7 @@ export function StudentTable({
               <tr key={s.id} className="border-b border-ink/5 align-top last:border-0">
                 <td className="px-4 py-3">
                   <p className="font-bold text-ink">{s.anonymous_alias ?? "Student"}</p>
-                  <p className="text-xs font-medium text-ink-muted">{s.student_no}</p>
+                  <p className="text-xs font-medium text-ink-muted">Alias-only record</p>
                 </td>
                 <td className="px-4 py-3">
                   <p className="font-semibold text-ink">{s.program ?? "—"}</p>

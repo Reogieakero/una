@@ -46,7 +46,7 @@ export default function AccessEventsPage() {
     }
     const studentIds = [...new Set(list.map((l) => l.student_id))];
     if (studentIds.length) {
-      const { data: students } = await supabase.from("students").select("id, anonymous_alias").in("id", studentIds.slice(0, 200));
+      const { data: students } = await supabase.rpc("get_student_aliases", { ids: studentIds.slice(0, 200) });
       setAliases(
         new Map(
           ((students ?? []) as { id: string; anonymous_alias: string | null }[]).map((s) => [s.id, s.anonymous_alias ?? "Student"])

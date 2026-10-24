@@ -65,21 +65,20 @@ export function ReferralFormModal({
     }
     let alive = true;
     setStudentLoading(true);
-    const studentId: string = referral.student_id;
+    const referralId: string = referral.id;
     (async () => {
       try {
-        const { data } = await createClient()
-          .from("students")
-          .select("anonymous_alias, student_no, program, year_level")
-          .eq("id", studentId)
-          .maybeSingle();
+        // 00069: official referral documents are identifying by design, so
+        // the form resolves the linked student through an RLS-style scoped
+        // RPC instead of reading the students table directly.
+        const { data } = await createClient().rpc("get_referral_student", { p_referral_id: referralId });
         if (!alive) return;
-        const row = data as {
+        const row = (((data ?? []) as {
           anonymous_alias: string | null;
           student_no: string;
           program: string | null;
           year_level: string | null;
-        } | null;
+        }[])[0]) ?? null;
         setStudent(
           row
             ? {

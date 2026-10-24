@@ -28,6 +28,9 @@ export type SeedState = {
     faculty: { profileId: string; facultyRowId: string; email: string };
   };
   studentAlias: string;
+  /** Real identity fields that routine staff pages must never render. */
+  studentName: string;
+  studentNo: string;
   appointmentConcern: string;
   waiverAppointmentConcern: string;
   completedConcern: string;
@@ -105,6 +108,8 @@ export default async function globalSetup(): Promise<void> {
     ]);
 
   const studentAlias = `E2E Owl ${runId}`;
+  const studentName = `E2E Student ${runId}`;
+  const studentNo = `E2E-${runId}`;
   const appointmentConcern = `E2E counseling concern ${runId}`;
   const waiverAppointmentConcern = `E2E check-in waiver session ${runId}`;
   const completedConcern = `E2E completed report session ${runId}`;
@@ -114,7 +119,7 @@ export default async function globalSetup(): Promise<void> {
     .from("students")
     .insert({
       profile_id: studentId,
-      student_no: `E2E-${runId}`,
+      student_no: studentNo,
       anonymous_alias: studentAlias,
       program: "BSIT",
       year_level: "3",
@@ -253,6 +258,8 @@ export default async function globalSetup(): Promise<void> {
       },
     },
     studentAlias,
+    studentName,
+    studentNo,
     appointmentConcern,
     waiverAppointmentConcern,
     completedConcern,
