@@ -321,8 +321,8 @@ Do **not** call an announcement page “events” without calendar/date/venue/RS
   - Objective 7 (events): mark implemented or renamed;
   - Objective 11: replace “partially achieved” with the measured usability/accessibility evidence;
   - ISO 25010 table: cite test results, CI artifacts, and the study report.
-- Add a short “How to reproduce” section with exact commands.
-- Keep dated evidence; do not rewrite the original findings.
+- Add a short “How to reproduce” section with exact commands. *(Done — §1.6.)*
+- Keep dated evidence; do not rewrite the original findings. *(Done — stale lines are struck through and annotated with the P1 resolution, not deleted.)*
 
 **Estimate:** 0.5–1 day.
 
@@ -351,16 +351,16 @@ Dependencies matter more than raw effort.
 
 ## 5. Acceptance checklist
 
-- [ ] PSS-10 instrument has one shared source; mobile imports it; mock exports removed.
-- [ ] Mobile profile is documented as live, not mock.
-- [ ] `pnpm test` runs unit tests locally and in PR CI.
-- [ ] RLS tests run against a real database or explicitly skip with a reason.
-- [ ] Four role-based Playwright smoke specs pass.
-- [ ] Nightly/manual CI runs `check:schema` and the P0 concurrency test and uploads evidence.
-- [ ] Event scope is decided: implemented MVP or renamed objective.
-- [ ] Usability study report exists with participants, task metrics, SUS, and WCAG findings.
-- [ ] High-severity accessibility findings are fixed or accepted in writing.
-- [ ] `Objective_Achievement_Report.md` and the ISO 25010 table cite the new evidence.
+- [x] PSS-10 instrument has one shared source; mobile imports it; mock exports removed.
+- [x] Mobile profile is documented as live, not mock.
+- [x] `pnpm test` runs unit tests locally and in PR CI.
+- [x] RLS tests run against local Supabase in CI (and skip with a reason locally when env vars are absent).
+- [x] Four role-based Playwright smoke specs pass (CI #39994834656).
+- [ ] Nightly/manual CI runs `check:schema` and the P0 concurrency test and uploads evidence. *(Job exists; staging secrets not configured, so it has not run.)*
+- [x] Event scope is decided: renamed to announcement management.
+- [ ] Usability study report exists with participants, task metrics, SUS, and WCAG findings. *(Protocol/plan only; no participants yet.)*
+- [ ] High-severity accessibility findings are fixed or accepted in writing. *(Blocked on the audit.)*
+- [~] `Objective_Achievement_Report.md` and the ISO 25010 table cite the new evidence. *(P1 tests cited in §1.6; final ISO 25010 update awaits P1.6.)*
 - [ ] Web and mobile typecheck/build pass; no secrets committed.
 
 ---
@@ -420,6 +420,6 @@ Updated 24 October 2026.
 - [x] **P1.4 — Role-based E2E:** `e2e/` (Playwright, 4 specs) seeds one account per role plus a past confirmed session, pending referral, and PSS-10 row, then asserts the student route boundary, counselor Complete → session-note save, faculty referral history + form modal, and head referral board + populated report KPIs/sections. CI job builds the web app against local Supabase and uploads traces/screenshots on every run. Green run: `CI` #39994834656 (e2e job 4m48s, 4/4 specs).
 - [x] **P1.5 — Event scope note:** Objective 7 is renamed to **announcement management**. Decision record at `docs/objective-7-announcement-scope.md`; `Objective_Achievement_Report.md` uses the new wording, marks the renamed scope fully achieved, and lists calendar/RSVP/attendance as explicitly out of scope. No events MVP was built.
 - [ ] **P1.6 — Usability/accessibility study:** not started (human-dependent).
-- [ ] **P1.7 — Report consolidation:** not started.
+- [~] **P1.7 — Report consolidation (interim complete):** `Objective_Achievement_Report.md` now has a dated §1.6 P1 evidence table with CI run IDs and reproduce commands. Stale review-time claims were annotated rather than deleted (preserving the original findings): mobile mock data, PSS-10 wording, missing automated tests, note authorization, booking tests, Objective 7 events, and the Objective 11 evidence row. The ISO 25010 table now cites the P1 tests while keeping the usability score provisional. **Remaining for final completion:** the P1.6 usability/accessibility results and the final ISO 25010 table.
 
 **Local verification for P1.1/P1.2/P1.3/P1.4:** `pnpm test` (41 passed), shared-services/mobile/web typecheck, web production build, `pnpm --filter @dorsu/rls-tests exec tsc --noEmit`, and `pnpm --filter @dorsu/e2e exec tsc --noEmit` all pass. The RLS suite runs in CI against local Supabase; locally it skips cleanly when the three `TEST_SUPABASE_*` variables are absent. The Playwright suite runs in CI against local Supabase and is excluded from `pnpm test`; locally `pnpm e2e` needs the same variables plus a built web app. Staging guard secrets still need configuration before the scheduled job exercises staging.

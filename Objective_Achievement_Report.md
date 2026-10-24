@@ -46,18 +46,18 @@ The report separates three things that are often confused:
 
 - The performance artifacts contain a **failed same-slot concurrency test**: 50 concurrent confirmations of overlapping appointments produced **50 confirmed rows** where exactly 1 was expected (`perf-tests/results/concurrency.json`, E1 `pass: false`). The code contains an exclusion constraint intended to prevent this (`00059_phase1_perf_indexes_slotguard.sql`), but the constraint is wrapped in a `DO … EXCEPTION` block that silently skips creation if overlapping rows already exist. This must be verified in the deployed database. **This is the single highest-risk finding in the review.** **Fixed and re-measured on staging on 24 October 2026 — see §1.5.**
 - The same artifacts show the analytics RPCs `head_appointment_daily_counts` and `head_referral_status_counts` as **missing** in the measured environment (`perf-tests/results/explain.json`), even though they exist in migration `00061_phase3b_report_rpcs.sql`. This is migration drift, not necessarily a code defect — but it means reports may silently degrade if deployment is not verified. **Resolved on staging on 24 October 2026 — see §1.5.**
-- The mobile app still uses **local mock data** for the profile identity card and the PSS-10 question wording/labels (`apps/mobile/README.md`, lines 81–84). Scoring and persistence are real; presentation is not fully real.
+- ~~The mobile app still uses local mock data for the profile identity card and the PSS-10 question wording/labels.~~ **Closed in P1 — see §1.6.** The profile card reads `profiles` + `students`, and PSS-10 wording/labels come from `packages/shared-services/src/assessments/pss10-instrument.ts`; `apps/mobile/data/mock.ts` was removed.
 - Objective 7 was originally worded as “event management.” It is now explicitly **announcement management**: targeted news posts with drafts, images, realtime delivery, and insights. There is no event calendar, venue, date range, RSVP, or attendance tracking; that boundary is recorded in `docs/objective-7-announcement-scope.md`.
 - Google Meet is a **manually pasted URL field with validation**, not a Google Calendar/Meet API integration.
-- There is **no unit-test runner**, no automated end-to-end suite, and no formal usability study with non-technical users. Objective 11 is therefore only partially demonstrated by evidence.
+- ~~There is no unit-test runner, no automated end-to-end suite, and no formal usability study with non-technical users.~~ **Partly closed in P1 — see §1.6.** Unit tests (41), RLS integration tests (8), and four Playwright role specs now run in CI. The formal usability/accessibility study still has no participants, so Objective 11 remains only partially demonstrated by evidence.
 
 ### 1.4 Bottom line
 
-The system **does achieve the functional intent of most objectives**. It is strongest in scheduling, privacy controls, referrals, real-time communication, and announcement management. It is weakest in formal quality evaluation and deployment verification of concurrency and analytics migrations.
+The system **does achieve the functional intent of most objectives**. It is strongest in scheduling, privacy controls, referrals, real-time communication, and announcement management. It is weakest in formal quality evaluation: concurrency and analytics migration drift were verified and fixed on staging, and P1 added an automated test foundation, but the participant-based usability/accessibility study is still outstanding.
 
 For a capstone defense, the honest claim is:
 
-> “Nine of eleven objectives are implemented in software to a substantial degree. Two are partially evidenced: Google Meet is a validated manual link rather than an API integration, and the ISO/IEC 25010 evaluation is performance-focused and not yet supported by formal usability testing or a complete quality test suite.”
+> “Nine of eleven objectives are implemented in software to a substantial degree. Two are partially evidenced: Google Meet is a validated manual link rather than an API integration, and the ISO/IEC 25010 evaluation is supported by performance measurements and a new automated test foundation, but not yet by a participant-based usability/accessibility study.”
 
 ### 1.5 Post-review P0 remediation — 24 October 2026
 
@@ -96,7 +96,50 @@ Remediation applied in order: `00059`, `00061`, then new `00067_fix_slot_overlap
 
 The stale review artifact was replaced by `perf-tests/results/concurrency.json` (`at: 2026-10-23T16:07:55Z`, E1/E2 both `pass: true`), and `perf-tests/check-schema.mjs` was added as a cheap regression gate.
 
-**What this does not prove:** the fix was validated against the approved **staging** database, not production. No browser-driven E2E or live role smoke test was added in P0. The report’s broader conclusions about analytics depth, mobile mock data, events, and formal usability testing are unchanged.
+**What this does not prove:** the fix was validated against the approved **staging** database, not production. No browser-driven E2E or live role smoke test was added in P0. The report’s broader conclusions about analytics depth, mobile mock data, announcement scope, and formal usability testing were unchanged **at that point**; P1 work is recorded in §1.6.
+
+### 1.6 Post-review P1 evidence — 24 October 2026
+
+This section records the P1 work completed after the review. The findings in §4–§7 are preserved as the review-time state; the notes below say which of them are now closed and which remain open.
+
+**Closed or materially reduced**
+
+| Gap at review time | P1 work | Verification |
+|---|---|---|
+| No unit-test runner | Vitest in `@dorsu/shared-services`; 41 tests for PSS-10 integrity/scoring, freshness, booking gate/idempotency/`23P01`, Meet URL validation, RBAC | `pnpm test` → 41 passed; CI `verify` job |
+| No RLS regression tests | `tests/rls` with 8 cases: cross-student appointment/PSS/profile isolation, cross-role insert denial, counselor-note isolation with head oversight, self-promotion blocking, audit read scope/append-only, content-free notification fan-out | CI `rls` job, green run **#39990715576** |
+| No browser-driven role smoke test | `e2e/` Playwright, 4 specs (student route boundary, counselor Complete → note save, faculty referral history/form, head referral board + populated report sections) | CI `e2e` job, green run **#39994834656** (4/4 specs) |
+| Mobile PSS-10 wording was local mock text | Canonical instrument in `packages/shared-services/src/assessments/pss10-instrument.ts`; mobile check-in and scoring import it; `apps/mobile/data/mock.ts` removed | Unit-test instrument-integrity cases; mobile typecheck |
+| Objective 7 was described as events | Renamed to **announcement management**; calendar/RSVP/attendance documented as out of scope | `docs/objective-7-announcement-scope.md` |
+| “No automated test for note authorization” | Counselor-note isolation covered in the RLS suite; note save exercised in Playwright | Run **#39990715576**, **#39994834656** |
+
+**Still open**
+
+- P1.6 usability/accessibility study: protocol and participant plan exist, but **no participants have been run**. There is no SUS score, task-success rate, time-on-task, or WCAG audit result yet. Objective 11 therefore remains partially achieved.
+- PSS-10 licensing/permission is recorded in `docs/pss10-license-note.md` but is **not verified** in writing.
+- No penetration test, SAST/DAST, or production deployment verification.
+- Staging guard secrets are not configured, so the scheduled staging job has not run in CI.
+
+**How to reproduce locally**
+
+```bash
+# Unit tests (no external services)
+pnpm install
+pnpm test
+
+# Typecheck/build
+pnpm --filter @dorsu/web typecheck
+pnpm --filter @dorsu/mobile typecheck
+pnpm --filter @dorsu/web build
+
+# RLS suite — needs a local Supabase stack and the three TEST_SUPABASE_* vars
+pnpm --filter @dorsu/rls-tests test:rls
+
+# Playwright role smoke — needs local Supabase vars plus a built web app
+pnpm e2e
+```
+
+CI runs the same suites against a pinned Supabase CLI (`2.122.0`); the e2e job uploads `e2e/playwright-report/` and `e2e/test-results/` (traces/screenshots) on every run.
 
 ---
 
@@ -112,6 +155,7 @@ The stale review artifact was replaced by `perf-tests/results/concurrency.json` 
 | Shared domain logic | `packages/shared-services/src/**` (appointments, referrals, chat, security, analytics, RBAC, notifications) |
 | Database | `supabase/migrations/**` (schema, RLS, triggers, RPCs, constraints) |
 | Performance evidence | `perf-tests/results/*.json` (pages, throttled pages, booking, mutations, concurrency, realtime, explain plans) |
+| Automated tests (P1) | `packages/shared-services/src/**/*.test.ts` (Vitest), `tests/rls/rls.test.ts`, `e2e/specs/*.spec.ts`, `.github/workflows/ci.yml` |
 | Product documentation | `AGENTS.md`, `apps/mobile/README.md`, `docs/realtime-audit.md`, `docs/BACKUP_RESTORE.md` |
 
 ### 2.2 Evidence hierarchy
@@ -146,7 +190,7 @@ When sources disagreed, this report trusted them in this order:
 
 | # | Objective (short form) | Verdict | Strongest evidence | Main gap |
 |---:|---|---|---|---|
-| 1 | User-friendly mobile and web interface | Substantially achieved | `apps/web/app/**`, `apps/mobile/app/**`, design tokens, onboarding, role-specific navigation | Mobile profile card and PSS-10 labels are still mock; no usability test with non-technical users |
+| 1 | User-friendly mobile and web interface | Substantially achieved | `apps/web/app/**`, `apps/mobile/app/**`, design tokens, onboarding, role-specific navigation; P1 removed mobile mock data | No participant-based usability test with non-technical users yet |
 | 2 | Book / reschedule / cancel + PSS-10 before session | Substantially achieved | `apps/mobile/app/book.tsx`, `check-in.tsx`, `booking-service.ts`, `00008`, `00059`, `00067` | PSS-10 gate is 30-day freshness at booking, not literally before every session; E1 concurrency fixed 2026-10-24 (1 confirmed / 49 rejected) |
 | 3 | Secure anonymous identity | Substantially achieved | Alias system, `is_anonymous`, RLS, reveal API, audit logs | Pseudonymity, not cryptographic anonymity; staff with database access can correlate IDs |
 | 4 | Counselor dashboard for schedules, records, notes | Substantially achieved | `/dashboard`, `/appointments`, `/sessions`, `/students`, `/availability`, session-note API | No dedicated “student record” timeline; notes are per completed session |
@@ -154,7 +198,7 @@ When sources disagreed, this report trusted them in this order:
 | 6 | Real-time chat | Fully achieved | `/chat` (web + mobile), Supabase Realtime, `realtime.json` | No typing indicators/read receipts verified; no offline queue |
 | 7 | Announcement management for publishing announcements/activities | Fully achieved (renamed scope) | `/announcements`, drafts, audience targeting, images, insights, mobile home feed | Event calendar, date/venue, RSVP, attendance are explicitly out of scope (`docs/objective-7-announcement-scope.md`) |
 | 8 | Embedded Google Meet link | Partially achieved | `meeting_url` column, `isMeetUrl()` validation, online-confirm gate | Manual URL paste; no Google Calendar/Meet API or automatic link creation |
-| 9 | Break-glass emergency access with audit | Fully achieved | `/emergency`, `break-glass-service.ts`, `/api/staff/security/*`, `00017`, `00018` | No automated alerting to the head; no automated tests |
+| 9 | Break-glass emergency access with audit | Fully achieved | `/emergency`, `break-glass-service.ts`, `/api/staff/security/*`, `00017`, `00018`; caseload unit tests + audit RLS tests | No automated alerting to the head; full expiry/review flow not browser-tested |
 | 10 | Faculty referral feature | Fully achieved | `/refer-student`, `/referrals`, `referrals/mutations.ts`, `referral_actions` | No mobile faculty app (web only); no external referral letter delivery |
 | 11 | ISO/IEC 25010 evaluation | Partially achieved | Performance harness and results; this report | No formal usability study, accessibility audit, security test, or complete ISO 25010 instrument |
 
@@ -191,8 +235,8 @@ When sources disagreed, this report trusted them in this order:
 
 #### Gaps and honest caveats
 
-1. **Mobile profile is not fully real.** `apps/mobile/README.md` explicitly lists the “Profile identity card” under “Still local mock data” (lines 81–84). A student sees a polished card, but part of it is not sourced from Supabase.
-2. **PSS-10 question wording/labels are mocked on mobile.** Scoring and persistence are real; the wording is local (`data/mock.ts`). For a mental-health instrument, this is a credibility issue: the displayed items must match the validated PSS-10 wording.
+1. ~~**Mobile profile is not fully real.**~~ **Closed in P1 (§1.6).** The profile card now reads `profiles` + `students`, with private-bucket avatar upload; `apps/mobile/README.md` no longer lists an identity-card mock.
+2. ~~**PSS-10 question wording/labels are mocked on mobile.**~~ **Closed in P1 (§1.6).** The canonical instrument lives in `packages/shared-services/src/assessments/pss10-instrument.ts`; mobile check-in and scoring import it, and the unit suite asserts instrument integrity. Licensing/permission remains unverified — see `docs/pss10-license-note.md`.
 3. **No formal usability test with non-technical users.** The interface *looks* approachable, but there is no SUS score, task-success rate, time-on-task, or error-rate evidence. “User-friendly” is therefore an informed design judgment, not a measured result.
 4. **Accessibility is not verified.** There is no WCAG audit, no screen-reader test, and no documented keyboard/focus review. Color contrast and reduced-motion behavior are not evidenced.
 5. **Web bundle weight on login is high** — about **1.13 MB JS** in the normal run (`perf-tests/results/pages.json`), which is heavy for low-end devices and slow connections.
@@ -235,9 +279,9 @@ A first-time student can plausibly complete onboarding → login → book → ch
 #### Gaps and honest caveats
 
 1. **“Prior to each session” is stronger than what is implemented.** The gate requires a PSS-10 within **30 days before booking**. It does not require a fresh assessment before every session, and it does not re-check at session time. That is a reasonable product decision, but it is not literal compliance with the objective.
-2. **The concurrency test failed.** `perf-tests/results/concurrency.json` E1 reports `success: 50, fail: 0, confirmed: 50, pass: false` for 50 concurrent confirmations of the same counselor/time slot. Expected: exactly 1 confirmation. The migration contains an exclusion constraint (`no_counselor_overlap`) intended to prevent overlapping `assigned`/`confirmed` rows, but it is created inside a `DO` block that catches **all** exceptions and only raises a notice. If overlapping seed rows exist, the constraint is silently skipped forever. **The deployed database must be checked for the constraint; the test must be re-run.**
+2. ~~**The concurrency test failed.**~~ **Fixed and re-measured on staging 2026-10-24 — see §1.5.** The review-time run reported 50 concurrent confirmations all succeeding; migration `00067` replaced the silent `DO … EXCEPTION` guard, cleaned duplicate active rows, and installed a validated `no_counselor_overlap` constraint. The re-run gives **1 confirmation and 49 × `23P01`**.
 3. **Reschedule is restricted for confirmed sessions.** Mobile allows reschedule only for `pending`/`assigned`; once a session is confirmed, the student must go through the Guidance Office (`apps/mobile/README.md`, line 75). That is defensible operationally, but the objective says students can reschedule — this is a partial restriction.
-4. **No automated booking tests.** There is no unit or integration test suite. The booking logic is well written but regression protection is manual.
+4. ~~**No automated booking tests.**~~ **Closed in P1 (§1.6).** The Vitest suite covers PSS-10 freshness, the booking gate, idempotency, and `23P01` mapping; RLS tests cover cross-student isolation.
 
 #### Non-technical user lens
 
@@ -315,7 +359,7 @@ The anonymous toggle in `/book` is simple and visible. The risk is **expectation
 1. **There is no single “student record” page** that consolidates appointments, referrals, notes, PSS-10 bands, and feedback into one longitudinal timeline. The information exists across pages, but the counselor must navigate between them.
 2. **Session documentation is per-session, not a full case file.** That is appropriate for privacy, but it limits continuity for long-term counseling.
 3. **No rich-text or structured note template** was evidenced; notes are text plus optional attachments.
-4. **No automated test for note authorization.** The rule is enforced in code and RLS, but not regression-tested.
+4. ~~**No automated test for note authorization.**~~ **Closed in P1 (§1.6).** Counselor-note isolation with head oversight is covered by the RLS suite, and the counselor note-save flow is exercised by Playwright.
 
 #### Non-technical user lens
 
@@ -405,7 +449,7 @@ The reports page is visually structured and includes explanatory hints, which he
 - No typing indicators, read receipts, or message editing/deletion were verified.
 - No offline outbox/queue was found; a send while offline depends on the client library’s retry behavior.
 - Real-time delivery depends on a healthy websocket; the reconnect test shows refetch is the safety net, which is good, but the UX during reconnect is not documented.
-- There is no automated chat test suite; the measurement harness is the main evidence.
+- There is no automated chat E2E suite; the measurement harness remains the primary realtime evidence. P1 added domain/RLS tests but no chat send/reconnect browser test.
 
 #### Non-technical user lens
 
@@ -522,7 +566,7 @@ The manual paste step is the weak point. A non-technical counselor must know how
 #### Gaps and honest caveats
 
 1. **No automated alerting** to the head when a break-glass event occurs. The head can review later, but there is no push/email/SMS escalation. In a real emergency protocol, passive review is weaker than active notification.
-2. **No automated tests** for the caseload rule, expiry, or review flow.
+2. ~~**No automated tests for the caseload rule, expiry, or review flow.**~~ **Partly closed in P1 (§1.6).** The unit suite covers break-glass caseload logic, and the RLS suite covers break-glass audit read scope; the full expiry/review workflow still has no browser test.
 3. **Audit logs are only as good as their retention and monitoring.** There is no evidence of tamper-evident storage, off-box shipping, or regular audit review reports.
 4. **The protocol is application-level.** A database administrator or service-role key can bypass it entirely. This is inherent, but should be stated in policy.
 
@@ -562,7 +606,7 @@ The emergency page is deliberately separate from normal workflows, which is corr
 1. **Web-only.** There is no faculty mobile app; faculty must use the web portal. That is acceptable for the stated objective, but it limits field use.
 2. **No external delivery.** The referral stays inside the system; there is no printable/emailed referral letter to the Guidance Office, though internal tracking is complete.
 3. **Referral classification is a fixed list.** If the categories do not match the institution’s taxonomy, they must be changed in code/schema.
-4. **No automated tests** for permission boundaries (e.g., faculty attempting to read notes).
+4. ~~**No automated tests for permission boundaries** (e.g., faculty attempting to read notes).~~ **Closed in P1 (§1.6).** Cross-role insert denial, counselor-note isolation, and self-promotion blocking are covered by the RLS suite; the faculty referral flow is covered by Playwright.
 
 #### Non-technical user lens
 
@@ -579,7 +623,7 @@ The referral form is the most policy-heavy screen for a non-technical faculty me
 | Quality area | Evidence |
 |---|---|
 | Performance | `perf-tests/` harness; `results/pages.json`, `pages-throttled.json`, `booking.json`, `mutations.json`, `realtime.json`, `explain.json` |
-| Reliability | Realtime reconnect test, 0 lost messages; concurrency test (but E1 failed) |
+| Reliability | Realtime reconnect test, 0 lost messages; concurrency test re-run green after `00067` (§1.5); 41 unit + 8 RLS + 4 role smoke tests in CI (§1.6) |
 | Security | RBAC, RLS, audit logs, break-glass, guarded writes, server-only service role, Zod validation, rate limiting |
 | Usability | Interface review only; no SUS or task-based study |
 | ISO/IEC 25010 structure | This report provides a structured evaluation; no formal instrument was found in the repo |
@@ -587,7 +631,7 @@ The referral form is the most policy-heavy screen for a non-technical faculty me
 #### What is genuinely evaluated
 
 - **Performance** is measured with real artifacts: page TTFB/FCP/LCP/CLS, booking service timings, mutation timings, realtime latency, DB explain plans.
-- **Reliability** is partially measured: message delivery under load and reconnect recovery; slot concurrency (with a failure).
+- **Reliability** is partially measured: message delivery under load and reconnect recovery; slot concurrency (failed at review time, fixed and re-measured on staging — §1.5); targeted automated tests now run in CI (§1.6).
 - **Security** is design-reviewed: access control, audit, anonymity, secret handling.
 - **Usability** is **not empirically evaluated**. There is no user study, no SUS score, no task-success measurement, no accessibility audit.
 
@@ -624,13 +668,13 @@ Ratings are on a 1–5 scale, judged against the evidence available for **non-te
 
 | ISO/IEC 25010 characteristic | Score | Justification |
 |---|---:|---|
-| Functional suitability | **4 / 5** | Broad, real coverage of scheduling, PSS-10, chat, referrals, reports, audit. Gaps in events and Meet automation; one gate is 30-day rather than per-session. |
+| Functional suitability | **4 / 5** | Broad, real coverage of scheduling, PSS-10, chat, referrals, reports, audit, and announcement management. Gaps in Meet automation; one gate is 30-day rather than per-session. Calendar/RSVP/attendance are explicitly out of the renamed Objective 7 scope. |
 | Performance efficiency | **3.5 / 5** | Normal pages 135–240 ms; booking ~1.2–1.5 s; chat p50 379 ms. Throttled login LCP ~5.0 s and heavy login JS (~1.13 MB) pull the score down. |
 | Compatibility | **3 / 5** | Web + iOS/Android via Expo + Supabase. No offline mode, no browser/device matrix, no integration with Google Calendar. |
-| Usability | **3 / 5** | Clear flows, plain language, large touch targets, role-specific navigation, in-app handbook. No user testing, no accessibility audit, mock mobile content. |
-| Reliability | **3 / 5** | Realtime 0 lost messages and reconnect recovery. But same-slot concurrency test failed, the exclusion constraint can be silently skipped, and there is no automated test suite. |
+| Usability | **3 / 5** | Clear flows, plain language, large touch targets, role-specific navigation, in-app handbook; mobile mock content removed in P1. Still no participant-based usability test or accessibility audit, so the score remains a design judgment. |
+| Reliability | **3 / 5** | Realtime 0 lost messages and reconnect recovery. Concurrency failure fixed and re-measured on staging (`00067`); P1 adds 41 unit tests, 8 RLS tests, and four role smoke specs. Still no soak/failure-injection test and no automated chat reconnect test. |
 | Security | **4 / 5** | Strong layered design: RBAC, RLS, guarded writes, audit logs, break-glass, private storage, no PHI in notifications. No penetration test; pseudonymity can be correlated by privileged staff. |
-| Maintainability | **4 / 5** | Shared services, single RBAC policy, sequential migrations, strict TypeScript, documented architecture. No unit tests; some environment drift. |
+| Maintainability | **4 / 5** | Shared services, single RBAC policy, sequential migrations, strict TypeScript, documented architecture, and a CI test foundation (unit + RLS + Playwright). Remaining risk is environment drift, not absence of tests. |
 | Portability | **3.5 / 5** | Next.js + Expo are portable by design; environment-based config. Mobile device coverage and offline behavior are unverified. |
 
 **Overall evidence-weighted quality: approximately 3.6 / 5 (“adequate to good, with material verification gaps”).**
@@ -719,8 +763,8 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 
 - No moderated usability test, task-success rate, time-on-task, or SUS score.
 - No accessibility audit (screen reader, keyboard, contrast, reduced motion, text scaling).
-- Mobile PSS-10 wording is mocked; this is both a usability and a clinical-validity issue.
-- The mobile profile card is partly mock, which can confuse users who update real data.
+- ~~Mobile PSS-10 wording is mocked.~~ **Closed in P1 (§1.6):** the shared instrument is now the only source. Licensing/permission is still unverified.
+- ~~The mobile profile card is partly mock.~~ **Closed in P1 (§1.6):** it reads `profiles` + `students`.
 - Dense staff pages (reports, referrals) assume familiarity with terms like “pipeline,” “band,” and “triage.”
 
 **Assessment for non-technical users:** The product is **approachable in structure** but **unproven in use**. It is likely usable by students for booking/chat and by counselors for daily queues. It is less certain for faculty referrals and head analytics without training.
@@ -740,7 +784,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 
 - **E1 concurrency failure:** 50 concurrent confirmations of overlapping same-slot appointments all ended `confirmed` in the measured run.
 - The exclusion constraint that should prevent this is created in a `DO` block that catches all exceptions and only raises a notice. A pre-existing overlap can cause it to be skipped without failing deployment.
-- No unit/integration/e2e test suite; regressions rely on manual checks.
+- ~~No unit/integration/e2e test suite; regressions rely on manual checks.~~ **Reduced in P1 (§1.6):** 41 unit tests, 8 RLS integration tests, and four Playwright role specs run in CI. Coverage is still targeted, not exhaustive.
 - Single-run performance evidence; no long-run soak test or failure injection.
 - Migration drift observed (missing report RPCs in the measured DB).
 
@@ -782,7 +826,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 | Check-in | PSS-10 items → submit → chat | The highest-friction step; wording must be validated |
 | Sessions | Upcoming/past/canceled; details, cancel, reschedule, rating | Clear status model; confirmed reschedule is restricted |
 | Chat | Inbox → conversation; realtime replies | Familiar and responsive |
-| Profile | Student card, photo, logout | Partly mock; needs real data |
+| Profile | Student card, photo, logout | Real `profiles` + `students` data; mock removed in P1 |
 
 **Main student risk:** the PSS-10. It is the point where a non-technical user is most likely to feel confused or judged. The app correctly hides the numeric total and uses bands, which is good. But the item wording and response labels must be the validated instrument, not local mock text.
 
@@ -808,7 +852,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 
 ### 6.5 What would materially improve non-technical usability
 
-1. Replace all mock mobile content (profile card, PSS-10 wording).
+1. ~~Replace all mock mobile content (profile card, PSS-10 wording).~~ **Done in P1 (§1.6).**
 2. Add a one-screen “How anonymous am I?” explanation in the booking flow.
 3. Add “What happens next?” confirmations after booking, referral, and break-glass.
 4. Add inline definitions for “band,” “pipeline,” “triage,” and “satisfaction coverage.”
@@ -824,9 +868,9 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 |---|---|---|---|---|---|
 | R1 | Double-booking / overlapping confirmed sessions under concurrency | Medium | High | Original: `concurrency.json` E1 50 confirmed vs expected 1; `00059` constraint could be skipped. **Fixed 2026-10-24 — see §1.5; E1 now 1 confirmed / 49 × `23P01`.** | **P0 — resolved** |
 | R2 | Report RPCs missing in deployed DB, causing degraded/failed analytics | Medium | High | Original: `explain.json` functions did not exist. **Fixed 2026-10-24 — `00061` applied; both RPCs return OK.** | **P0 — resolved** |
-| R3 | No automated tests; regressions reach production | High | High | `AGENTS.md`: no test runner | **P1** |
-| R4 | Mobile profile and PSS-10 wording are mock data | High | Medium–High | `apps/mobile/README.md`, lines 81–84 | **P1** |
-| R5 | “Events” lacks calendar/date/venue/RSVP | High | Medium | `/announcements` only | **P1** |
+| R3 | No automated tests; regressions reach production | High | High | Original: no test runner. **Reduced 2026-10-24 — §1.6:** 41 unit tests, 8 RLS tests, 4 Playwright role specs in CI | **P1 — substantially reduced; staging guard job still unrun** |
+| R4 | Mobile profile and PSS-10 wording are mock data | High | Medium–High | Original: mobile README. **Closed 2026-10-24 — §1.6:** profile reads Supabase; shared PSS-10 instrument; `data/mock.ts` removed | **P1 — resolved (licensing note still unverified)** |
+| R5 | “Events” lacks calendar/date/venue/RSVP | High | Medium | Original: `/announcements` only. **Resolved 2026-10-24 — §1.6:** objective renamed to announcement management; boundary documented | **P1 — resolved by scope decision** |
 | R6 | Google Meet is manual paste, no API integration | High | Medium | `isMeetUrl()`; no Google API code | **P2** |
 | R7 | No empirical usability/accessibility validation | High | Medium | No SUS/WCAG artifacts | **P1** |
 | R8 | Break-glass has no active alerting | Medium | Medium–High | Head review is passive | **P2** |
@@ -855,10 +899,10 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 
 ### P1 — Close the honesty gaps
 
-3. **Replace mobile mock data.**
-   - Profile identity card from `profiles` + `students`.
-   - PSS-10 item wording and response labels from a single validated source.
-   - **Acceptance:** no mock identity or PSS text remains in `apps/mobile/data/mock.ts` for these two areas.
+3. ~~**Replace mobile mock data.**~~ **Done in P1 (§1.6).**
+   - Profile identity card reads `profiles` + `students`.
+   - PSS-10 item wording and response labels come from one shared instrument.
+   - **Acceptance met:** `apps/mobile/data/mock.ts` was removed.
 
 4. **Add automated tests.**
    - Unit tests for `bookAppointment`, PSS-10 freshness, break-glass caseload, RBAC, and referral transitions.
@@ -888,10 +932,10 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 
 1. **No live runthrough.** The assessment is based on source code and existing artifacts; it did not click through every page or execute every flow.
 2. **Single performance run.** Results are from 2026-10-11 against a staging dataset; production behavior may differ.
-3. **No user study.** Usability judgments are heuristic, not empirical.
+3. **No user study.** Usability judgments are heuristic, not empirical. A protocol and recruitment plan exist, but no sessions have been run (see §1.6).
 4. **No security testing.** Security findings are design-review findings, not penetration-test results.
-5. **No production database inspection.** The E1 and RPC findings are artifact-based; they may reflect an unapplied migration rather than a code defect. They must be verified in the deployed environment.
-6. **Objective 11 cannot be fully satisfied by this document alone.** It requires the missing user study, accessibility audit, and broader reliability/security testing.
+5. ~~**No production database inspection.**~~ **Partly closed:** E1 and the RPC drift were verified and fixed on **staging** on 2026-10-24 (§1.5); production still needs the same migrations applied and verified.
+6. **Objective 11 cannot be fully satisfied by this document alone.** It requires the missing participant-based user study and accessibility audit, plus broader reliability/security testing. P1 supplied the automated test foundation but not the human evidence.
 
 ---
 
@@ -907,7 +951,7 @@ Against the 11 specific objectives:
 
 The most defensible capstone claim is:
 
-> “The system implements the functional requirements of the study to a substantial degree. Its strongest qualities are privacy-aware workflow design, role separation, and real-time communication. Its main remaining work is deployment verification of concurrency and analytics migrations, replacement of residual mobile mock data, formal usability/accessibility testing, and a complete ISO/IEC 25010 evaluation.”
+> “The system implements the functional requirements of the study to a substantial degree. Its strongest qualities are privacy-aware workflow design, role separation, and real-time communication. P1 closed the mobile mock-data and automated-test gaps and fixed the P0 concurrency/analytics findings on staging. Its main remaining work is a participant-based usability/accessibility study, production verification, and a complete ISO/IEC 25010 evaluation.”
 
 The system should **not** yet be described as fully production-ready or fully ISO 25010 compliant. It is, however, a credible and well-architected capstone product with a clear, achievable path to that claim.
 
@@ -947,7 +991,7 @@ The system should **not** yet be described as fully production-ready or fully IS
 | `/login`, `/register` | Auth |
 | `/(tabs)/home` | Next session, announcements, quick actions, mood check |
 | `/(tabs)/sessions` | Upcoming/past/canceled, cancel, reschedule, rating |
-| `/(tabs)/profile` | Profile (partly mock) |
+| `/(tabs)/profile` | Profile from Supabase (`profiles` + `students`) |
 | `/book` | Booking step 1 |
 | `/check-in` | PSS-10 + booking step 2 |
 | `/chat` | Student inbox and conversation |
@@ -962,7 +1006,11 @@ The system should **not** yet be described as fully production-ready or fully IS
 | PSS-10 30-day gate | `packages/shared-services/src/appointments/booking-service.ts` |
 | Booking idempotency and race handling | `booking-service.ts`, lines 48–53, 117–134 |
 | Slot exclusion constraint | `supabase/migrations/00059_phase1_perf_indexes_slotguard.sql` |
-| Concurrency failure | `perf-tests/results/concurrency.json` (E1 `pass: false`) |
+| Concurrency failure (review-time) | `perf-tests/results/concurrency.json` (E1 `pass: false`); **fixed in `00067` — see §1.5, E1 now 1 confirmed / 49 × `23P01`** |
+| Unit tests (P1) | `packages/shared-services/src/**/*.test.ts` — 41 passing; CI `verify` job |
+| RLS tests (P1) | `tests/rls/rls.test.ts` — 8 cases; CI run **#39990715576** |
+| Role smoke tests (P1) | `e2e/specs/*.spec.ts` — 4 specs; CI run **#39994834656** |
+| P1 evidence log | §1.6 of this report; `P1_HONESTY_GAPS_PLAN.md` §9 |
 | Missing analytics RPCs | `perf-tests/results/explain.json` |
 | Analytics RPC definitions | `supabase/migrations/00061_phase3b_report_rpcs.sql` |
 | Aggregate reports | `apps/web/components/shared/head-reports-view.tsx` |
@@ -973,9 +1021,9 @@ The system should **not** yet be described as fully production-ready or fully IS
 | Break-glass rules | `packages/shared-services/src/security/break-glass-service.ts` |
 | 30-minute grant | `apps/web/app/(staff)/emergency/page.tsx` |
 | Meet URL validation | `packages/shared-services/src/appointments/mutations.ts` |
-| Mobile mock data | `apps/mobile/README.md`, lines 81–84 |
+| P1 mobile data truth | `apps/mobile/README.md` “What is wired vs. still mocked”; `packages/shared-services/src/assessments/pss10-instrument.ts` |
 | RBAC policy | `packages/shared-services/src/rbac.ts` |
-| No test runner | `AGENTS.md` |
+| P1 test foundation | `packages/shared-services/src/**/*.test.ts`, `tests/rls/rls.test.ts`, `e2e/specs/*.spec.ts`, `.github/workflows/ci.yml` |
 
 ---
 
