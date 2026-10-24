@@ -26,12 +26,12 @@ The report separates three things that are often confused:
 
 | Verdict | Count | Objectives |
 |---|---:|---|
-| **Fully achieved** | 6 | 2 (scheduling + per-session PSS-10), 3 (anonymous identity), 6 (real-time chat), 7 (announcement management, renamed scope), 9 (break-glass), 10 (faculty referrals) |
-| **Substantially achieved** | 3 | 1 (interfaces), 4 (counselor dashboard), 5 (analytics) |
+| **Fully achieved** | 8 | 2 (scheduling + per-session PSS-10), 3 (anonymous identity), 4 (counselor dashboard, student records), 5 (analytics), 6 (real-time chat), 7 (announcement management, renamed scope), 9 (break-glass), 10 (faculty referrals) |
+| **Substantially achieved** | 1 | 1 (interfaces) |
 | **Partially achieved** | 2 | 8 (Google Meet), 11 (ISO/IEC 25010 evaluation) |
 | **Not achieved** | 0 | — |
 
-“Substantially achieved” is deliberate. The core requirement works, but at least one stated word in the objective is not fully satisfied — for example, “**user-friendly** for non-technical users” without a participant study, or analytics that are aggregate rather than predictive.
+“Substantially achieved” is deliberate where it appears. Objective 1 works end-to-end, but the word “**user-friendly** for non-technical users” is not yet backed by a participant study. Objectives 4 and 5 moved to fully achieved in §1.8 after the student record, structured notes, longitudinal/cohort trends, data quality, small-cell suppression, and in-app digest landed.
 
 ### 1.3 Most important findings
 
