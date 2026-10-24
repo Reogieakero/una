@@ -58,6 +58,6 @@ test.describe("counselor role", () => {
 
     const notes = page.getByRole("dialog", { name: "Session notes" });
     await expect(notes).toBeVisible();
-    await notes.getByRole("button", { name: "Close" }).click();
+    await notes.getByRole("button", { name: "Close", exact: true }).click();
   });
 });
