@@ -340,6 +340,38 @@ describe.skipIf(!configured)("RLS integration", () => {
     expect(pssError).not.toBeNull();
     expect(pssError?.code).toBe("42501");
 
+    // Linking a valid own assessment to ANOTHER student's appointment is
+    // still a cross-student write (00068 tightened the insert policy).
+    const { error: linkedError } = await asStudentA.from("pss10_assessments").insert({
+      student_id: studentRowA,
+      appointment_id: appointmentB,
+      answers: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      total_score: 0,
+      band: "low",
+    });
+    expect(linkedError).not.toBeNull();
+    expect(linkedError?.code).toBe("42501");
+
+    // Retakes for the student's own appointment are allowed (unique index
+    // dropped by 00068) and the latest row wins for the completion gate.
+    const { error: retakeError } = await asStudentA.from("pss10_assessments").insert([
+      {
+        student_id: studentRowA,
+        appointment_id: appointmentA,
+        answers: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        total_score: 10,
+        band: "low",
+      },
+      {
+        student_id: studentRowA,
+        appointment_id: appointmentA,
+        answers: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+        total_score: 20,
+        band: "moderate",
+      },
+    ]);
+    expect(retakeError).toBeNull();
+
     // Confirm nothing slipped past RLS.
     const { count } = await admin
       .from("appointments")

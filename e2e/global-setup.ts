@@ -29,10 +29,12 @@ export type SeedState = {
   };
   studentAlias: string;
   appointmentConcern: string;
+  waiverAppointmentConcern: string;
   completedConcern: string;
   referralReason: string;
   referralId: string;
   appointmentId: string;
+  waiverAppointmentId: string;
 };
 
 function required(name: string): string {
@@ -104,6 +106,7 @@ export default async function globalSetup(): Promise<void> {
 
   const studentAlias = `E2E Owl ${runId}`;
   const appointmentConcern = `E2E counseling concern ${runId}`;
+  const waiverAppointmentConcern = `E2E check-in waiver session ${runId}`;
   const completedConcern = `E2E completed report session ${runId}`;
   const referralReason = `E2E referral concern ${runId}`;
 
@@ -168,6 +171,25 @@ export default async function globalSetup(): Promise<void> {
   if (appointmentError) throw appointmentError;
   if (!appointment) throw new Error("appointment row not returned");
 
+  // Same shape, but no linked check-in: the counselor spec exercises the
+  // explicit waiver path instead of the normal completion path.
+  const { data: waiverAppointment, error: waiverAppointmentError } = await admin
+    .from("appointments")
+    .insert({
+      student_id: studentRow.id,
+      counselor_id: counselorRow.id,
+      scheduled_at: iso(-4 * 60 * 60 * 1000),
+      ends_at: iso(-3 * 60 * 60 * 1000),
+      mode: "in_person",
+      status: "confirmed",
+      concern: waiverAppointmentConcern,
+      is_anonymous: true,
+    })
+    .select("id")
+    .single();
+  if (waiverAppointmentError) throw waiverAppointmentError;
+  if (!waiverAppointment) throw new Error("waiver appointment row not returned");
+
   // A second, already-completed session keeps the head report populated even
   // when the counselor spec is skipped or retried.
   const { error: completedError } = await admin.from("appointments").insert({
@@ -184,9 +206,12 @@ export default async function globalSetup(): Promise<void> {
 
   const { error: pssError } = await admin.from("pss10_assessments").insert({
     student_id: studentRow.id,
+    appointment_id: appointment.id,
     answers: [3, 3, 3, 3, 3, 3, 3, 3, 3, 2],
     total_score: 29,
     band: "high",
+    // Inside the 7-day pre-session window for the past seeded session.
+    created_at: iso(-3 * 60 * 60 * 1000),
   });
   if (pssError) throw pssError;
 
@@ -229,10 +254,12 @@ export default async function globalSetup(): Promise<void> {
     },
     studentAlias,
     appointmentConcern,
+    waiverAppointmentConcern,
     completedConcern,
     referralReason,
     referralId: referral.id,
     appointmentId: appointment.id,
+    waiverAppointmentId: waiverAppointment.id,
   };
 
   mkdirSync(dirname(STATE_PATH), { recursive: true });

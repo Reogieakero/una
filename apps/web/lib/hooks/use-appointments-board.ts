@@ -22,6 +22,14 @@ export type BoardAppointment = {
   is_follow_up: boolean;
   /** Origin session the follow-up was documented from; null for regular bookings. */
   follow_up_of: string | null;
+  /** True when this session still needs a fresh pre-session PSS-10 (00068). */
+  pss10_required: boolean;
+  /** Counselor-recorded waiver timestamp; null when no waiver. */
+  pss10_waived_at: string | null;
+  /** Operational waiver reason (never clinical detail). */
+  pss10_waiver_reason: string | null;
+  /** Latest linked check-in submission, derived from pss10_assessments. */
+  pss10_checkin_at?: string | null;
   /** Request timestamp — the office board's primary sort. */
   created_at: string;
   /** Last-write timestamp (00062 trigger) — the counselor board's primary sort. */
@@ -130,17 +138,42 @@ export async function fetchAppointmentCard(id: string): Promise<{ row: BoardAppo
   const supabase = createClient();
   const { data, error } = await supabase
     .from("appointments")
-    .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of, created_at, updated_at")
+    .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of, created_at, updated_at, pss10_required, pss10_waived_at, pss10_waiver_reason")
     .eq("id", id)
     .single();
   if (error || !data) throw new Error("Session not found.");
-  const row = data as BoardAppointment;
+  const [row] = await attachLinkedCheckins(supabase, [data as BoardAppointment]);
   let alias: string | null = null;
   if (row.student_id) {
     const { data: s } = await supabase.from("students").select("anonymous_alias").eq("id", row.student_id).single();
     alias = (s as { anonymous_alias: string | null } | null)?.anonymous_alias ?? null;
   }
   return { row, alias };
+}
+
+/**
+ * Attach the newest linked pre-session check-in per appointment. The board
+ * never needs answers/scores here — only the timestamp that proves a fresh
+ * check-in exists. Batched by visible ids (RLS scopes rows).
+ */
+async function attachLinkedCheckins(
+  supabase: ReturnType<typeof createClient>,
+  rows: BoardAppointment[],
+): Promise<BoardAppointment[]> {
+  const ids = rows.map((r) => r.id).filter(Boolean);
+  if (!ids.length) return rows;
+  const { data } = await supabase
+    .from("pss10_assessments")
+    .select("appointment_id, student_id, created_at")
+    .in("appointment_id", ids)
+    .order("created_at", { ascending: false });
+  const latest = new Map<string, string>();
+  for (const row of (data ?? []) as { appointment_id: string | null; created_at: string }[]) {
+    if (row.appointment_id && !latest.has(row.appointment_id)) {
+      latest.set(row.appointment_id, row.created_at);
+    }
+  }
+  return rows.map((r) => ({ ...r, pss10_checkin_at: latest.get(r.id) ?? null }));
 }
 
 /** Fresh window — inside it, going back to /appointments renders zero-fetch. */
@@ -241,6 +274,9 @@ export async function fetchAppointmentsBoard(scope: AppointmentsScope): Promise<
   });
   chain[page] = nextCursor;
   const appointments = ((rows ?? []) as BoardAppointment[]);
+  const appointmentsWithCheckins = appointments.length
+    ? await attachLinkedCheckins(supabase, appointments)
+    : appointments;
 
   // Stats + kind tabs: estimated counts (RLS-scoped, one parallel batch).
   // Tabs show role-scope queue sizes; the text search stays client-side.
@@ -311,7 +347,7 @@ export async function fetchAppointmentsBoard(scope: AppointmentsScope): Promise<
 
   return {
     ...base,
-    appointments,
+    appointments: appointmentsWithCheckins,
     aliases,
     studentProfiles,
     counselors,

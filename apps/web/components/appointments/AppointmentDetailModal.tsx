@@ -1,6 +1,7 @@
 "use client";
 
-import { CalendarDays, FileText, MapPin, Video, X } from "lucide-react";
+import { CalendarDays, ClipboardCheck, FileText, MapPin, Video, X } from "lucide-react";
+import { preSessionPss10State } from "@dorsu/shared-services";
 import { Badge, Button } from "@/components/ui/primitives";
 import { formatLong, formatScheduleRange, formatWhen, hasSetSchedule, statusLabel, statusTone } from "./status";
 import type { Appt } from "./status";
@@ -26,6 +27,24 @@ export function AppointmentDetailModal({
   onNotes?: (appt: Appt) => void;
 }) {
   if (!detail) return null;
+  const checkin = preSessionPss10State({
+    required: detail.pss10_required,
+    waivedAt: detail.pss10_waived_at,
+    scheduledAt: detail.scheduled_at,
+    submittedAt: detail.pss10_checkin_at ?? null,
+  });
+  const checkinCopy =
+    checkin === "complete"
+      ? `Check-in complete${detail.pss10_checkin_at ? ` · ${formatWhen(detail.pss10_checkin_at)}` : ""}`
+      : checkin === "waived"
+        ? "Check-in waived by counselor"
+        : checkin === "expired"
+          ? "Check-in expired — needs a fresh PSS-10"
+          : checkin === "missing"
+            ? "No pre-session check-in yet"
+            : checkin === "not_due"
+              ? "Check-in opens 7 days before the session"
+              : null;
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -132,6 +151,14 @@ export function AppointmentDetailModal({
               </a>
             )}
           </div>
+
+          {/* Pre-session check-in status — status/timestamp only, never answers. */}
+          {checkinCopy && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg bg-cream px-4 py-3 text-sm">
+              <ClipboardCheck className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
+              <span className="font-bold text-ink">{checkinCopy}</span>
+            </div>
+          )}
 
           {/* Concern */}
           <div className="mt-3 rounded-lg border border-ink/10 p-4">

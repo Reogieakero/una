@@ -360,6 +360,11 @@ model Appointment {
   // (`pss10_assessments.appointment_id` UNIQUE) — both kept and synced.
   pss10Id           String?           @map("pss10_id") @db.Uuid
   gatingPss10       Pss10Assessment?  @relation("AppointmentGatingPss10", fields: [pss10Id], references: [id], onDelete: SetNull)
+  // Pre-session check-in policy (00068). Legacy rows confirmed before the
+  // policy are grandfathered with required=false.
+  pss10Required     Boolean           @default(true) @map("pss10_required")
+  pss10WaivedAt     DateTime?         @map("pss10_waived_at") @db.Timestamptz(6)
+  pss10WaiverReason String?           @map("pss10_waiver_reason") @db.Text
   // Optional extension (dictionary §8 faculty-referral walkthrough):
   // draft appointments created from a referral link back here so analytics
   // can report "% of appointments originating from faculty referral".
@@ -395,13 +400,12 @@ model Appointment {
   @@map("appointments")
 }
 
-/// Dictionary §3 `pss10_assessments` — PSS-10 gate: an appointment cannot move
-/// pending → accepted until a linked row exists (enforced in
-/// `booking-service`; see dictionary §3 rule).
+/// Dictionary §3 `pss10_assessments` — PSS-10 gate. 00068 allows retakes for
+/// one appointment; the latest linked row is the pre-session check-in.
 model Pss10Assessment {
   id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  // Dictionary: UNIQUE — one assessment per appointment.
-  appointmentId String?      @unique @map("appointment_id") @db.Uuid
+  // Non-unique since 00068 (retakes); latest created_at wins.
+  appointmentId String?      @map("appointment_id") @db.Uuid
   appointment   Appointment? @relation("Pss10ForAppointment", fields: [appointmentId], references: [id], onDelete: SetNull)
   studentId     String       @map("student_id") @db.Uuid
   student       Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)

@@ -45,10 +45,14 @@ export default function CheckIn() {
     time?: string;
     start?: string;
     alias?: string;
+    appointmentId?: string;
   }>();
-  // With booking params this screen books a session after the PSS-10. Without
-  // them ("Stress check" shortcut on Home) it only records the assessment.
+  // With booking params this screen books a session after the PSS-10. With an
+  // appointmentId it records a pre-session check-in for that confirmed
+  // session. Without either ("Stress check" on Home) it only records the
+  // assessment.
   const bookingMode = Boolean(params.concern && params.mode && params.date && params.time);
+  const preSessionMode = !bookingMode && Boolean(params.appointmentId);
 
   const current = answers[index] ?? -1;
   const last = index === pssQuestions.length - 1;
@@ -135,7 +139,13 @@ export default function CheckIn() {
         setError('Account setup is incomplete. Please log in again.');
         return;
       }
-      const pss = (await submitPss10(supabase, { studentId: student.id, answers })) as {
+      const pss = (await submitPss10(supabase, {
+        studentId: student.id,
+        answers,
+        ...(preSessionMode && params.appointmentId
+          ? { appointmentId: params.appointmentId }
+          : {}),
+      })) as {
         id: string;
       };
       if (bookingMode && scheduledAt) {
@@ -149,7 +159,13 @@ export default function CheckIn() {
         });
       }
       setDone(true);
-      setTimeout(() => router.replace(bookingMode ? '/chat' : '/(tabs)/home'), 1200);
+      setTimeout(
+        () =>
+          router.replace(
+            bookingMode ? '/chat' : preSessionMode ? '/(tabs)/sessions' : '/(tabs)/home',
+          ),
+        1200,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Booking failed. Please try again.');
     } finally {
@@ -166,7 +182,9 @@ export default function CheckIn() {
               <Text style={styles.q}>
                 {bookingMode
                   ? 'Thanks, your counselor will see this before your session.'
-                  : 'Thanks — your check-in was saved.'}
+                  : preSessionMode
+                    ? 'Thanks — your pre-session check-in is linked to your session.'
+                    : 'Thanks — your check-in was saved.'}
               </Text>
             </Card>
           </View>

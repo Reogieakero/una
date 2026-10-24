@@ -2,7 +2,7 @@ import type { DbClient } from "../platform";
 
 /** Board-level appointment columns — every list query uses this (never *). */
 export const APPOINTMENT_BOARD_COLS =
-  "id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of, source_referral_id, created_at, updated_at";
+  "id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, is_follow_up, follow_up_of, source_referral_id, pss10_required, pss10_waived_at, pss10_waiver_reason, created_at, updated_at";
 
 /** Hard ceiling — the pager never asks for more (plan: 10/25/50, max 50). */
 export const MAX_APPOINTMENT_PAGE_SIZE = 50;

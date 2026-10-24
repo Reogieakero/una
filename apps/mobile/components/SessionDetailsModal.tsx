@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { cancelAppointment } from '@dorsu/shared-services';
+import { cancelAppointment, isWithinStudentRescheduleWindow } from '@dorsu/shared-services';
 import type { AppointmentRow } from '@dorsu/shared-types';
 import { getSupabase } from '@/lib/supabase/client';
 import { errorMessage } from '@/lib/errors';
@@ -136,7 +136,11 @@ export function SessionDetailsModal({
     ACTIVE.includes(appointment.status) &&
     new Date(appointment.scheduled_at).getTime() >= nowMs;
   const canReschedule =
-    active && (appointment.status === 'pending' || appointment.status === 'assigned');
+    active &&
+    (appointment.status === 'pending' ||
+      appointment.status === 'assigned' ||
+      (appointment.status === 'confirmed' &&
+        isWithinStudentRescheduleWindow(appointment.scheduled_at)));
 
   const doCancel = async () => {
     if (!cancelTarget || busy) return;
@@ -223,8 +227,9 @@ export function SessionDetailsModal({
 
                   {appointment.status === 'confirmed' ? (
                     <Text style={styles.modalNote}>
-                      Your counselor confirmed this session. To move it, please contact the
-                      Guidance Office.
+                      {canReschedule
+                        ? 'Your counselor confirmed this session. You can still move it until 24 hours before it starts.'
+                        : 'This session starts within 24 hours. Contact the Guidance Office if you need to move it.'}
                     </Text>
                   ) : null}
                 </ScrollView>

@@ -147,6 +147,12 @@ export type AppointmentRow = {
   meeting_url: string | null;
   is_anonymous: boolean;
   pss10_id: string | null;
+  /** Session needs a linked PSS-10 within 7 days before start (00068). */
+  pss10_required: boolean;
+  /** Counselor explicitly waived the pre-session check-in (00068). */
+  pss10_waived_at: string | null;
+  /** Operational waiver reason (10–500 chars, never clinical detail) (00068). */
+  pss10_waiver_reason: string | null;
   /** Draft appointments created from a referral link back here (00020). */
   source_referral_id: string | null;
   /** True for sessions minted as follow-ups from a session note (00054). */

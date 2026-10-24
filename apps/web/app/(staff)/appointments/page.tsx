@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import { assignAppointment, isMeetUrl } from "@dorsu/shared-services";
+import { assignAppointment, completeAppointment, isMeetUrl, PSS10_REQUIRED_CODE } from "@dorsu/shared-services";
 import {
   fetchAppointmentCard,
   patchAppointmentRow,
@@ -24,6 +24,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { ACTION_DEFS, formatScheduleRange, formatWhen } from "@/components/appointments/status";
+import { AppointmentPss10WaiverDialog } from "@/components/appointments/AppointmentPss10WaiverDialog";
 import type { ActionKind, Appt, CounselorOpt } from "@/components/appointments/status";
 import {
   composeLocal,
@@ -119,6 +120,10 @@ function AppointmentsPageInner() {
   const [confirming, setConfirming] = useState<{ appt: Appt; kind: ActionKind } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const confirmBusyRef = useRef(false);
+  const [waiverFor, setWaiverFor] = useState<Appt | null>(null);
+  const [waiverReason, setWaiverReason] = useState("");
+  const [waiverError, setWaiverError] = useState<string | null>(null);
+  const [waiverBusy, setWaiverBusy] = useState(false);
   const [detail, setDetail] = useState<Appt | null>(null);
   const [notesAppt, setNotesAppt] = useState<Appt | null>(null);
   const [sched, setSched] = useState<ScheduleSelection | null>(null);
@@ -194,17 +199,17 @@ function AppointmentsPageInner() {
     scheduledAt?: Date,
     meetingUrl?: string | null,
     endsAt?: Date | null,
-  ): Promise<boolean> => {
+  ): Promise<{ ok: boolean; error?: unknown }> => {
     const result = await runMutation(
       id,
       () => fn(createClient(), id, scheduledAt, meetingUrl, endsAt),
       {
         label,
         friendly:
-          /future|valid session|valid date|valid end|after the start|meet link|database update|migration|meeting_url|only assigned|assigned or confirmed|only pending|unassign|not found|availability|slot|overlap|free window|just taken|already taken|taken/i,
+          /future|valid session|valid date|valid end|after the start|meet link|database update|migration|meeting_url|only assigned|assigned or confirmed|only pending|unassign|not found|availability|slot|overlap|free window|just taken|already taken|taken|check-in|waiver/i,
       }
     );
-    if (!result.ok) return false;
+    if (!result.ok) return { ok: false, error: result.error };
     const updated = result.data as Partial<Appt> | null;
     if (updated && typeof updated === "object" && (updated as { id?: unknown }).id === id) {
       const { id: _drop, ...fields } = updated as Partial<Appt> & { id?: string };
@@ -212,7 +217,7 @@ function AppointmentsPageInner() {
     }
     // Background reconcile (debounced, never blocks the toast).
     scheduleReconcile();
-    return true;
+    return { ok: true };
   };
 
   const notifyStudent = (appt: Appt, title: string, body: string, dedupeKey: string, tone?: "success" | "info" | "error") =>
@@ -343,7 +348,18 @@ function AppointmentsPageInner() {
     confirmBusyRef.current = true;
     setConfirmBusy(true);
     try {
-      if (await act(appt.id, def.fn, def.fail, scheduledAt, meetingUrl, endsAt)) {
+      const result = await act(appt.id, def.fn, def.fail, scheduledAt, meetingUrl, endsAt);
+      if (!result.ok) {
+        const code = (result.error as { code?: unknown } | undefined)?.code;
+        if (kind === "complete" && code === PSS10_REQUIRED_CODE) {
+          // Hand the counselor an explicit waiver path instead of a dead end.
+          setWaiverFor(appt);
+          setWaiverReason("");
+          setWaiverError(null);
+        }
+        return;
+      }
+      {
         const studentBody = (kind === "confirm" || kind === "reschedule") && meetingUrl ? `${def.doneBody(when)} Join here: ${meetingUrl}` : def.doneBody(when);
         void notifyStudent(appt, def.doneTitle, studentBody, `appt:${appt.id}:${KIND_PAST[kind]}`, KIND_TONE[kind]);
         void notifyHeadsAppt({ ...appt, scheduled_at: scheduledAt?.toISOString() ?? appt.scheduled_at }, kind);
@@ -361,12 +377,64 @@ function AppointmentsPageInner() {
     }
   };
 
+  const closeWaiver = () => {
+    if (waiverBusy) return;
+    setWaiverFor(null);
+    setWaiverReason("");
+    setWaiverError(null);
+  };
+
+  const runWaiver = async () => {
+    if (!waiverFor || waiverBusy) return;
+    const reason = waiverReason.trim();
+    if (reason.length < 10) {
+      setWaiverError("Enter at least 10 characters describing the exception.");
+      return;
+    }
+    setWaiverError(null);
+    setWaiverBusy(true);
+    try {
+      const result = await runMutation(
+        waiverFor.id,
+        () => completeAppointment(createClient(), waiverFor.id, { waiverReason: reason }),
+        { label: "record the check-in waiver", friendly: /waiver|check-in|confirmed|not found/i }
+      );
+      if (!result.ok) {
+        setWaiverError(
+          result.error instanceof Error
+            ? result.error.message
+            : "Couldn't complete the session — please reload and try again."
+        );
+        return;
+      }
+      const def = ACTION_DEFS.complete;
+      const when = formatWhen(waiverFor.scheduled_at);
+      const updated = result.data as Partial<Appt> | null;
+      if (updated && typeof updated === "object" && (updated as { id?: unknown }).id === waiverFor.id) {
+        const { id: _drop, ...fields } = updated as Partial<Appt> & { id?: string };
+        patchRow(waiverFor.id, fields);
+      }
+      void notifyStudent(waiverFor, def.doneTitle, def.doneBody(when), `appt:${waiverFor.id}:${KIND_PAST.complete}`, KIND_TONE.complete);
+      void notifyHeadsAppt(waiverFor, "complete", "check-in waived");
+      toast.success("Session completed with a check-in waiver", {
+        description: "The reason is stored on the session and in the audit trail.",
+        position: "top-right",
+      });
+      setNotesAppt({ ...waiverFor, status: "completed" });
+      setWaiverFor(null);
+      setWaiverReason("");
+      scheduleReconcile();
+    } finally {
+      setWaiverBusy(false);
+    }
+  };
+
   const handleAssign = (appt: Appt, v: string | null) => {
     if (!v && !appt.counselor_id) return;
     const name = v ? (counselors.find((c) => c.id === v)?.name ?? "Your counselor") : null;
     void (async () => {
-      const ok = await act(appt.id, (db, apptId) => assignAppointment(db, apptId, v || null), "assign a counselor");
-      if (!ok) return;
+      const assigned = await act(appt.id, (db, apptId) => assignAppointment(db, apptId, v || null), "assign a counselor");
+      if (!assigned.ok) return;
       const key = `appt:${appt.id}:assigned:${v ?? "none"}`;
       if (name) void notifyStudent(appt, "Counselor assigned", `${name} will handle your session on ${formatWhen(appt.scheduled_at)}.`, key, "info");
       const alias = appt.student_id ? (aliases.get(appt.student_id) ?? "Student") : "Walk-in";
@@ -471,6 +539,15 @@ function AppointmentsPageInner() {
         slots={slots} sched={sched} onSchedChange={(v) => { setSched(v); setScheduleError(null); }} scheduleError={scheduleError}
         meetingInput={meetingInput} onMeetingChange={(v) => { setMeetingInput(v); setMeetingError(null); }} meetingError={meetingError}
         confirmBusy={confirmBusy} onClose={closeConfirming} onSubmit={runConfirming}
+      />
+      <AppointmentPss10WaiverDialog
+        appointment={waiverFor}
+        reason={waiverReason}
+        error={waiverError}
+        busy={waiverBusy}
+        onReasonChange={(v) => { setWaiverReason(v); setWaiverError(null); }}
+        onClose={closeWaiver}
+        onSubmit={runWaiver}
       />
       <AppointmentDetailModal
         detail={detail}

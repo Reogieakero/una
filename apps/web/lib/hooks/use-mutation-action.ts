@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { logEvent } from "@/lib/log-event";
 
-export type MutationResult<T> = { ok: true; data: T } | { ok: false };
+export type MutationResult<T> = { ok: true; data: T } | { ok: false; error?: unknown };
 
 /**
  * Standard mutation lifecycle, generalized from the appointment page's
@@ -49,7 +49,7 @@ export function useMutationAction() {
             ? msg
             : `Couldn't ${opts.label} — please reload and try again.`
         );
-        return { ok: false };
+        return { ok: false, error: e };
       } finally {
         busyRef.current = null;
         setBusyId(null);

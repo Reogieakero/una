@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
-import { listStudentAppointments, submitFeedback } from '@dorsu/shared-services';
+import { listStudentAppointments, preSessionPss10State, isWithinStudentRescheduleWindow, submitFeedback } from '@dorsu/shared-services';
 import type { AppointmentRow } from '@dorsu/shared-types';
 import { getSupabase } from '@/lib/supabase/client';
 import { errorMessage } from '@/lib/errors';
@@ -56,6 +56,7 @@ export default function Sessions() {
   const [rows, setRows] = useState<AppointmentRow[] | null>(null);
   const [studentId, setStudentId] = useState<string | null>(null);
   const [checkins, setCheckins] = useState(0);
+  const [checkinByAppt, setCheckinByAppt] = useState<Record<string, string>>({});
   const [rated, setRated] = useState<Record<string, number>>({});
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [error, setError] = useState('');
@@ -99,8 +100,9 @@ export default function Sessions() {
         supabase.from('feedback').select('appointment_id, rating').eq('student_id', sid),
         supabase
           .from('pss10_assessments')
-          .select('id', { count: 'exact', head: true })
-          .eq('student_id', sid),
+          .select('id, appointment_id, created_at', { count: 'exact' })
+          .eq('student_id', sid)
+          .order('created_at', { ascending: false }),
         // Best-effort: sessions must still render if the directory lookup fails.
         loadCounselorDirectory(supabase),
       ]);
@@ -108,10 +110,22 @@ export default function Sessions() {
       for (const f of (feedbackRes.data ?? []) as { appointment_id: string; rating: number }[]) {
         feedbackMap[f.appointment_id] = f.rating;
       }
+      // Newest linked check-in per appointment (retakes allowed since 00068).
+      // The query is ordered newest-first, so the first row wins.
+      const checkinMap: Record<string, string> = {};
+      for (const p of (pssRes.data ?? []) as {
+        appointment_id: string | null;
+        created_at: string;
+      }[]) {
+        if (p.appointment_id && !checkinMap[p.appointment_id]) {
+          checkinMap[p.appointment_id] = p.created_at;
+        }
+      }
       setStudentId(sid);
       setRows(((appts ?? []) as AppointmentRow[]));
       setRated(feedbackMap);
       setCheckins(pssRes.count ?? 0);
+      setCheckinByAppt(checkinMap);
       setCounselorNames(directory.names);
       setCounselorSpecialties(directory.specialties);
       setError('');
@@ -290,7 +304,23 @@ export default function Sessions() {
             list.map((a) => {
               const { month, day, when } = timeOf(a.scheduled_at);
               const isActive = ACTIVE.includes(a.status) && new Date(a.scheduled_at).getTime() >= nowMs;
-              const canReschedule = a.status === 'pending' || a.status === 'assigned';
+              const checkinState = preSessionPss10State({
+                required: a.pss10_required,
+                waivedAt: a.pss10_waived_at,
+                scheduledAt: a.scheduled_at,
+                submittedAt: checkinByAppt[a.id] ?? null,
+              });
+              const needsCheckin =
+                isActive &&
+                a.status === 'confirmed' &&
+                (checkinState === 'missing' || checkinState === 'expired');
+              const checkinDone = a.status === 'confirmed' && checkinState === 'complete';
+              const canReschedule =
+                a.status === 'pending' ||
+                a.status === 'assigned' ||
+                (a.status === 'confirmed' &&
+                  isActive &&
+                  isWithinStudentRescheduleWindow(a.scheduled_at));
               const counselorName = a.counselor_id ? counselorNames[a.counselor_id] : undefined;
               const sent = rated[a.id];
               return (
@@ -329,6 +359,37 @@ export default function Sessions() {
                         <CounselorPill assigned={a.counselor_id !== null} name={counselorName} />
                       </View>
 
+                      {checkinDone ? (
+                        <Text style={styles.checkinOk}>
+                          Pre-session check-in complete
+                          {checkinByAppt[a.id]
+                            ? ` · ${new Date(checkinByAppt[a.id]).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                              })}`
+                            : ''}
+                        </Text>
+                      ) : null}
+
+                      {needsCheckin ? (
+                        <View style={styles.mt}>
+                          <Text style={styles.checkinNeeded}>
+                            {checkinState === 'expired'
+                              ? 'Your last check-in is older than 7 days. Complete a fresh one before this session.'
+                              : 'Complete a short check-in so your counselor can prepare for this session.'}
+                          </Text>
+                          <Button
+                            label="Pre-session check-in"
+                            onPress={() =>
+                              router.push({
+                                pathname: '/check-in',
+                                params: { appointmentId: a.id },
+                              })
+                            }
+                          />
+                        </View>
+                      ) : null}
+
                       {isActive ? (
                         <View style={styles.btns}>
                           {canReschedule ? (
@@ -348,10 +409,10 @@ export default function Sessions() {
                         </View>
                       ) : null}
 
-                      {isActive && a.status === 'confirmed' ? (
+                      {isActive && a.status === 'confirmed' && !canReschedule ? (
                         <Text style={styles.lockNote}>
-                          Confirmed by your counselor — rescheduling is closed. Contact the
-                          Guidance Office if you need to move this session.
+                          This session starts within 24 hours — contact the Guidance Office if
+                          you need to move it.
                         </Text>
                       ) : null}
 
@@ -457,6 +518,18 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.muted,
     marginTop: spacing.sm,
+  },
+  checkinOk: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.xs,
+    color: colors.blue,
+    marginTop: spacing.sm,
+  },
+  checkinNeeded: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.xs,
+    color: colors.muted,
+    marginBottom: spacing.sm,
   },
   mt: { marginTop: spacing.sm },
   btns: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },

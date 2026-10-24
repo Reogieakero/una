@@ -1,6 +1,12 @@
 import type { DbClient } from "../platform";
 import { pss10SubmitSchema, feedbackSchema } from "@dorsu/shared-schemas";
 import { calculatePss10 } from "../assessments/pss10-scoring";
+import {
+  PreSessionPss10RequiredError,
+  getValidPreSessionPss10,
+  isWithinPreSessionSubmitWindow,
+  isWithinStudentRescheduleWindow,
+} from "./pre-session-pss10";
 
 /**
  * Appointment lifecycle (role-separated):
@@ -32,6 +38,27 @@ export async function submitPss10(
     answers: input.answers,
     appointmentId: input.appointmentId,
   });
+  // Pre-session mode: the assessment is tied to one confirmed appointment and
+  // only accepted inside the 7-day (plus skew) window. Booking mode leaves the
+  // link null and keeps the existing 30-day gate in bookAppointment.
+  if (parsed.appointmentId) {
+    const { data: appointment, error: apptErr } = await db
+      .from("appointments")
+      .select("id, student_id, status, scheduled_at")
+      .eq("id", parsed.appointmentId)
+      .single();
+    if (apptErr || !appointment) throw apptErr ?? new Error("Session not found.");
+    const appt = appointment as { student_id: string | null; status: string; scheduled_at: string };
+    if (appt.student_id !== input.studentId) {
+      throw new Error("That session does not belong to this student.");
+    }
+    if (appt.status !== "confirmed") {
+      throw new Error("Pre-session check-ins are only available for confirmed sessions.");
+    }
+    if (!isWithinPreSessionSubmitWindow(new Date(), appt.scheduled_at)) {
+      throw new Error("Pre-session check-in is only accepted within 7 days before the session starts.");
+    }
+  }
   const { totalScore, band } = calculatePss10(parsed.answers);
   const { data, error } = await db
     .from("pss10_assessments")
@@ -458,7 +485,7 @@ export async function confirmAppointment(
   if (cur.status !== "assigned") {
     throw new Error("Only assigned sessions can be confirmed.");
   }
-  const patch: Record<string, string> = { status: "confirmed", confirmed_datetime: new Date().toISOString() };
+  const patch: Record<string, unknown> = { status: "confirmed", confirmed_datetime: new Date().toISOString() };
   if (scheduledAt !== undefined) {
     if (!cur.counselor_id) throw new Error("Session has no counselor yet.");
     const { startMs, endMs } = await validateCounselorSchedule(db, cur.counselor_id, scheduledAt, endsAt, appointmentId);
@@ -513,16 +540,78 @@ export async function confirmAppointment(
   return data;
 }
 
-/** Counselor marks a confirmed appointment complete (session done). */
-export async function completeAppointment(db: DbClient, appointmentId: string) {
+/**
+ * Counselor marks a confirmed appointment complete (session done).
+ *
+ * A fresh pre-session PSS-10 is required unless the row opted out (legacy) or
+ * the counselor records an explicit waiver. The waiver is stored on the
+ * appointment and appended to `audit_logs`; PSS answers/scores are never
+ * copied into the audit payload.
+ */
+export async function completeAppointment(
+  db: DbClient,
+  appointmentId: string,
+  options?: { waiverReason?: string | null },
+) {
+  const { data: current, error: curErr } = await db
+    .from("appointments")
+    .select("id, status, student_id, scheduled_at, pss10_required, pss10_waived_at")
+    .eq("id", appointmentId)
+    .single();
+  if (curErr || !current) throw curErr ?? new Error("Session not found.");
+  const cur = current as {
+    id: string;
+    status: string;
+    student_id: string | null;
+    scheduled_at: string;
+    pss10_required: boolean | null;
+    pss10_waived_at: string | null;
+  };
+  if (cur.status !== "confirmed") {
+    throw new Error("Only confirmed sessions can be completed.");
+  }
+
+  const patch: Record<string, unknown> = { status: "completed" };
+  let waivedReason: string | null = null;
+
+  if (cur.pss10_required !== false && !cur.pss10_waived_at) {
+    const valid = await getValidPreSessionPss10(db, cur);
+    if (!valid) {
+      const reason = (options?.waiverReason ?? "").trim();
+      if (!reason) throw new PreSessionPss10RequiredError();
+      if (reason.length < 10 || reason.length > 500) {
+        throw new Error("Waiver reason must be between 10 and 500 characters.");
+      }
+      patch.pss10_waived_at = new Date().toISOString();
+      patch.pss10_waiver_reason = reason;
+      waivedReason = reason;
+    }
+  }
+
   const { data, error } = await db
     .from("appointments")
-    .update({ status: "completed" })
+    .update(patch)
     .eq("id", appointmentId)
     .eq("status", "confirmed")
     .select()
     .single();
   if (error) throw error;
+
+  if (waivedReason) {
+    const { data: auth } = await db.auth.getUser();
+    const actorId = (auth as { user?: { id?: string } } | null)?.user?.id ?? null;
+    const { error: auditError } = await db.from("audit_logs").insert({
+      actor_profile_id: actorId,
+      action: "appointment.pss10_waived",
+      entity: "appointments",
+      entity_id: appointmentId,
+      metadata: { reason: waivedReason },
+    });
+    // The completion is already guarded + written; surface the audit failure
+    // rather than silently losing the exception trail.
+    if (auditError) throw auditError;
+  }
+
   return data;
 }
 
@@ -622,13 +711,11 @@ export async function rescheduleAppointmentByCounselor(
 
 /**
  * Student reschedules their booking to a future slot (status untouched).
- * Students may only move a request that is still pending or just assigned —
- * once the counselor confirms, the schedule is locked to the student and any
- * change must go through the Guidance Office.
- * Slot guard (P12): when the session already has a counselor, the new
- * window goes through the same availability + overlap gate as the counselor
- * path (excluding itself), preserving the existing duration. Unassigned
- * pending rows keep the old future-only check.
+ * Pending/assigned requests stay movable. A confirmed session may also move
+ * until 24 hours before the start (00068); inside that cut-off the student is
+ * directed to the Guidance Office. Slot guard (P12): when the session already
+ * has a counselor, the new window goes through the same availability + overlap
+ * gate as the counselor path (excluding itself), preserving the duration.
  */
 export async function rescheduleAppointment(
   db: DbClient,
@@ -653,11 +740,11 @@ export async function rescheduleAppointment(
     scheduled_at: string;
     ends_at: string | null;
   };
-  if (cur.status === "confirmed") {
-    throw new Error("Confirmed sessions can't be rescheduled — contact the Guidance Office.");
+  if (!["pending", "assigned", "confirmed"].includes(cur.status)) {
+    throw new Error("Only pending, assigned, or confirmed sessions can be rescheduled.");
   }
-  if (!["pending", "assigned"].includes(cur.status)) {
-    throw new Error("Only pending or assigned sessions can be rescheduled.");
+  if (cur.status === "confirmed" && !isWithinStudentRescheduleWindow(cur.scheduled_at)) {
+    throw new Error("Sessions starting within 24 hours can't be rescheduled — contact the Guidance Office.");
   }
   const patch: Record<string, string> = { scheduled_at: scheduledAt.toISOString() };
   if (cur.counselor_id) {
@@ -681,7 +768,7 @@ export async function rescheduleAppointment(
       .from("appointments")
       .update(patch)
       .eq("id", appointmentId)
-      .in("status", ["pending", "assigned"])
+      .in("status", ["pending", "assigned", "confirmed"])
       .select()
       .single();
   let result = await runUpdate();

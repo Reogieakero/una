@@ -4,6 +4,7 @@ export * from "./appointments/queries";
 export * from "./appointments/mutations";
 export * from "./appointments/availability";
 export * from "./appointments/booking-service";
+export * from "./appointments/pre-session-pss10";
 export * from "./assessments/pss10-instrument";
 export * from "./assessments/pss10-scoring";
 export * from "./referrals/queries";

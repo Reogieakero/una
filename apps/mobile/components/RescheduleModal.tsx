@@ -11,6 +11,7 @@ import {
 import {
   bookableDays,
   bookableSlots,
+  isWithinStudentRescheduleWindow,
   rescheduleAppointment,
   type AvailabilityWindow,
   type BookableSlot,
@@ -77,7 +78,11 @@ function RescheduleSheet({ appointment, onClose, onRescheduled }: SheetProps) {
   const [busy, setBusy] = useState(false);
   const [moved, setMoved] = useState<AppointmentRow | null>(null);
 
-  const canMove = appointment.status === 'pending' || appointment.status === 'assigned';
+  const canMove =
+    appointment.status === 'pending' ||
+    appointment.status === 'assigned' ||
+    (appointment.status === 'confirmed' &&
+      isWithinStudentRescheduleWindow(appointment.scheduled_at));
 
   useEffect(() => {
     let alive = true;
@@ -171,7 +176,8 @@ function RescheduleSheet({ appointment, onClose, onRescheduled }: SheetProps) {
 
               {!canMove ? (
                 <Text style={styles.error}>
-                  Confirmed sessions can’t be rescheduled — contact the Guidance Office.
+                  This session starts within 24 hours — contact the Guidance Office if you need
+                  to move it.
                 </Text>
               ) : (
                 <ScrollView

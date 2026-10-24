@@ -102,7 +102,7 @@ export const ACTION_DEFS: Record<
     okBody: (when) => `Moved to ${when} — student notified.`,
   },
   complete: {
-    fn: completeAppointment,
+    fn: (db, apptId) => completeAppointment(db, apptId),
     fail: "complete this session",
     doneTitle: "Session completed",
     doneBody: (when) => `Your session on ${when} is marked complete. Feedback helps us improve.`,
