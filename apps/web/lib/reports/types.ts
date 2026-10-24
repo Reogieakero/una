@@ -17,6 +17,25 @@ export type ReportBundle = {
   pss: any[];
   counselors: any[];
   announcements: any[];
+  /** Head-only aggregate trend/quality (00071); empty for counselor exports. */
+  trends?: {
+    day: string;
+    screenings: number;
+    low: number;
+    moderate: number;
+    high: number;
+    avg_score: number | null;
+  }[];
+  quality?: {
+    completed_sessions: number;
+    completed_without_note: number;
+    screenings_unlinked: number;
+    referrals_unassigned: number;
+    feedback_responses: number;
+    feedback_coverage: number | null;
+    summary_last_day: string | null;
+    summary_age_days: number | null;
+  } | null;
   counselorName: Map<string, string>;
   counselorSpec: Map<string, string | null>;
   counselorAvail: Map<string, boolean>;

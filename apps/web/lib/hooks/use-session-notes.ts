@@ -23,6 +23,12 @@ export type SessionNote = {
   follow_up_date: string | null;
   /** Follow-up moment (date + time, ISO). Null unless follow-up is needed. */
   follow_up_at: string | null;
+  /** 00070: freeform or S.O.A.P. structured note. */
+  note_format: "freeform" | "soap";
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan: string | null;
   attachments: SessionNoteAttachment[];
   created_at: string;
   updated_at: string;
@@ -84,6 +90,11 @@ export type SaveSessionNoteInput = {
   followUpRequired: boolean;
   /** ISO datetime of the follow-up moment; null unless follow-up is needed. */
   followUpAt: string | null;
+  noteFormat?: "freeform" | "soap";
+  subjective?: string | null;
+  objective?: string | null;
+  assessment?: string | null;
+  plan?: string | null;
 };
 
 /**
@@ -101,21 +112,17 @@ export function useSaveSessionNote(appointmentId: string) {
           method: input.noteId ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify(
-          input.noteId
-            ? {
-                noteId: input.noteId,
-                content: input.content,
-                followUpRequired: input.followUpRequired,
-                followUpAt: input.followUpAt,
-              }
-            : {
-                appointmentId,
-                content: input.content,
-                followUpRequired: input.followUpRequired,
-                followUpAt: input.followUpAt,
-              }
-        ),
+          body: JSON.stringify({
+            ...(input.noteId ? { noteId: input.noteId } : { appointmentId }),
+            content: input.content,
+            followUpRequired: input.followUpRequired,
+            followUpAt: input.followUpAt,
+            noteFormat: input.noteFormat ?? "freeform",
+            subjective: input.subjective ?? null,
+            objective: input.objective ?? null,
+            assessment: input.assessment ?? null,
+            plan: input.plan ?? null,
+          }),
       });
       const body = (await res.json().catch(() => null)) as {
         note?: SessionNote;

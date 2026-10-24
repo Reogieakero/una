@@ -9,10 +9,18 @@ export const feedbackSchema = z.object({
 export type FeedbackInput = z.infer<typeof feedbackSchema>;
 
 /** Shared session-note validation (counselors only). */
+const noteSection = z.string().trim().max(4000).optional().nullable();
+
 export const sessionNoteSchema = z.object({
   appointmentId: z.string().uuid(),
   content: z.string().min(10, "Note needs at least 10 characters").max(10000),
   isPrivate: z.boolean().default(true),
+  /** 00070: freeform (default) or S.O.A.P. structured note. */
+  noteFormat: z.enum(["freeform", "soap"]).default("freeform"),
+  subjective: noteSection,
+  objective: noteSection,
+  assessment: noteSection,
+  plan: noteSection,
 });
 export type SessionNoteInput = z.infer<typeof sessionNoteSchema>;
 

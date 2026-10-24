@@ -13,6 +13,7 @@ export * from "./referrals/referral-service";
 export * from "./security/break-glass-service";
 export * from "./notifications/notification-service";
 export * from "./analytics/analytics-queries";
+export * from "./analytics/suppression";
 export * from "./chat/chat-service";
 export * from "./chat/staff-messages";
 export * from "./profile/avatar";

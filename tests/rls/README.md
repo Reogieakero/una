@@ -37,6 +37,8 @@ when those variables are missing.
   student row.
 - A student cannot insert an appointment or PSS-10 for another student (`42501`).
 - Session notes are readable only by the owning counselor and head/admin.
+- The student record/timeline RPCs (00070) stay alias-only and caseload-scoped.
+- Analytical trends/quality (00071) and `report_digests` are head/admin-only.
 - A student cannot promote their own `profiles.role`.
 - Audit logs are head/admin-readable, append-only (no update/delete for any
   authenticated client), and still accept service-side appends.

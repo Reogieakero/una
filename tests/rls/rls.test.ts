@@ -377,6 +377,74 @@ describe.skipIf(!configured)("RLS integration", () => {
     expect(facultyRows).toEqual([]);
   });
 
+  it("scopes the student record and timeline to the caller caseload", async () => {
+    const { data: mine, error: mineError } = await asCounselorA.rpc("get_student_record", {
+      p_student_id: studentRowA,
+    });
+    expect(mineError).toBeNull();
+    const rows = (mine ?? []) as Record<string, unknown>[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.anonymous_alias).toBe(anonymousAlias);
+    // 00070: record reads never expose direct identifiers.
+    expect(Object.keys(rows[0] ?? {})).not.toContain("student_no");
+    expect(Object.keys(rows[0] ?? {})).not.toContain("contact_no");
+    expect(Object.keys(rows[0] ?? {})).not.toContain("profile_id");
+
+    const { data: other, error: otherError } = await asCounselorA.rpc("get_student_record", {
+      p_student_id: studentRowB,
+    });
+    expect(otherError).toBeNull();
+    expect(other).toEqual([]);
+
+    const { data: timeline, error: timelineError } = await asCounselorA.rpc("get_student_timeline", {
+      p_student_id: studentRowA,
+    });
+    expect(timelineError).toBeNull();
+    const events = (timeline ?? []) as { event_type: string; note_id: string | null }[];
+    expect(events.some((e) => e.event_type === "session")).toBe(true);
+    // Note text stays out of the bulk timeline — only its id is present.
+    expect(events.some((e) => e.note_id === noteA)).toBe(true);
+
+    const { data: otherTimeline, error: otherTimelineError } = await asCounselorA.rpc(
+      "get_student_timeline",
+      { p_student_id: studentRowB },
+    );
+    expect(otherTimelineError).toBeNull();
+    expect(otherTimeline).toEqual([]);
+
+    const { data: headRecord, error: headError } = await asHead.rpc("get_student_record", {
+      p_student_id: studentRowB,
+    });
+    expect(headError).toBeNull();
+    expect((headRecord ?? []) as unknown[]).toHaveLength(1);
+  });
+
+  it("gates analytical trends and quality to the guidance head", async () => {
+    const counselorTrend = await asCounselorA.rpc("head_wellbeing_trends", {
+      from_ts: null,
+      to_ts: null,
+    });
+    expect(counselorTrend.error).toBeNull();
+    expect(counselorTrend.data).toEqual([]);
+
+    const headTrend = await asHead.rpc("head_wellbeing_trends", { from_ts: null, to_ts: null });
+    expect(headTrend.error).toBeNull();
+    expect(((headTrend.data ?? []) as unknown[]).length).toBeGreaterThan(0);
+
+    const counselorQuality = await asCounselorA.rpc("head_data_quality");
+    expect(counselorQuality.error).toBeNull();
+    expect(counselorQuality.data).toEqual([]);
+
+    const headQuality = await asHead.rpc("head_data_quality");
+    expect(headQuality.error).toBeNull();
+    expect(((headQuality.data ?? []) as unknown[]).length).toBe(1);
+
+    // Digests are head-readable only.
+    const counselorDigest = await asCounselorA.from("report_digests").select("id");
+    expect(counselorDigest.error).toBeNull();
+    expect(counselorDigest.data).toEqual([]);
+  });
+
   it("resolves referral identity by exact student number only", async () => {
     const { data: exact, error: exactError } = await asFaculty.rpc("lookup_student_for_referral", {
       p_student_no: `A-${runId}`,

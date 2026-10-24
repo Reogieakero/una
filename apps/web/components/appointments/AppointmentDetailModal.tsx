@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { CalendarDays, ClipboardCheck, FileText, MapPin, Video, X } from "lucide-react";
 import { preSessionPss10State } from "@dorsu/shared-services";
 import { Badge, Button } from "@/components/ui/primitives";
@@ -131,9 +132,17 @@ export function AppointmentDetailModal({
             </div>
           </div>
 
+          {detail.student_id && (
+            <Link
+              href={`/students/${detail.student_id}`}
+              className="mt-3 inline-flex h-8 items-center rounded border border-ink/10 bg-white px-3 text-[11px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            >
+              Open student record
+            </Link>
+          )}
+
           {/* Mode */}
-          <div className="mt-3 flex items-center gap-2 rounded-lg bg-cream px-4 py-3 text-sm">
-            {detail.mode === "online" ? (
+          <div className="mt-3 flex items-center gap-2 rounded-lg bg-cream px-4 py-3 text-sm">            {detail.mode === "online" ? (
               <Video className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
             ) : (
               <MapPin className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />

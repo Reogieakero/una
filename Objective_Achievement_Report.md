@@ -57,7 +57,7 @@ The system **does achieve the functional intent of most objectives**. It is stro
 
 For a capstone defense, the honest claim is:
 
-> “Nine of eleven objectives are implemented in software to a substantial degree. Two are partially evidenced: Google Meet is a validated manual link rather than an API integration, and the ISO/IEC 25010 evaluation is supported by performance measurements and a new automated test foundation, but not yet by a participant-based usability/accessibility study.”
+> "Eight of eleven objectives are fully achieved in software; one (user-friendly interface) is substantially achieved; two are partially evidenced: Google Meet is a validated manual link rather than an API integration, and the ISO/IEC 25010 evaluation is supported by performance measurements and a new automated test foundation, but not yet by a participant-based usability/accessibility study."
 
 ### 1.5 Post-review P0 remediation — 24 October 2026
 
@@ -203,7 +203,7 @@ The pre-session PSS-10 gate and the confirmed-reschedule restriction recorded in
 Reproduce (same commands as above):
 
 ```bash
-pnpm --filter @dorsu/shared-services test   # 66 tests, 7 files
+pnpm --filter @dorsu/shared-services test   # 69 tests, 8 files
 pnpm --filter @dorsu/shared-services typecheck
 pnpm --filter @dorsu/web typecheck
 pnpm --filter @dorsu/mobile typecheck
@@ -215,6 +215,30 @@ DATABASE_URL=postgresql://u:p@localhost:5432/db DIRECT_URL=postgresql://u:p@loca
 The evidence run is **CI #40061770680** (typecheck/unit/build 1m41s, RLS 3m3s, Playwright 4m28s, all green; the staging job was skipped because staging secrets are not configured). The migration has therefore been exercised against local Supabase in CI, **not** against staging or production.
 
 Remaining caveats for Objective 2: the 30-day booking gate is unchanged; a counselor can still complete a session without a check-in by recording an explicit audited waiver (by design, for walk-ins/referrals); and PSS-10 licensing/permission remains unverified.
+
+### 1.8 Post-review records and analytics closure — 24 October 2026
+
+Objective 4's remaining gap was the absence of a single student record, and Objective 5's was aggregate-only reporting with no trend, quality, or delivery story. Both were closed with additive migrations and no change to the alias-only identity model from §1.7.
+
+**Objective 4 — student record and structured notes**
+
+- `00070_student_record.sql` adds `get_student_record`, `get_student_record_counts`, and `get_student_timeline`, all `SECURITY DEFINER` and gated through `can_access_student()`. The record returns `anonymous_alias`, program, year level, and college only — never `student_no`, contact data, or profile identity.
+- The timeline merges sessions, referrals, screenings, feedback, notes, and follow-ups into one timeline grouped by month, with filter chips and a caseload/oversight badge. Note **content is deliberately excluded**; only `note_id`/`appointment_id` metadata is returned, and the page opens the existing notes modal per session (editable by the owning counselor, read-only in oversight).
+- `session_notes` gains backward-compatible S.O.A.P. fields (`note_format`, `subjective`, `objective`, `assessment`, `plan`). The modal can compose, save, and re-render structured notes; the composed text still populates the legacy `content` column for exports and older clients.
+- New `/students/[id]` record page and `StudentRecordView`; the `/students` directory aliases, appointment detail, and session detail link to it.
+
+**Objective 5 — longitudinal/cohort analytics, quality, privacy, delivery**
+
+- `00071_analytics_trends_quality.sql` adds head-only `head_wellbeing_trends` (daily screening volume, band mix, average score), `head_cohort_stress` (program/year/college cohorts), `head_data_quality` (missing notes, unlinked screenings, unassigned referrals, feedback coverage, summary freshness), and `head_report_digest`.
+- Reports gain a Wellbeing trend panel, a Cohort stress panel with a program/year/college selector, a Data quality section, small-cell suppression (`MIN_CELL = 5`) applied in the head view, the counselor view, the API payload, and the Excel workbook, and a "Quality & trends" export sheet.
+- The daily in-app digest is persisted in `report_digests` (head-only RLS) by `/api/reports/digest/cron` on a Vercel cron schedule. It is not emailed — that was explicitly scoped out.
+- **Predictive modeling is out of scope by interpretation:** the objective requires identifying stress trends, not predicting individual risk. Longitudinal and cohort trends satisfy that wording; a predictive model would need separate validation, bias review, and a privacy impact assessment.
+
+**Applied:** `00070` and `00071` were executed against the linked Supabase project on **24 October 2026** using `DATABASE_URL` (Prisma `db execute`). A post-apply service-role check confirmed `head_wellbeing_trends` and `head_data_quality` return without error, `report_digests` is queryable, and `session_notes` exposes `note_format`/`subjective`.
+
+**Verification:** `pnpm --filter @dorsu/shared-services test` (69 tests incl. suppression boundaries), web + mobile typecheck, `pnpm --filter @dorsu/web build` (all routes incl. `/students/[id]` and `/api/reports/digest/cron` generated), RLS coverage for record/timeline caseload scoping, alias-only columns, head-only trends/quality/digests, and Playwright coverage of the record page and Data quality section. The unit suite, typechecks, and production build were re-run on **24 October 2026** after the final UI pass and are green. The RLS/Playwright suites still require a local-Supabase/CI run like the earlier evidence; their source compiles but they were not executed in this pass.
+
+**Verdicts after §1.8:** Objective 4 and Objective 5 move from *Substantially achieved* to **Fully achieved** under the criteria recorded in `objective-4-5-records-analytics-plan.md`. Residual limits are scope/verification, not missing capability: no predictive model (out of scope), and no participant usability study (Objective 11).
 
 ---
 
@@ -268,8 +292,8 @@ When sources disagreed, this report trusted them in this order:
 | 1 | User-friendly mobile and web interface | Substantially achieved | `apps/web/app/**`, `apps/mobile/app/**`, design tokens, onboarding, role-specific navigation; P1 removed mobile mock data | No participant-based usability test with non-technical users yet |
 | 2 | Book / reschedule / cancel + PSS-10 before session | Fully achieved | `apps/mobile/app/book.tsx`, `check-in.tsx`, `booking-service.ts`, `pre-session-pss10.ts`, `00008`, `00059`, `00067`, `00068` | Gate is enforced at counselor completion, with an audited waiver for documented exceptions; PSS-10 licensing unverified; E1 concurrency fixed 2026-10-24 (1 confirmed / 49 rejected) |
 | 3 | Secure anonymous identity | Fully achieved | Alias system, `is_anonymous`, `00069` alias-only RLS/RPCs, reveal API, audit logs | Pseudonymity with audited re-identification, not cryptographic anonymity; service-role/DB admins can correlate |
-| 4 | Counselor dashboard for schedules, records, notes | Substantially achieved | `/dashboard`, `/appointments`, `/sessions`, `/students`, `/availability`, session-note API | No dedicated “student record” timeline; notes are per completed session |
-| 5 | Analytics module: collect data, stress trends, reports | Substantially achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061` | Aggregate reporting, not predictive analytics; report RPC drift resolved 2026-10-24; no scheduled report delivery |
+| 4 | Counselor dashboard for schedules, records, notes | Fully achieved | `/dashboard`, `/appointments`, `/sessions`, `/students`, `/students/[id]`, session-note API, `00070` record/timeline RPCs, S.O.A.P. notes | Note bodies are per-session by privacy design; record is a metadata-first timeline, not a full narrative case file |
+| 5 | Analytics module: collect data, stress trends, reports | Fully achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061`, `00071` trends/cohort/quality/digest, `MIN_CELL=5` suppression | Predictive modeling explicitly out of scope; email delivery out of scope (in-app digest delivered) |
 | 6 | Real-time chat | Fully achieved | `/chat` (web + mobile), Supabase Realtime, `realtime.json` | No typing indicators/read receipts verified; no offline queue |
 | 7 | Announcement management for publishing announcements/activities | Fully achieved (renamed scope) | `/announcements`, drafts, audience targeting, images, insights, mobile home feed | Event calendar, date/venue, RSVP, attendance are explicitly out of scope (`docs/objective-7-announcement-scope.md`) |
 | 8 | Embedded Google Meet link | Partially achieved | `meeting_url` column, `isMeetUrl()` validation, online-confirm gate | Manual URL paste; no Google Calendar/Meet API or automatic link creation |
@@ -286,8 +310,8 @@ The table above is the **current** assessment. This table records what changed s
 | 1 | User-friendly interface | Substantially achieved | **Substantially achieved** | Mobile mock data and PSS-10 wording removed; no participant-based usability or accessibility evidence yet |
 | 2 | Scheduling + PSS-10 | Substantially achieved | **Fully achieved** | P2 added the 7-day pre-session check-in enforced at completion (`00068`, `pre-session-pss10.ts`), an audited waiver path, and confirmed reschedule until 24 hours before start. Booking gate remains 30 days; waiver exceptions are documented |
 | 3 | Anonymous identity | Substantially achieved | **Fully achieved** | P3 closed ambient re-identification (`00069`): routine staff are alias-only, student rows/profiles are denied, directory is caseload-scoped, and referrals use exact lookup. RLS + Playwright cover isolation. Pseudonymity with audited break-glass, not cryptographic anonymity; threat model at `docs/anonymity-threat-model.md` |
-| 4 | Counselor dashboard | Substantially achieved | **Substantially achieved** | Note authorization is RLS-tested and note-save is E2E-tested. No unified student timeline or structured note template |
-| 5 | Analytics | Substantially achieved | **Substantially achieved** | Report RPC drift fixed and verified; head E2E asserts populated report sections. Still aggregate, not predictive; no scheduled reports or small-cell suppression |
+| 4 | Counselor dashboard | Substantially achieved | **Fully achieved** | P4 (`00070`) adds an alias-only student record/timeline and backward-compatible S.O.A.P. notes; `/students/[id]` links from the directory. Note bodies stay per-session and out of the bulk timeline |
+| 5 | Analytics | Substantially achieved | **Fully achieved** | P5 (`00071`) adds daily wellbeing trends, cohort stress, data-quality indicators, `MIN_CELL=5` suppression, a persisted in-app digest, and a “Quality & trends” export. Predictive modeling is documented as out of scope |
 | 6 | Real-time chat | Fully achieved | **Fully achieved** | No P1 feature change; realtime measurement remains the proof |
 | 7 | Announcement management | Partially achieved (as “events”) | **Fully achieved (renamed scope)** | Objective renamed; calendar/RSVP/attendance documented as out of scope |
 | 8 | Google Meet link | Partially achieved | **Partially achieved** | Validation tests added, but still manual paste; no Calendar/Meet API |
@@ -295,7 +319,7 @@ The table above is the **current** assessment. This table records what changed s
 | 10 | Faculty referrals | Fully achieved | **Fully achieved** | Referral transition tests and faculty referral E2E added; still web-only, no external letter delivery |
 | 11 | ISO/IEC 25010 evaluation | Partially achieved | **Partially achieved** | Automated test evidence and a usability/accessibility protocol now exist, but there are **no participant results, SUS/WCAG findings, or penetration test** |
 
-**Net effect:** three objectives moved to fully achieved — Objective 7 by an explicit scope decision, Objective 2 in P2 after the per-session gate and confirmed reschedule landed with CI evidence, and Objective 3 in P3 after ambient alias/identity correlation was closed. Other objectives gained regression evidence without changing verdict. **No objective moved to fully achieved merely because tests were added.** Objective 11 stays partial until the P1.6 study is executed and the findings are written up.
+**Net effect:** five objectives moved to fully achieved — Objective 7 by an explicit scope decision, Objective 2 in P2 after the per-session gate and confirmed reschedule landed with CI evidence, Objective 3 in P3 after ambient alias/identity correlation was closed, and Objectives 4 and 5 in P4/P5 after the student record, structured notes, longitudinal/cohort trends, data quality, small-cell suppression, and in-app digest landed. Other objectives gained regression evidence without changing verdict. **No objective moved to fully achieved merely because tests were added.** Objective 11 stays partial until the P1.6 study is executed and the findings are written up.
 
 ---
 
@@ -437,7 +461,7 @@ The anonymous toggle in `/book` is simple and visible. The risk is **expectation
 
 ### Objective 4 — Develop a counselor dashboard for efficient management of schedules, student records, and session documentation
 
-**Verdict: Substantially achieved.**
+**Verdict: Fully achieved.**
 
 #### Where it is implemented
 
@@ -447,8 +471,11 @@ The anonymous toggle in `/book` is simple and visible. The risk is **expectation
 | Appointment queue and actions | `apps/web/app/(staff)/appointments/page.tsx` |
 | Session calendar/list | `apps/web/app/(staff)/sessions/page.tsx` |
 | Student directory | `apps/web/app/(staff)/students/page.tsx` |
+| **Longitudinal student record** | `apps/web/app/(staff)/students/[id]/page.tsx`; `apps/web/components/students/StudentRecordView.tsx`; `apps/web/lib/hooks/use-student-record.ts` |
+| Record/timeline RPCs | `supabase/migrations/00070_student_record.sql` (`get_student_record`, `get_student_record_counts`, `get_student_timeline`) |
 | Availability management | `apps/web/app/(staff)/availability/page.tsx` |
 | Session notes | `apps/web/app/api/session-notes/route.ts`; `apps/web/app/api/session-notes/attachments/route.ts` |
+| **S.O.A.P. structured notes** | `session_notes.note_format/subjective/objective/assessment/plan` (`00070`); `apps/web/components/appointments/SessionNotesModal.tsx` |
 | Follow-ups | `packages/shared-services/src/appointments/mutations.ts`; `follow_up_of` field |
 | Role policy | `packages/shared-services/src/rbac.ts` (`/dashboard`, `/sessions`, `/students`, `/availability`, `session-note.write`) |
 
@@ -457,26 +484,29 @@ The anonymous toggle in `/book` is simple and visible. The risk is **expectation
 - The dashboard is the counselor’s landing page and surfaces the work queue, upcoming sessions, and pipeline signals.
 - Sessions have a real calendar/list view with status, time, mode, and assigned counselor.
 - The student directory gives counselors a caseload-oriented view rather than a raw database table.
+- **One alias-only record now consolidates the case.** `/students/[id]` merges sessions, referrals, PSS-10 screenings, feedback, documented notes, and follow-ups into a single timeline grouped by month, with filter chips and summary counters. Record reads return no `student_no`, contact number, or profile identity.
+- **Note content stays out of the bulk timeline.** Timeline rows carry note metadata only; the page fetches text per session from the owner/head-guarded `/api/session-notes` endpoint.
 - Availability windows are managed by counselors and used by booking/confirmation.
 - Session notes are constrained to the **assigned counselor**, only for **completed** appointments, one note per session. Heads may read for oversight. Note content is not logged, notified, or audited.
+- **Structured documentation is available without breaking history.** Counselors can choose Freeform or S.O.A.P.; the four sections are stored individually and rendered as a structured note, while the composed text also fills the legacy `content` field for exports and older clients.
 - Follow-up appointments can be minted from a documented session, linking via `follow_up_of`.
 
 #### Gaps and honest caveats
 
-1. **There is no single “student record” page** that consolidates appointments, referrals, notes, PSS-10 bands, and feedback into one longitudinal timeline. The information exists across pages, but the counselor must navigate between them.
-2. **Session documentation is per-session, not a full case file.** That is appropriate for privacy, but it limits continuity for long-term counseling.
-3. **No rich-text or structured note template** was evidenced; notes are text plus optional attachments.
-4. ~~**No automated test for note authorization.**~~ **Closed in P1 (§1.6).** Counselor-note isolation with head oversight is covered by the RLS suite, and the counselor note-save flow is exercised by Playwright.
+1. **The record is deliberately bounded.** It is a longitudinal *timeline*, not a full case file or a free-text narrative across sessions; note bodies remain per-session. That is a privacy decision, not a missing feature.
+2. **No rich media beyond note attachments.** Structured notes are text sections plus optional images; there is no drawing/template library.
+3. ~~**No automated test for note authorization.**~~ **Closed in P1 (§1.6).** Counselor-note isolation with head oversight is covered by the RLS suite, and the counselor note-save flow is exercised by Playwright.
+4. **Record/timeline RLS and the new browser path are covered by tests in source but not yet re-run against deployed infrastructure in this pass.** Typechecks, build, and static test compilation pass; the same local-Supabase/CI run as earlier evidence is still required.
 
 #### Non-technical user lens
 
-A counselor can run a day from one dashboard: see the queue, open a session, write a note, set availability. The main friction is mental overhead — the absence of a unified student timeline means a counselor may open several pages to reconstruct a case.
+A counselor can run a day from one dashboard: see the queue, open a session, write a freeform or S.O.A.P. note, set availability, then open the student’s record to see the whole case in one timeline. The previous friction — reconstructing a case across `/appointments`, `/referrals`, and `/feedback` — is gone; the remaining limitation is that the timeline is intentionally metadata-first, so reading note bodies is one deliberate click per session.
 
 ---
 
 ### Objective 5 — Implement an Analytics Module that collects counseling data, identifies student stress trends, and generates reports to support data-driven decision-making by the guidance head
 
-**Verdict: Substantially achieved.**
+**Verdict: Fully achieved.**
 
 #### Where it is implemented
 
@@ -489,35 +519,43 @@ A counselor can run a day from one dashboard: see the queue, open a session, wri
 | Aggregate analytics queries | `packages/shared-services/src/analytics/analytics-queries.ts` |
 | Daily summary view | `supabase/migrations/00019_analytics_daily_summary.sql` |
 | Report RPCs | `supabase/migrations/00061_phase3b_report_rpcs.sql` |
+| **Trends, cohort, quality, digest RPCs** | `supabase/migrations/00071_analytics_trends_quality.sql` (`head_wellbeing_trends`, `head_cohort_stress`, `head_data_quality`, `head_report_digest`) |
+| **Small-cell suppression** | `packages/shared-services/src/analytics/suppression.ts` (+ tested boundaries); re-exported at `apps/web/lib/reports/suppression.ts` |
+| **Scheduled in-app digest** | `apps/web/app/api/reports/digest/cron/route.ts`; `vercel.json` cron `0 8 * * *`; `report_digests` table |
 | Charts | `apps/web/components/shared/reports-charts.tsx` |
-| Excel/print export | `apps/web/lib/reports/**`; reports page export actions |
+| Excel/print export | `apps/web/lib/reports/**` incl. `sheets/quality.ts` |
 
 #### What the reports actually show
 
-From `head-reports-view.tsx`:
+From `head-reports-view.tsx` / `00071`:
 
 - Sessions trend over the selected range (`SessionsTrend`, `ReportTrendChart`).
+- **Wellbeing trend:** daily PSS-10 screening volume and average score over the selected range.
+- **Cohort stress:** program, year-level, or college cohorts with denominators at or above 5, high-band counts, and average scores.
 - Referrals by status and priority.
 - Referral pipeline health: unassigned, escalated, oldest open.
 - Satisfaction from student feedback.
 - PSS-10 stress bands (low / moderate / high), average score, and high-band count.
+- **Data quality:** completed sessions without notes, unlinked screenings, unassigned referrals, feedback coverage, and summary-view age.
+- **Latest scheduled digest:** the most recent persisted in-app snapshot.
 - Counselor workload.
 - Top concerns.
-- Export to Excel and print for meetings/sign-off.
+- Export to Excel (now with a “Quality & trends” sheet) and print for meetings/sign-off.
 
-The page includes an explicit note that PSS-10 bands are **signals, not diagnoses**, and that satisfaction only covers students who left feedback. This is good analytic hygiene.
+The page includes an explicit note that PSS-10 bands are **signals, not diagnoses**, that satisfaction only covers students who left feedback, and that band cells below **5** are withheld.
 
 #### Gaps and honest caveats
 
-1. **It is aggregate reporting, not advanced analytics.** There is no predictive model, no risk scoring, no cohort comparison, and no anomaly detection. “Identifies stress trends” is satisfied at the level of band distribution and session trends over a date range — not longitudinal per-student trend analysis (which would also raise privacy concerns).
+1. **Predictive modeling is out of scope, deliberately.** The objective requires identifying stress trends, not forecasting individual risk. Longitudinal daily trends plus cohort comparison satisfy that wording; a predictive model would require validated training data, bias review, and a privacy impact assessment and is therefore a separate project.
 2. ~~**The measured environment was missing the report RPCs.**~~ **Resolved on staging 2026-10-24 — see §1.5.** `00061_phase3b_report_rpcs.sql` was applied and `perf-tests/check-rpc.mjs` confirms both `head_appointment_daily_counts` and `head_referral_status_counts` return OK. Production still needs the same migration verified.
-3. **No scheduled or emailed reports.** Reports are viewed/exported on demand.
-4. **No data-quality indicators.** The head cannot see how many records are incomplete, how many sessions lack notes, or how fresh the summary view is.
-5. **Small-cell privacy risk.** Aggregate reports can still expose individuals in small groups (e.g., one high-stress student in a program). No minimum-cell suppression is evidenced.
+3. ~~**No scheduled or emailed reports.**~~ **Closed for in-app delivery (§1.8).** A daily cron stores an aggregate digest in `report_digests`, shown to the head. Email delivery is explicitly out of scope.
+4. ~~**No data-quality indicators.**~~ **Closed (§1.8).** The Data quality section reports missing notes, unlinked screenings, unassigned referrals, feedback coverage, and summary freshness.
+5. ~~**Small-cell privacy risk.**~~ **Closed (§1.8).** `MIN_CELL = 5` suppresses band counts and cohorts below the threshold; the rule is unit-tested at the 0/1/4/5/6 boundaries and applied in both UI and workbook.
+6. **The digest/trends RPCs and RLS are applied to the linked project, but the full RLS/Playwright suites have not been re-run in this pass.** Verification so far: service-role RPC smoke, typechecks, static test compilation, and the production web build.
 
 #### Non-technical user lens
 
-The reports page is visually structured and includes explanatory hints, which helps a non-technical head. However, terms like “PSS-10 band,” “pipeline,” and “satisfaction coverage” need the existing inline definitions to be read. A one-page “What this report means” summary would improve first-use comprehension.
+The reports page is visually structured and includes explanatory hints, which helps a non-technical head. Trend and cohort panels now answer “is stress rising, and where?” rather than only “what is the current mix?”, and the Data quality section turns reporting gaps into a short action list. Terms like “PSS-10 band,” “pipeline,” and “satisfaction coverage” still rely on the existing inline definitions; a one-page “What this report means” summary would improve first-use comprehension.
 
 ---
 
@@ -726,7 +764,7 @@ The referral form is the most policy-heavy screen for a non-technical faculty me
 | Quality area | Evidence |
 |---|---|
 | Performance | `perf-tests/` harness; `results/pages.json`, `pages-throttled.json`, `booking.json`, `mutations.json`, `realtime.json`, `explain.json` |
-| Reliability | Realtime reconnect test, 0 lost messages; concurrency test re-run green after `00067` (§1.5); 66 unit + 8 RLS + 5 role smoke tests in CI (§1.6) |
+| Reliability | Realtime reconnect test, 0 lost messages; concurrency test re-run green after `00067` (§1.5); 69 unit + 8 RLS + 5 role smoke tests in CI (§1.6) |
 | Security | RBAC, RLS, audit logs, break-glass, guarded writes, server-only service role, Zod validation, rate limiting |
 | Usability | Interface review only; protocol written at `docs/usability-accessibility-protocol.md`, but **no participants, SUS, or task-based results yet** |
 | ISO/IEC 25010 structure | This report provides a structured evaluation; no formal instrument was found in the repo |
@@ -775,7 +813,7 @@ Ratings are on a 1–5 scale, judged against the evidence available for **non-te
 | Performance efficiency | **3.5 / 5** | Normal pages 135–240 ms; booking ~1.2–1.5 s; chat p50 379 ms. Throttled login LCP ~5.0 s and heavy login JS (~1.13 MB) pull the score down. |
 | Compatibility | **3 / 5** | Web + iOS/Android via Expo + Supabase. No offline mode, no browser/device matrix, no integration with Google Calendar. |
 | Usability | **3 / 5** | Clear flows, plain language, large touch targets, role-specific navigation, in-app handbook; mobile mock content removed in P1. Still no participant-based usability test or accessibility audit, so the score remains a design judgment. |
-| Reliability | **3 / 5** | Realtime 0 lost messages and reconnect recovery. Concurrency failure fixed and re-measured on staging (`00067`); P1/P2 add 66 unit tests, 8 RLS tests, and five role smoke specs. Still no soak/failure-injection test and no automated chat reconnect test. |
+| Reliability | **3 / 5** | Realtime 0 lost messages and reconnect recovery. Concurrency failure fixed and re-measured on staging (`00067`); P1/P2 add 69 unit tests, 8 RLS tests, and five role smoke specs. Still no soak/failure-injection test and no automated chat reconnect test. |
 | Security | **4 / 5** | Strong layered design: RBAC, RLS, guarded writes, audit logs, break-glass, private storage, no PHI in notifications. No penetration test; pseudonymity can be correlated by privileged staff. |
 | Maintainability | **4 / 5** | Shared services, single RBAC policy, sequential migrations, strict TypeScript, documented architecture, and a CI test foundation (unit + RLS + Playwright). Remaining risk is environment drift, not absence of tests. |
 | Portability | **3.5 / 5** | Next.js + Expo are portable by design; environment-based config. Mobile device coverage and offline behavior are unverified. |
@@ -887,7 +925,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 
 - **E1 concurrency failure:** 50 concurrent confirmations of overlapping same-slot appointments all ended `confirmed` in the measured run.
 - The exclusion constraint that should prevent this is created in a `DO` block that catches all exceptions and only raises a notice. A pre-existing overlap can cause it to be skipped without failing deployment.
-- ~~No unit/integration/e2e test suite; regressions rely on manual checks.~~ **Reduced in P1/P2 (§1.6):** 66 unit tests, 8 RLS integration tests, and five Playwright role specs run in CI. Coverage is still targeted, not exhaustive.
+- ~~No unit/integration/e2e test suite; regressions rely on manual checks.~~ **Reduced in P1/P2 (§1.6):** 69 unit tests, 8 RLS integration tests, and five Playwright role specs run in CI. Coverage is still targeted, not exhaustive.
 - Single-run performance evidence; no long-run soak test or failure injection.
 - Migration drift observed (missing report RPCs in the measured DB).
 
@@ -971,7 +1009,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 |---|---|---|---|---|---|
 | R1 | Double-booking / overlapping confirmed sessions under concurrency | Medium | High | Original: `concurrency.json` E1 50 confirmed vs expected 1; `00059` constraint could be skipped. **Fixed 2026-10-24 — see §1.5; E1 now 1 confirmed / 49 × `23P01`.** | **P0 — resolved** |
 | R2 | Report RPCs missing in deployed DB, causing degraded/failed analytics | Medium | High | Original: `explain.json` functions did not exist. **Fixed 2026-10-24 — `00061` applied; both RPCs return OK.** | **P0 — resolved** |
-| R3 | No automated tests; regressions reach production | High | High | Original: no test runner. **Reduced 2026-10-24 — §1.6:** 66 unit tests, 8 RLS tests, 5 Playwright role specs in CI | **P1/P2 — substantially reduced; staging guard job still unrun** |
+| R3 | No automated tests; regressions reach production | High | High | Original: no test runner. **Reduced 2026-10-24 — §1.6:** 69 unit tests, 8 RLS tests, 5 Playwright role specs in CI | **P1/P2 — substantially reduced; staging guard job still unrun** |
 | R4 | Mobile profile and PSS-10 wording are mock data | High | Medium–High | Original: mobile README. **Closed 2026-10-24 — §1.6:** profile reads Supabase; shared PSS-10 instrument; `data/mock.ts` removed | **P1 — resolved (licensing note still unverified)** |
 | R5 | “Events” lacks calendar/date/venue/RSVP | High | Medium | Original: `/announcements` only. **Resolved 2026-10-24 — §1.6:** objective renamed to announcement management; boundary documented | **P1 — resolved by scope decision** |
 | R6 | Google Meet is manual paste, no API integration | High | Medium | `isMeetUrl()`; no Google API code | **P2** |
@@ -1048,8 +1086,8 @@ The Digital Counseling and Appointment System with Analytics is a **substantial,
 
 Against the 11 specific objectives:
 
-- **6 are fully achieved:** scheduling/per-session PSS-10, anonymous identity, real-time chat, break-glass emergency access, faculty referrals, and announcement management (renamed scope).
-- **3 are substantially achieved:** interfaces, counselor dashboard, and analytics.
+- **8 are fully achieved:** scheduling/per-session PSS-10, anonymous identity, counselor dashboard/student records, analytics, real-time chat, break-glass emergency access, faculty referrals, and announcement management (renamed scope).
+- **1 is substantially achieved:** user-friendly mobile/web interfaces (no participant-based usability study yet).
 - **2 are partially achieved:** Google Meet integration and the ISO/IEC 25010 evaluation.
 
 The most defensible capstone claim is:
@@ -1132,3 +1170,4 @@ The system should **not** yet be described as fully production-ready or fully IS
 ---
 
 *End of report.*
+

@@ -112,6 +112,7 @@ export function SessionNotesModal({
   editable,
   headIds,
   slots = [],
+  enforceFollowUpScope = true,
   onClose,
 }: {
   /** Minimal record the modal reads — full board rows satisfy this. */
@@ -125,6 +126,12 @@ export function SessionNotesModal({
   headIds: string[];
   /** Counselor availability — the follow-up picker only offers in-scope moments. */
   slots?: BoardSlot[];
+  /**
+   * When false, the client-side availability window check is skipped (e.g.
+   * opening an existing note from the student record, where availability is
+   * not loaded); the API still validates the saved follow-up moment.
+   */
+  enforceFollowUpScope?: boolean;
   onClose: () => void;
 }) {
   const appointmentId = appt?.id ?? null;
@@ -133,6 +140,11 @@ export function SessionNotesModal({
   const existing = data?.[0] ?? null;
 
   const [content, setContent] = useState("");
+  const [noteFormat, setNoteFormat] = useState<"freeform" | "soap">("freeform");
+  const [subjective, setSubjective] = useState("");
+  const [objective, setObjective] = useState("");
+  const [assessment, setAssessment] = useState("");
+  const [plan, setPlan] = useState("");
   const [followUpRequired, setFollowUpRequired] = useState(false);
   const [followUpAtLocal, setFollowUpAtLocal] = useState("");
   const [pending, setPending] = useState<PendingImage[]>([]);
@@ -151,12 +163,22 @@ export function SessionNotesModal({
     if (!existing || seededRef.current === existing.id) return;
     seededRef.current = existing.id;
     setContent(existing.content);
+    setNoteFormat(existing.note_format ?? "freeform");
+    setSubjective(existing.subjective ?? "");
+    setObjective(existing.objective ?? "");
+    setAssessment(existing.assessment ?? "");
+    setPlan(existing.plan ?? "");
     setFollowUpRequired(existing.follow_up_required);
     setFollowUpAtLocal(existing.follow_up_at ? toLocalInput(existing.follow_up_at) : "");
   }, [existing]);
   useEffect(() => {
     seededRef.current = null;
     setContent("");
+    setNoteFormat("freeform");
+    setSubjective("");
+    setObjective("");
+    setAssessment("");
+    setPlan("");
     setFollowUpRequired(false);
     setFollowUpAtLocal("");
     setPending((prev) => {
@@ -199,19 +221,38 @@ export function SessionNotesModal({
 
   if (!appt) return null;
 
-  const trimmed = content.trim();
+  // S.O.A.P. sections compose into the plain-text `content` twin so exports,
+  // older clients, and the freeform view keep working.
+  const soapText = [
+    subjective.trim() ? `Subjective:\n${subjective.trim()}` : "",
+    objective.trim() ? `Objective:\n${objective.trim()}` : "",
+    assessment.trim() ? `Assessment:\n${assessment.trim()}` : "",
+    plan.trim() ? `Plan:\n${plan.trim()}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const composedContent = noteFormat === "soap" ? soapText : content;
+  const trimmed = composedContent.trim();
   const tooShort = trimmed.length > 0 && trimmed.length < 10;
+  const hasSoapSection = soapText.length > 0;
   const followUpAtISO = followUpRequired ? localToISO(followUpAtLocal) : null;
   const followUpInFuture = !followUpAtISO || new Date(followUpAtISO).getTime() > Date.now();
-  const followUpInScope = !followUpRequired || (followUpAtLocal !== "" && momentInScope(slots, followUpAtLocal));
+  const followUpInScope = !enforceFollowUpScope || !followUpRequired || (followUpAtLocal !== "" && momentInScope(slots, followUpAtLocal));
   // Bookable days need a real 15-minute start (not just a sliver of cover) —
   // otherwise a day looks enabled with no selectable time. Empty state below
   // points at /availability instead of letting the save fail server-side.
   const isBookableDay = (dateISO: string) => startOptionsForDate(slots, dateISO).length > 0;
   const hasScopeDates = validScheduleDates(slots).some(isBookableDay);
   const followUpValid =
-    !followUpRequired || (followUpAtISO !== null && followUpInFuture && followUpInScope && hasScopeDates);
-  const canSave = editable && !busy && trimmed.length >= 10 && trimmed.length <= 10000 && followUpValid;
+    !followUpRequired ||
+    (followUpAtISO !== null && followUpInFuture && followUpInScope && (!enforceFollowUpScope || hasScopeDates));
+  const canSave =
+    editable &&
+    !busy &&
+    trimmed.length >= 10 &&
+    trimmed.length <= 10000 &&
+    (noteFormat === "freeform" || hasSoapSection) &&
+    followUpValid;
   const imageCount = savedAttachments.length + pending.length;
   const scopeWindow = followUpRequired && followUpAtLocal ? coveringWindowLabel(slots, followUpAtLocal) : null;
 
@@ -276,6 +317,11 @@ export function SessionNotesModal({
         content: trimmed,
         followUpRequired,
         followUpAt: followUpAtISO,
+        noteFormat,
+        subjective: noteFormat === "soap" ? subjective : null,
+        objective: noteFormat === "soap" ? objective : null,
+        assessment: noteFormat === "soap" ? assessment : null,
+        plan: noteFormat === "soap" ? plan : null,
       });
       const note = result.note;
       seededRef.current = note.id;
@@ -469,22 +515,71 @@ export function SessionNotesModal({
           ) : editable ? (
             <>
               <div>
-                <label htmlFor="session-note-content" className="text-[13px] font-bold text-ink">
-                  What happened in this session?
-                </label>
-                <textarea
-                  id="session-note-content"
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  rows={6}
-                  maxLength={10000}
-                  disabled={busy}
-                  placeholder="Observations, interventions used, student response, plan… (at least 10 characters)"
-                  className="mt-1.5 w-full rounded-lg border border-ink/15 bg-white px-4 py-3 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-60"
-                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label htmlFor="session-note-content" className="text-[13px] font-bold text-ink">
+                    What happened in this session?
+                  </label>
+                  <div className="inline-flex rounded-lg border border-ink/10 bg-cream p-0.5" role="group" aria-label="Note format">
+                    {(["freeform", "soap"] as const).map((fmt) => (
+                      <button
+                        key={fmt}
+                        type="button"
+                        onClick={() => setNoteFormat(fmt)}
+                        disabled={busy}
+                        aria-pressed={noteFormat === fmt}
+                        className={`rounded-md px-2.5 py-1 text-[11px] font-bold transition ${
+                          noteFormat === fmt ? "bg-white text-ink shadow-card" : "text-ink-muted hover:text-ink"
+                        }`}
+                      >
+                        {fmt === "freeform" ? "Freeform" : "S.O.A.P."}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {noteFormat === "freeform" ? (
+                  <textarea
+                    id="session-note-content"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    rows={6}
+                    maxLength={10000}
+                    disabled={busy}
+                    placeholder="Observations, interventions used, student response, plan… (at least 10 characters)"
+                    className="mt-1.5 w-full rounded-lg border border-ink/15 bg-white px-4 py-3 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-60"
+                  />
+                ) : (
+                  <div className="mt-2 space-y-3">
+                    {[
+                      { id: "subjective", label: "Subjective", hint: "What the student reported", value: subjective, set: setSubjective },
+                      { id: "objective", label: "Objective", hint: "Observable presentation and facts", value: objective, set: setObjective },
+                      { id: "assessment", label: "Assessment", hint: "Clinical impression and risk", value: assessment, set: setAssessment },
+                      { id: "plan", label: "Plan", hint: "Next steps and follow-up", value: plan, set: setPlan },
+                    ].map((section) => (
+                      <div key={section.id}>
+                        <label htmlFor={`session-note-${section.id}`} className="text-[13px] font-bold text-ink">
+                          {section.label}{" "}
+                          <span className="font-medium text-ink-faint">— {section.hint}</span>
+                        </label>
+                        <textarea
+                          id={`session-note-${section.id}`}
+                          value={section.value}
+                          onChange={(e) => section.set(e.target.value)}
+                          rows={3}
+                          maxLength={4000}
+                          disabled={busy}
+                          className="mt-1 w-full rounded-lg border border-ink/15 bg-white px-4 py-3 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-60"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="mt-1 flex items-center justify-between text-xs font-medium">
                   <span className={tooShort ? "text-red-600" : "text-ink-faint"}>
-                    {tooShort ? `Need ${10 - trimmed.length} more characters` : `${trimmed.length}/10000`}
+                    {tooShort
+                      ? `Need ${10 - trimmed.length} more characters`
+                      : noteFormat === "soap" && !hasSoapSection
+                        ? "Add at least one S.O.A.P. section"
+                        : `${trimmed.length}/10000`}
                   </span>
                   {data && isFetching && <span className="text-ink-faint">Refreshing…</span>}
                 </div>
@@ -506,21 +601,24 @@ export function SessionNotesModal({
                     <p className="text-[13px] font-bold text-ink" id="session-note-followup-label">
                       Follow-up date and time <span className="font-medium text-ink-faint">(inside your availability)</span>
                     </p>
-                    {hasScopeDates ? (
+                    {hasScopeDates || !enforceFollowUpScope ? (
                       <div className="mt-1.5">
                         <DateTimePicker
                           value={followUpAtLocal}
                           onChange={setFollowUpAtLocal}
                           ariaLabel="Follow-up date and time"
-                          isDayEnabled={isBookableDay}
+                          isDayEnabled={enforceFollowUpScope ? isBookableDay : () => true}
                           isTimeEnabled={(dateISO, h, min) => {
+                            if (!enforceFollowUpScope) return true;
                             const t = h * 60 + min;
                             return slotWindowsForDate(slots, dateISO).some((w) => t >= w.start && t + 15 <= w.end);
                           }}
                           scopeHint={
-                            scopeWindow
-                              ? `Inside your ${scopeWindow} slot.`
-                              : "Pick a day and time inside your availability slots."
+                            enforceFollowUpScope
+                              ? scopeWindow
+                                ? `Inside your ${scopeWindow} slot.`
+                                : "Pick a day and time inside your availability slots."
+                              : "Availability isn't loaded here — the office validates the saved moment."
                           }
                         />
                       </div>
@@ -533,7 +631,7 @@ export function SessionNotesModal({
                         .
                       </p>
                     )}
-                    {!followUpValid && hasScopeDates && (
+                    {!followUpValid && (hasScopeDates || !enforceFollowUpScope) && (
                       <p className="mt-1 text-xs font-semibold text-red-600">
                         {!followUpInFuture
                           ? "Follow-ups must be in the future."
@@ -609,8 +707,30 @@ export function SessionNotesModal({
               {existing ? (
                 <>
                   <div className="rounded-lg border border-ink/10 p-4">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">Note</p>
-                    <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">{existing.content}</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">
+                      Note{existing.note_format === "soap" ? " · S.O.A.P." : ""}
+                    </p>
+                    {existing.note_format === "soap" ? (
+                      <dl className="mt-2 space-y-3">
+                        {(
+                          [
+                            ["Subjective", existing.subjective],
+                            ["Objective", existing.objective],
+                            ["Assessment", existing.assessment],
+                            ["Plan", existing.plan],
+                          ] as const
+                        )
+                          .filter(([, value]) => !!value?.trim())
+                          .map(([label, value]) => (
+                            <div key={label}>
+                              <dt className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">{label}</dt>
+                              <dd className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">{value}</dd>
+                            </div>
+                          ))}
+                      </dl>
+                    ) : (
+                      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink-soft">{existing.content}</p>
+                    )}
                   </div>
                   <ul className="space-y-2">
                     <li className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-3 text-sm">

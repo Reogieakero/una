@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Clock, MapPin, Video } from "lucide-react";
 import type { CalendarSession } from "@/lib/hooks/use-sessions-calendar";
 import { formatLong, sessionPhase, statusLabel } from "@/lib/calendar";
@@ -37,7 +38,18 @@ export function SessionDetail({
     <div className="mt-3 rounded-lg border border-primary-200 bg-primary-50/60 p-4">
       <div className="flex items-start justify-between gap-2">
         <p className="flex min-w-0 flex-wrap items-center gap-2 font-display text-sm font-bold text-ink">
-          <span className="truncate">{alias}</span>
+          <span className="truncate">
+            {session.student_id ? (
+              <Link
+                href={`/students/${session.student_id}`}
+                className="underline-offset-2 transition hover:text-primary-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+              >
+                {alias}
+              </Link>
+            ) : (
+              alias
+            )}
+          </span>
           {phase === "live" && (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
               <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />

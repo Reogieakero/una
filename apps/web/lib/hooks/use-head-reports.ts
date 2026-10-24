@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { HeadReportsPayload } from "@/app/api/reports/head/route";
-import type { ReportSection } from "@/lib/reports-scope";
+import type { CohortGroup, ReportSection } from "@/lib/reports-scope";
 import { fetchWithTimeout } from "@/lib/fetch-timeout";
 
 export type { HeadReportsPayload };
@@ -19,6 +19,8 @@ export type HeadReportsScope = {
   /** YYYY-MM-DD bounds ("" when open). Sliced from the canonical range. */
   fromDay: string;
   toDay: string;
+  /** Cohort dimension for the 00071 cohort panel. */
+  group?: CohortGroup;
 };
 
 export async function fetchHeadReports(scope: HeadReportsScope): Promise<HeadReportsPayload> {
@@ -27,6 +29,7 @@ export async function fetchHeadReports(scope: HeadReportsScope): Promise<HeadRep
   if (scope.preset !== "all" && scope.preset !== "custom") p.set("range", scope.preset);
   if (scope.fromDay) p.set("from", scope.fromDay);
   if (scope.toDay) p.set("to", scope.toDay);
+  if (scope.group) p.set("group", scope.group);
   const res = await fetchWithTimeout(`/api/reports/head?${p.toString()}`, { credentials: "same-origin" });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -44,7 +47,7 @@ export async function fetchHeadReports(scope: HeadReportsScope): Promise<HeadRep
  */
 export function useHeadReports(scope: HeadReportsScope) {
   return useQuery({
-    queryKey: [...HEAD_REPORTS_KEY, scope.section, scope.preset, scope.fromDay, scope.toDay],
+    queryKey: [...HEAD_REPORTS_KEY, scope.section, scope.preset, scope.fromDay, scope.toDay, scope.group ?? "program"],
     queryFn: () => fetchHeadReports(scope),
     staleTime: HEAD_REPORTS_STALE_MS,
     gcTime: 5 * 60_000,

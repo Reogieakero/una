@@ -9,6 +9,7 @@ import { buildFeedbackSheet } from "./sheets/feedback";
 import { buildWellbeingSheet } from "./sheets/wellbeing";
 import { buildTeamSheet } from "./sheets/team";
 import { buildAnnouncementsSheet } from "./sheets/announcements";
+import { buildQualitySheet } from "./sheets/quality";
 
 export type { ReportBundle, ReportScope, WorkbookOptions };
 
@@ -22,6 +23,8 @@ export async function fetchReportData(scope?: ReportScope): Promise<ReportBundle
     pssRes,
     counselorsRes,
     annRes,
+    trendsRes,
+    qualityRes,
   ] = await Promise.all([
     supabase.from("workspace_settings").select("value").eq("key", "office").maybeSingle(),
     supabase
@@ -42,6 +45,8 @@ export async function fetchReportData(scope?: ReportScope): Promise<ReportBundle
     supabase.from("pss10_assessments").select("id,student_id,band,total_score,created_at").order("created_at", { ascending: false }).limit(1000),
     supabase.from("counselors").select("id,profile_id,specialization,is_available"),
     supabase.from("announcements").select("id,title,published_at,created_at").order("created_at", { ascending: false }).limit(200),
+    supabase.rpc("head_wellbeing_trends", { from_ts: scope?.from ?? null, to_ts: scope?.to ?? null }),
+    supabase.rpc("head_data_quality"),
   ]);
 
   if (apptsRes.error) throw new Error("Couldn't load appointments for export.");
@@ -112,7 +117,7 @@ export async function fetchReportData(scope?: ReportScope): Promise<ReportBundle
 
   const office = (officeRes.data as { value?: { name?: string; location?: string; contact?: string } } | null)?.value;
 
-  return { appointments, referrals, feedback, pss, counselors, announcements, counselorName, counselorSpec, counselorAvail, aliasByStudent, office };
+  return { appointments, referrals, feedback, pss, counselors, announcements, counselorName, counselorSpec, counselorAvail, aliasByStudent, office, trends: ((trendsRes.data ?? []) as ReportBundle["trends"]), quality: (((qualityRes.data ?? []) as NonNullable<ReportBundle["quality"]>[])[0] ?? null) };
 }
 
 export async function buildWorkbook(bundle: ReportBundle, opts?: WorkbookOptions) {
@@ -159,6 +164,7 @@ export async function buildWorkbook(bundle: ReportBundle, opts?: WorkbookOptions
   buildWellbeingSheet(wb, bundle, ctx);
   buildTeamSheet(wb, bundle, ctx);
   buildAnnouncementsSheet(wb, bundle, ctx);
+  buildQualitySheet(wb, bundle, ctx);
 
   const buffer = await wb.xlsx.writeBuffer();
   return { buffer, fileDay };

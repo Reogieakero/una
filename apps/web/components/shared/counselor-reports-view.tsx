@@ -29,6 +29,7 @@ import {
   type ReportSection,
 } from "@/lib/reports-scope";
 import { timeAgoLong } from "@/lib/format";
+import { MIN_CELL, isSuppressed, suppressCount } from "@/lib/reports/suppression";
 import { EmptyState, PanelShell, ListSkeleton } from "@/components/shared/panel-shell";
 import {
   APPT_STATUS_META,
@@ -94,8 +95,8 @@ function KpiGrid({ data }: { data: CounselorReportsPayload }) {
     { label: "Avg. satisfaction", value: ratings.length ? `${avgRating} / 5` : "—", sub: `${ratings.length} ratings on my sessions` },
     { label: "My open referrals", value: String(refOpen), sub: "Assigned to me, waiting" },
     { label: "My resolution rate", value: pct(refResolved, refTotal), sub: `${refResolved} of ${refTotal} resolved` },
-    { label: "High-stress screens", value: String(highStress), sub: "From students I've seen" },
-    { label: "Feedback coverage", value: pct(ratings.length, completed), sub: "Responses per my completed session" },
+    { label: "High-stress screens", value: highStress > 0 && highStress < MIN_CELL ? `<${MIN_CELL}` : String(highStress), sub: "From students I've seen" },
+    { label: "Feedback coverage", value: completed < MIN_CELL ? "—" : pct(ratings.length, completed), sub: "Responses per my completed session" },
   ];
 
   return (
@@ -281,15 +282,24 @@ function StressBands({ data }: { data: CounselorReportsPayload }) {
   const counts = new Map(order.map((k) => [k, 0]));
   for (const r of rows) counts.set(r.band, (counts.get(r.band) ?? 0) + 1);
   const avg = (rows.reduce((a, r) => a + r.total_score, 0) / rows.length).toFixed(1);
+  // A counselor's caseload is small, so suppression matters here too: a band
+  // of 1–4 is withheld from the chart rather than shown as an exact slice.
+  const visible = order
+    .map((k) => ({ name: STRESS_META[k].label, value: counts.get(k) ?? 0, color: STRESS_META[k].color }))
+    .filter((r) => r.value === 0 || !isSuppressed(r.value));
+  const withheld = order.filter((k) => isSuppressed(counts.get(k) ?? 0));
   return (
     <>
       <p className="mt-2 text-[13px] text-ink-muted">
         Average PSS-10 <span className="font-bold text-ink">{avg} / 40</span> across{" "}
         <span className="font-bold text-ink">{rows.length}</span> screenings from your students.
       </p>
-      <ReportDonut
-        data={order.map((k) => ({ name: STRESS_META[k].label, value: counts.get(k) ?? 0, color: STRESS_META[k].color }))}
-      />
+      {visible.length ? <ReportDonut data={visible} /> : null}
+      {withheld.length > 0 && (
+        <p className="mt-2 text-[11px] font-medium text-ink-faint">
+          Bands with fewer than {MIN_CELL} screenings are withheld to protect small groups.
+        </p>
+      )}
     </>
   );
 }
@@ -302,11 +312,14 @@ function ScreeningSummary({ data }: { data: CounselorReportsPayload }) {
   const high = rows.filter((r) => r.band === "high").length;
   const moderate = rows.filter((r) => r.band === "moderate").length;
   const avg = (rows.reduce((a, r) => a + r.total_score, 0) / rows.length).toFixed(1);
+  const smallDenominator = rows.length < MIN_CELL;
+  const bandLabel = (n: number) =>
+    `${suppressCount(n) == null ? `<${MIN_CELL}` : n} · ${smallDenominator ? "—" : pct(n, rows.length)}`;
   const summary = [
     { label: "Screenings", value: String(rows.length), tone: "bg-blue-100 text-blue-800" },
     { label: "Average score", value: `${avg} / 40`, tone: "bg-blue-100 text-blue-800" },
-    { label: "High band", value: `${high} · ${pct(high, rows.length)}`, tone: "bg-red-100 text-red-800" },
-    { label: "Moderate band", value: `${moderate} · ${pct(moderate, rows.length)}`, tone: "bg-amber-100 text-amber-800" },
+    { label: "High band", value: bandLabel(high), tone: "bg-red-100 text-red-800" },
+    { label: "Moderate band", value: bandLabel(moderate), tone: "bg-amber-100 text-amber-800" },
   ];
   return (
     <ul className="mt-4 space-y-3">

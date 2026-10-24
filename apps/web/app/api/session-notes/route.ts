@@ -39,6 +39,17 @@ const bodySchema = sessionNoteSchema
     if (v.followUpRequired && !v.followUpAt) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pick a follow-up date and time.", path: ["followUpAt"] });
     }
+    // 00070: a S.O.A.P. note is only meaningful with at least one section.
+    if (v.noteFormat === "soap") {
+      const sections = [v.subjective, v.objective, v.assessment, v.plan];
+      if (!sections.some((s) => s?.trim())) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Add at least one S.O.A.P. section.",
+          path: ["subjective"],
+        });
+      }
+    }
   });
 
 const patchSchema = z
@@ -47,6 +58,11 @@ const patchSchema = z
     content: z.string().min(10, "Note needs at least 10 characters").max(10000).optional(),
     followUpRequired: z.boolean().optional(),
     followUpAt: followUpAtField,
+    noteFormat: z.enum(["freeform", "soap"]).optional(),
+    subjective: z.string().trim().max(4000).optional().nullable(),
+    objective: z.string().trim().max(4000).optional().nullable(),
+    assessment: z.string().trim().max(4000).optional().nullable(),
+    plan: z.string().trim().max(4000).optional().nullable(),
   })
   .superRefine((v, ctx) => {
     if (v.followUpRequired && v.followUpAt === null) {
@@ -83,12 +99,17 @@ type NoteRow = {
   follow_up_required: boolean;
   follow_up_date: string | null;
   follow_up_at: string | null;
+  note_format: "freeform" | "soap" | null;
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan: string | null;
   created_at: string;
   updated_at: string;
 };
 
 const NOTE_SELECT =
-  "id,appointment_id,counselor_id,content,notes,is_private,follow_up_required,follow_up_date,follow_up_at,created_at,updated_at";
+  "id,appointment_id,counselor_id,content,notes,is_private,follow_up_required,follow_up_date,follow_up_at,note_format,subjective,objective,assessment,plan,created_at,updated_at";
 
 function toAttachmentPayload(r: AttachmentRow) {
   return {
@@ -111,6 +132,11 @@ function toPayload(r: NoteRow, attachments: AttachmentRow[] = []) {
     follow_up_required: r.follow_up_required,
     follow_up_date: r.follow_up_date,
     follow_up_at: r.follow_up_at,
+    note_format: r.note_format ?? "freeform",
+    subjective: r.subjective,
+    objective: r.objective,
+    assessment: r.assessment,
+    plan: r.plan,
     created_at: r.created_at,
     updated_at: r.updated_at,
     attachments: attachments.map(toAttachmentPayload),
@@ -293,6 +319,11 @@ export async function POST(request: Request) {
       follow_up_required: parsed.data.followUpRequired,
       follow_up_date: followUpDateOf(parsed.data.followUpAt),
       follow_up_at: parsed.data.followUpAt ?? null,
+      note_format: parsed.data.noteFormat ?? "freeform",
+      subjective: parsed.data.subjective?.trim() || null,
+      objective: parsed.data.objective?.trim() || null,
+      assessment: parsed.data.assessment?.trim() || null,
+      plan: parsed.data.plan?.trim() || null,
     })
     .select(NOTE_SELECT)
     .single();
@@ -357,6 +388,11 @@ export async function PATCH(request: Request) {
     follow_up_required?: boolean;
     follow_up_date?: string | null;
     follow_up_at?: string | null;
+    note_format?: "freeform" | "soap";
+    subjective?: string | null;
+    objective?: string | null;
+    assessment?: string | null;
+    plan?: string | null;
   } = { updated_at: new Date().toISOString() };
   if (parsed.data.content !== undefined) {
     const text = parsed.data.content.trim();
@@ -374,6 +410,11 @@ export async function PATCH(request: Request) {
     patch.follow_up_at = null;
     patch.follow_up_date = null;
   }
+  if (parsed.data.noteFormat !== undefined) patch.note_format = parsed.data.noteFormat;
+  if (parsed.data.subjective !== undefined) patch.subjective = parsed.data.subjective?.trim() || null;
+  if (parsed.data.objective !== undefined) patch.objective = parsed.data.objective?.trim() || null;
+  if (parsed.data.assessment !== undefined) patch.assessment = parsed.data.assessment?.trim() || null;
+  if (parsed.data.plan !== undefined) patch.plan = parsed.data.plan?.trim() || null;
 
   const { data, error: updateError } = await supabase
     .from("session_notes")

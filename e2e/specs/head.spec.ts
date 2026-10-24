@@ -44,5 +44,19 @@ test.describe("head role", () => {
     // Empty-state copy proves a section has no rows; these must be absent.
     await expect(page.getByText("No sessions in the last 14 days")).toHaveCount(0);
     await expect(page.getByText("No referrals yet")).toHaveCount(0);
+
+    // Objective 5: quality/trends panels and small-cell suppression copy.
+    await page.goto("/reports?section=quality");
+    await expect(page.getByText("Data quality", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Latest scheduled digest")).toBeVisible();
+
+    // Objective 4: alias-only longitudinal record from the directory.
+    await page.goto("/students");
+    const aliasLink = page.getByRole("link", { name: seed.studentAlias });
+    await expect(aliasLink).toBeVisible();
+    await aliasLink.click();
+    await expect(page).toHaveURL(/\/students\/[0-9a-f-]+$/);
+    await expect(page.getByRole("heading", { name: "Session timeline" })).toBeVisible();
+    await expect(page.getByText(/Alias-only record/)).toBeVisible();
   });
 });

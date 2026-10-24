@@ -1,6 +1,7 @@
 "use client";
 
 import { HoverMenu } from "@/components/shared/hover-menu";
+import Link from "next/link";
 import { Card, Input } from "@/components/ui/primitives";
 import { Pager, PageSize } from "@/components/shared/Pager";
 import { pageRange } from "@/lib/pagination";
@@ -142,7 +143,12 @@ export function StudentTable({
             return (
               <tr key={s.id} className="border-b border-ink/5 align-top last:border-0">
                 <td className="px-4 py-3">
-                  <p className="font-bold text-ink">{s.anonymous_alias ?? "Student"}</p>
+                  <Link
+                    href={`/students/${s.id}`}
+                    className="font-bold text-ink underline-offset-2 transition hover:text-primary-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                  >
+                    {s.anonymous_alias ?? "Student"}
+                  </Link>
                   <p className="text-xs font-medium text-ink-muted">Alias-only record</p>
                 </td>
                 <td className="px-4 py-3">

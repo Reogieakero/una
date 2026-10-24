@@ -3,7 +3,7 @@ import { getCurrentProfile } from "@/lib/supabase/server";
 import { HeadReportsView } from "@/components/shared/head-reports-view";
 import { CounselorReportsView } from "@/components/shared/counselor-reports-view";
 import { FacultyReportsView } from "@/components/shared/faculty-reports-view";
-import { parseReportRange, parseReportSection } from "@/lib/reports-scope";
+import { parseCohortGroup, parseReportRange, parseReportSection } from "@/lib/reports-scope";
 
 /**
  * Shared /reports — one URL, role-aware.
@@ -25,6 +25,7 @@ export default async function ReportsPage({
   if ((profile as { is_active?: boolean | null }).is_active === false) redirect("/login?deactivated=1");
   const section = parseReportSection(searchParams?.section);
   const range = parseReportRange({ range: searchParams?.range, from: searchParams?.from, to: searchParams?.to });
+  const group = parseCohortGroup(searchParams?.group);
   if (profile.role === "faculty") {
     const firstName = (profile.full_name ?? "").trim().split(/\s+/)[0] ?? "";
     // Faculty reports cover referrals only — default to "all" (which shows
@@ -37,6 +38,6 @@ export default async function ReportsPage({
     const firstName = (profile.full_name ?? "").trim().split(/\s+/)[0] ?? "";
     return <CounselorReportsView firstName={firstName} section={section} range={range} />;
   }
-  if (profile.role === "guidance_head") return <HeadReportsView section={section} range={range} />;
+  if (profile.role === "guidance_head") return <HeadReportsView section={section} range={range} group={group} />;
   redirect("/");
 }

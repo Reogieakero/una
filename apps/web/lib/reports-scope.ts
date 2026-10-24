@@ -7,7 +7,7 @@
 
 /* ── Sections ── */
 
-export type ReportSection = "all" | "sessions" | "referrals" | "satisfaction" | "wellbeing" | "operations";
+export type ReportSection = "all" | "sessions" | "referrals" | "satisfaction" | "wellbeing" | "operations" | "quality";
 
 export const REPORT_SECTIONS: { key: ReportSection; label: string }[] = [
   { key: "all", label: "All" },
@@ -16,6 +16,7 @@ export const REPORT_SECTIONS: { key: ReportSection; label: string }[] = [
   { key: "satisfaction", label: "Satisfaction" },
   { key: "wellbeing", label: "Wellbeing" },
   { key: "operations", label: "Operations" },
+  { key: "quality", label: "Data quality" },
 ];
 
 const SECTION_KEYS = new Set<string>(REPORT_SECTIONS.map((s) => s.key));
@@ -27,6 +28,24 @@ function firstParam(v: unknown): string | undefined {
 export function parseReportSection(v: unknown): ReportSection {
   const s = firstParam(v);
   return s && SECTION_KEYS.has(s) ? (s as ReportSection) : "sessions";
+}
+
+/* ── Cohort grouping (00071) ── */
+
+export type CohortGroup = "program" | "year_level" | "college";
+
+export const COHORT_GROUPS: { key: CohortGroup; label: string }[] = [
+  { key: "program", label: "Program" },
+  { key: "year_level", label: "Year level" },
+  { key: "college", label: "College" },
+];
+
+const COHORT_KEYS = new Set<string>(COHORT_GROUPS.map((g) => g.key));
+
+/** `?group=` allowlist; unknown values fall back to program. */
+export function parseCohortGroup(v: unknown): CohortGroup {
+  const g = firstParam(v);
+  return g && COHORT_KEYS.has(g) ? (g as CohortGroup) : "program";
 }
 
 /* ── Time range ── */

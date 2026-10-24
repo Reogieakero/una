@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
+  parseCohortGroup,
   parseReportRange,
   parseReportSection,
   withRange,
   type ReportSection,
 } from "@/lib/reports-scope";
+import { suppressCohorts, suppressCount } from "@/lib/reports/suppression";
 
 const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"] as const;
 
@@ -45,6 +47,42 @@ export type HeadReportsWorkloadEntry = {
   completed: number;
 };
 
+/** Daily PSS-10 trend (00071). Band cells under MIN_CELL are null. */
+export type HeadReportsTrend = {
+  day: string;
+  screenings: number;
+  low: number | null;
+  moderate: number | null;
+  high: number | null;
+  avg_score: number | null;
+};
+
+export type HeadReportsCohort = {
+  cohort: string;
+  screenings: number;
+  high: number | null;
+  avg_score: number | null;
+};
+
+export type HeadReportsQuality = {
+  completed_sessions: number;
+  completed_without_note: number;
+  screenings_unlinked: number;
+  referrals_unassigned: number;
+  feedback_responses: number;
+  feedback_coverage: number | null;
+  summary_last_day: string | null;
+  summary_age_days: number | null;
+};
+
+export type HeadReportsDigest = {
+  id: string;
+  period_start: string;
+  period_end: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
 export type HeadReportsPayload = {
   section: ReportSection;
   range: { preset: string; from: string | null; to: string | null; label: string };
@@ -52,6 +90,10 @@ export type HeadReportsPayload = {
   referrals: HeadReportsReferral[];
   feedback: HeadReportsFeedback[];
   screenings: HeadReportsScreening[];
+  trends: HeadReportsTrend[];
+  cohort: HeadReportsCohort[];
+  quality: HeadReportsQuality | null;
+  digest: HeadReportsDigest | null;
   pipeline: { unassigned: number; escalated: number; oldestOpenAt: string | null };
   workload: { ranked: HeadReportsWorkloadEntry[]; unassignedSessions: number };
   fetchedAt: string;
@@ -91,6 +133,7 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const section = parseReportSection(url.searchParams.get("section"));
+  const group = parseCohortGroup(url.searchParams.get("group"));
   const range = parseReportRange({
     range: url.searchParams.get("range"),
     from: url.searchParams.get("from"),
@@ -103,10 +146,13 @@ export async function GET(request: Request) {
   const needScreenings = showAll || section === "wellbeing";
   const needPipeline = showAll || section === "referrals";
   const needWorkload = showAll || section === "operations";
+  const needTrends = showAll || section === "wellbeing";
+  const needQuality = showAll || section === "quality";
+  const needDigest = showAll || section === "quality";
 
   // Every independent query fires together — one parallel batch instead of
   // the old per-section Suspense waterfall.
-  const [apptsRes, refsRes, feedbackRes, pssRes, unassignedRes, escalatedRes, oldestRes, counselorsRes] =
+  const [apptsRes, refsRes, feedbackRes, pssRes, unassignedRes, escalatedRes, oldestRes, counselorsRes, trendsRes, cohortRes, qualityRes, digestRes] =
     await Promise.all([
       needAppts
         ? withRange(
@@ -173,12 +219,75 @@ export async function GET(request: Request) {
       needWorkload
         ? supabase.from("counselors").select("id,profile_id,specialization")
         : Promise.resolve({ data: null, error: null }),
+      needTrends
+        ? supabase.rpc("head_wellbeing_trends", { from_ts: range.from, to_ts: range.to })
+        : Promise.resolve({ data: null, error: null }),
+      needTrends
+        ? supabase.rpc("head_cohort_stress", {
+            from_ts: range.from,
+            to_ts: range.to,
+            group_by: group,
+          })
+        : Promise.resolve({ data: null, error: null }),
+      needQuality
+        ? supabase.rpc("head_data_quality")
+        : Promise.resolve({ data: null, error: null }),
+      needDigest
+        ? supabase
+            .from("report_digests")
+            .select("id,period_start,period_end,payload,created_at")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
   const appointments = ((apptsRes.data ?? []) as HeadReportsAppt[]);
   const referrals = ((refsRes.data ?? []) as HeadReportsReferral[]);
   const feedback = ((feedbackRes.data ?? []) as HeadReportsFeedback[]);
   const screenings = ((pssRes.data ?? []) as HeadReportsScreening[]);
+
+  const trends: HeadReportsTrend[] = !needTrends
+    ? []
+    : ((trendsRes.data ?? []) as {
+        day: string;
+        screenings: number;
+        low: number;
+        moderate: number;
+        high: number;
+        avg_score: number | null;
+      }[]).map((r) => ({
+        day: r.day,
+        screenings: r.screenings,
+        // Suppress band detail on very small days so a cell can't identify a
+        // single student; the day total still anchors the trend.
+        low: suppressCount(r.low),
+        moderate: suppressCount(r.moderate),
+        high: suppressCount(r.high),
+        avg_score: r.avg_score,
+      }));
+
+  const cohort: HeadReportsCohort[] = !needTrends
+    ? []
+    : suppressCohorts(
+        ((cohortRes.data ?? []) as {
+          cohort: string;
+          screenings: number;
+          high: number;
+          avg_score: number | null;
+        }[])
+      ).map((r) => ({
+        cohort: r.cohort,
+        screenings: r.screenings,
+        high: suppressCount(r.high),
+        avg_score: r.avg_score,
+      }));
+
+  const quality = needQuality
+    ? (((qualityRes.data ?? []) as HeadReportsQuality[])[0] ?? null)
+    : null;
+
+  const digest = needDigest ? ((digestRes.data as HeadReportsDigest | null) ?? null) : null;
 
   const pipeline = !needPipeline
     ? EMPTY_PIPELINE
@@ -240,6 +349,10 @@ export async function GET(request: Request) {
     referrals,
     feedback,
     screenings,
+    trends,
+    cohort,
+    quality,
+    digest,
     pipeline,
     workload,
     fetchedAt: new Date().toISOString(),

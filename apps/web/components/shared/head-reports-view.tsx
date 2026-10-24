@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
+import { useRouter } from "next/navigation";
 import {
   BarChart3,
   PieChart as PieChartIcon,
@@ -25,7 +26,10 @@ import { useHeadReports } from "@/lib/hooks/use-head-reports";
 import type { HeadReportsPayload } from "@/lib/hooks/use-head-reports";
 import {
   buildTrendBuckets,
+  COHORT_GROUPS,
+  fmtDayCompact,
   rangeDay,
+  type CohortGroup,
   type ReportRange,
   type ReportSection,
 } from "@/lib/reports-scope";
@@ -40,6 +44,7 @@ import {
   STRESS_META,
   ratingColor,
 } from "@/lib/report-palette";
+import { MIN_CELL, isSuppressed, suppressCount } from "@/lib/reports/suppression";
 
 const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"] as const;
 
@@ -251,15 +256,25 @@ function StressBands({ data }: { data: HeadReportsPayload }) {
   const counts = new Map(order.map((k) => [k, 0]));
   for (const r of rows) counts.set(r.band, (counts.get(r.band) ?? 0) + 1);
   const avg = (rows.reduce((a, r) => a + r.total_score, 0) / rows.length).toFixed(1);
+  // Small cells are withheld from the chart itself, not just the caption — a
+  // donut slice with 1–4 screenings would still identify them visually.
+  const visible = order
+    .map((k) => ({ name: STRESS_META[k].label, value: counts.get(k) ?? 0, color: STRESS_META[k].color }))
+    .filter((r) => r.value === 0 || !isSuppressed(r.value));
+  const withheld = order.filter((k) => isSuppressed(counts.get(k) ?? 0));
   return (
     <>
       <p className="mt-2 text-[13px] text-ink-muted">
         Average PSS-10 <span className="font-bold text-ink">{avg} / 40</span> across{" "}
         <span className="font-bold text-ink">{rows.length}</span> screenings.
       </p>
-      <ReportDonut
-        data={order.map((k) => ({ name: STRESS_META[k].label, value: counts.get(k) ?? 0, color: STRESS_META[k].color }))}
-      />
+      {visible.length ? <ReportDonut data={visible} /> : null}
+      {withheld.length > 0 && (
+        <p className="mt-2 text-[11px] font-medium text-ink-faint">
+          {withheld.map((k) => STRESS_META[k].label).join(" and ")} band{withheld.length === 1 ? " has" : "s have"}{" "}
+          fewer than {MIN_CELL} screenings and {withheld.length === 1 ? "is" : "are"} withheld.
+        </p>
+      )}
     </>
   );
 }
@@ -272,11 +287,14 @@ function ScreeningSummary({ data }: { data: HeadReportsPayload }) {
   const high = rows.filter((r) => r.band === "high").length;
   const moderate = rows.filter((r) => r.band === "moderate").length;
   const avg = (rows.reduce((a, r) => a + r.total_score, 0) / rows.length).toFixed(1);
+  const smallDenominator = rows.length < MIN_CELL;
+  const bandLabel = (n: number) =>
+    `${suppressCount(n) == null ? `<${MIN_CELL}` : n} · ${smallDenominator ? "—" : pct(n, rows.length)}`;
   const summary = [
     { label: "Screenings", value: String(rows.length), tone: "bg-blue-100 text-blue-800" },
     { label: "Average score", value: `${avg} / 40`, tone: "bg-blue-100 text-blue-800" },
-    { label: "High band", value: `${high} · ${pct(high, rows.length)}`, tone: "bg-red-100 text-red-800" },
-    { label: "Moderate band", value: `${moderate} · ${pct(moderate, rows.length)}`, tone: "bg-amber-100 text-amber-800" },
+    { label: "High band", value: bandLabel(high), tone: "bg-red-100 text-red-800" },
+    { label: "Moderate band", value: bandLabel(moderate), tone: "bg-amber-100 text-amber-800" },
   ];
   return (
     <ul className="mt-4 space-y-3">
@@ -415,6 +433,179 @@ function RecentFeedback({ data }: { data: HeadReportsPayload }) {
   );
 }
 
+function WellbeingTrend({ data }: { data: HeadReportsPayload }) {
+  const rows = data.trends;
+  if (!rows.length) {
+    return (
+      <EmptyState
+        icon={BarChart3}
+        title="No screening trend yet"
+        hint="Daily PSS-10 volumes and averages will appear as screenings are completed."
+      />
+    );
+  }
+  const total = rows.reduce((a, r) => a + r.screenings, 0);
+  const scored = rows.filter((r) => r.avg_score != null);
+  const avg = scored.length ? (scored.reduce((a, r) => a + (r.avg_score ?? 0), 0) / scored.length).toFixed(1) : "—";
+  return (
+    <>
+      <p className="mt-2 text-[13px] text-ink-muted">
+        <span className="font-bold text-ink">{total}</span> screenings across{" "}
+        <span className="font-bold text-ink">{rows.length}</span> day{rows.length === 1 ? "" : "s"} · average{" "}
+        <span className="font-bold text-ink">{avg} / 40</span>.
+      </p>
+      <ReportTrendChart data={rows.map((r) => ({ day: r.day.slice(5), sessions: r.screenings }))} />
+      <p className="mt-2 text-[11px] font-medium text-ink-faint">
+        Band counts below {MIN_CELL} are withheld to protect small groups; daily totals remain visible.
+      </p>
+    </>
+  );
+}
+
+function CohortStress({
+  data,
+  group,
+  onGroupChange,
+}: {
+  data: HeadReportsPayload;
+  group: CohortGroup;
+  onGroupChange: (next: CohortGroup) => void;
+}) {
+  const rows = data.cohort;
+  const selector = (
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Group cohorts by">
+      {COHORT_GROUPS.map((g) => (
+        <button
+          key={g.key}
+          type="button"
+          aria-pressed={group === g.key}
+          onClick={() => onGroupChange(g.key)}
+          className="rounded-full border border-ink/10 bg-white px-3 py-1 text-[11px] font-bold text-ink-muted transition hover:border-primary-300 hover:text-primary-700 aria-pressed:border-primary-600 aria-pressed:bg-primary-600 aria-pressed:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+        >
+          {g.label}
+        </button>
+      ))}
+    </div>
+  );
+  const body = !rows.length ? (
+    <EmptyState
+      icon={Users}
+      title="Not enough cohort data"
+      hint={`Cohorts with fewer than ${MIN_CELL} screenings are withheld so no individual can be inferred.`}
+    />
+  ) : (
+    <>
+      <p className="mt-2 text-[13px] text-ink-muted">
+        Cohorts with at least <span className="font-bold text-ink">{MIN_CELL}</span> screenings in this range.
+      </p>
+      <ReportBars
+        data={rows.slice(0, 8).map((r) => ({
+          label: r.cohort,
+          value: r.screenings,
+          color: STRESS_META.high.color,
+        }))}
+      />
+      <ul className="mt-3 space-y-2">
+        {rows.slice(0, 6).map((r) => (
+          <li key={r.cohort} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-2.5 text-sm">
+            <span className="min-w-0 truncate font-semibold text-ink-soft">{r.cohort}</span>
+            <span className="shrink-0 text-[13px] font-bold text-ink">
+              {r.high == null ? `<${MIN_CELL}` : `${r.high} high`}
+              <span className="ml-2 font-medium text-ink-muted">avg {r.avg_score ?? "—"}/40</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+  return (
+    <>
+      <div className="mt-3">{selector}</div>
+      {body}
+    </>
+  );
+}
+
+function DataQuality({ data }: { data: HeadReportsPayload }) {
+  const q = data.quality;
+  if (!q) {
+    return <EmptyState icon={ClipboardList} title="No quality snapshot" hint="Data-quality metrics will appear once records exist." />;
+  }
+  const rows = [
+    {
+      label: "Completed sessions without a note",
+      value: String(q.completed_without_note),
+      tone: q.completed_without_note > 0 ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800",
+    },
+    {
+      label: "Screenings not linked to a session",
+      value: String(q.screenings_unlinked),
+      tone: q.screenings_unlinked > 0 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800",
+    },
+    {
+      label: "Open referrals without a counselor",
+      value: String(q.referrals_unassigned),
+      tone: q.referrals_unassigned > 0 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800",
+    },
+    {
+      label: "Feedback coverage",
+      value: q.feedback_coverage == null ? "—" : `${q.feedback_coverage}%`,
+      tone: "bg-blue-100 text-blue-800",
+    },
+    {
+      label: "Daily summary age",
+      value: q.summary_age_days == null ? "Never run" : `${q.summary_age_days}d old`,
+      tone:
+        q.summary_age_days == null || q.summary_age_days > 2
+          ? "bg-amber-100 text-amber-800"
+          : "bg-emerald-100 text-emerald-800",
+    },
+  ];
+  return (
+    <ul className="mt-4 space-y-3">
+      {rows.map((r) => (
+        <li key={r.label} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-3">
+          <span className="text-sm font-semibold text-ink-soft">{r.label}</span>
+          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[13px] font-bold ${r.tone}`}>{r.value}</span>
+        </li>
+      ))}
+      <li className="pt-1 text-[13px] text-ink-muted">
+        Clear missing notes and unassigned referrals first — they weaken every other report.
+      </li>
+    </ul>
+  );
+}
+
+function DigestPanel({ data }: { data: HeadReportsPayload }) {
+  const digest = data.digest;
+  if (!digest) {
+    return (
+      <EmptyState
+        icon={ClipboardList}
+        title="No digest generated yet"
+        hint="The scheduled digest runs daily once CRON_SECRET is configured."
+      />
+    );
+  }
+  return (
+    <ul className="mt-3 divide-y divide-ink/10">
+      <li className="flex items-center justify-between gap-3 py-2.5 first:pt-0">
+        <span className="text-sm font-semibold text-ink-soft">Period</span>
+        <span className="text-[13px] font-bold text-ink">
+          {fmtDayCompact(digest.period_start.slice(0, 10))} – {fmtDayCompact(digest.period_end.slice(0, 10))}
+        </span>
+      </li>
+      <li className="flex items-center justify-between gap-3 py-2.5">
+        <span className="text-sm font-semibold text-ink-soft">Generated</span>
+        <span className="text-[13px] font-bold text-ink">{timeAgoLong(digest.created_at)}</span>
+      </li>
+      <li className="py-2.5 last:pb-0 text-[13px] leading-relaxed text-ink-muted">
+        Digests are stored in-app and stay head-only. Use Export Excel for the full workbook.
+      </li>
+    </ul>
+  );
+}
+
 function HeadGuide() {
   return (
     <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
@@ -440,6 +631,15 @@ function HeadGuide() {
           <span className="font-bold text-ink">PSS-10 bands</span> come from pre-booking screenings, not
           diagnoses. A rising high-stress share is a signal to add capacity, not to label students.
         </li>
+        <li>
+          <span className="font-bold text-ink">Trend vs. prediction</span>: the wellbeing trend shows what
+          already happened in the selected range. It does not forecast or score individual students.
+        </li>
+        <li>
+          <span className="font-bold text-ink">Small-cell suppression</span>: any band or cohort cell with
+          1–{MIN_CELL - 1} screenings is shown as &ldquo;&lt;{MIN_CELL}&rdquo;, and a percentage is withheld
+          when fewer than {MIN_CELL} records back it. The same rule applies to Excel exports.
+        </li>
       </ul>
       <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
         Privacy: this page shows aggregates only. Individual student records stay behind their own
@@ -457,12 +657,22 @@ function HeadGuide() {
  * blocks on the ~25-query waterfall again. Export Excel still fetches its
  * own fresh bundle, so downloads are never stale.
  */
-export function HeadReportsView({ section, range }: { section: ReportSection; range: ReportRange }) {
+export function HeadReportsView({
+  section,
+  range,
+  group,
+}: {
+  section: ReportSection;
+  range: ReportRange;
+  group: CohortGroup;
+}) {
+  const router = useRouter();
   const scope = {
     section,
     preset: range.preset,
     fromDay: rangeDay(range.from),
     toDay: rangeDay(range.to),
+    group,
   };
   const { data, isPending, isError, error, isFetching, refetch } = useHeadReports(scope);
   // The API only reads the tables the requested section needs and echoes the
@@ -586,11 +796,48 @@ export function HeadReportsView({ section, range }: { section: ReportSection; ra
 
           {(showAll || section === "wellbeing") && (
             <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <PanelShell title="Wellbeing trend" hint="Daily PSS-10 screening volume and average score.">
+                  {loading || !data ? <ChartSkeleton /> : <WellbeingTrend data={data} />}
+                </PanelShell>
+              </div>
               <PanelShell title="Stress levels (PSS-10)" hint="Screening bands from pre-booking assessments.">
                 {loading || !data ? <ChartSkeleton /> : <StressBands data={data} />}
               </PanelShell>
               <PanelShell title="Screening summary" hint="What the numbers mean at a glance.">
                 {loading || !data ? <ListSkeleton /> : <ScreeningSummary data={data} />}
+              </PanelShell>
+              <div className="sm:col-span-2">
+                <PanelShell title="Cohort stress" hint="Program cohorts in this range — small cohorts are withheld.">
+                  {loading || !data ? (
+                    <ChartSkeleton />
+                  ) : (
+                    <CohortStress
+                      data={data}
+                      group={group}
+                      onGroupChange={(next) => {
+                        const p = new URLSearchParams();
+                        p.set("section", section);
+                        if (range.preset !== "all" && range.preset !== "custom") p.set("range", range.preset);
+                        if (range.from) p.set("from", rangeDay(range.from));
+                        if (range.to) p.set("to", rangeDay(range.to));
+                        p.set("group", next);
+                        router.replace(`/reports?${p.toString()}`);
+                      }}
+                    />
+                  )}
+                </PanelShell>
+              </div>
+            </div>
+          )}
+
+          {(showAll || section === "quality") && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <PanelShell title="Data quality" hint="Gaps that weaken reports and follow-up.">
+                {loading || !data ? <ListSkeleton /> : <DataQuality data={data} />}
+              </PanelShell>
+              <PanelShell title="Latest scheduled digest" hint="In-app snapshot generated by the daily cron.">
+                {loading || !data ? <ListSkeleton /> : <DigestPanel data={data} />}
               </PanelShell>
             </div>
           )}

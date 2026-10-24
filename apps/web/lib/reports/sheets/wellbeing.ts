@@ -13,6 +13,7 @@ import {
   styleTotalRow,
 } from "../export-styles";
 import { fmtDay, pct, titleCase } from "../export-mappers";
+import { MIN_CELL, suppressCount } from "../suppression";
 import type { ReportBundle, SheetContext } from "../types";
 
 export function buildWellbeingSheet(wb: any, bundle: ReportBundle, ctx: SheetContext) {
@@ -77,7 +78,11 @@ export function buildWellbeingSheet(wb: any, bundle: ReportBundle, ctx: SheetCon
   }
   styleTotalRow(ws, r, nCols);
   ws.getCell(r, 1).value = "TOTAL";
-  ws.getCell(r, 2).value = pss.length ? `${pss.length} screenings  •  ${highStress} high (${pct(highStress, pss.length)})` : "No screenings yet";
+  ws.getCell(r, 2).value = pss.length
+    ? `${pss.length} screenings  •  ${
+        suppressCount(highStress) == null ? `<${MIN_CELL} high` : `${highStress} high (${pct(highStress, pss.length)})`
+      }`
+    : "No screenings yet";
   ws.mergeCells(`B${r}:C${r}`);
   ws.getCell(r, 2).alignment = { vertical: "middle", horizontal: "left" };
   ws.getCell(r, 4).value = pss.length ? Number(avgScore.toFixed(1)) : "—";

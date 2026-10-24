@@ -189,8 +189,24 @@ export type SessionNoteRow = {
   follow_up_date: string | null;
   /** Follow-up moment (date + time) since 00053; follow_up_date stays as date twin. */
   follow_up_at: string | null;
+  /** 00070: freeform or S.O.A.P. structured note. */
+  note_format: "freeform" | "soap";
+  subjective: string | null;
+  objective: string | null;
+  assessment: string | null;
+  plan: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** Persisted head report digest (00071) - aggregates only. */
+export type ReportDigestRow = {
+  id: string;
+  period_start: string;
+  period_end: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  delivered_to: string | null;
 };
 
 /** Private image attached to a session note (bytes in the private bucket). */
@@ -392,6 +408,7 @@ export interface Database {
       referral_actions: { Row: ReferralActionRow; Insert: Partial<ReferralActionRow>; Update: Partial<ReferralActionRow>; Relationships: [] };
       break_glass_logs: { Row: BreakGlassLogRow; Insert: Partial<BreakGlassLogRow>; Update: Partial<BreakGlassLogRow>; Relationships: [] };
       audit_logs: { Row: AuditLogRow; Insert: Partial<AuditLogRow>; Update: Partial<AuditLogRow>; Relationships: [] };
+      report_digests: { Row: ReportDigestRow; Insert: Partial<ReportDigestRow>; Update: Partial<ReportDigestRow>; Relationships: [] };
     };
     Views: {
       analytics_daily_summary: { Row: AnalyticsDailySummaryRow; Relationships: [] };
@@ -483,6 +500,82 @@ export interface Database {
           program: string | null;
           year_level: string | null;
         }[];
+      };
+      // Added by hand (00070) — alias-only student record + timeline.
+      get_student_record: {
+        Args: { p_student_id: string };
+        Returns: {
+          id: string;
+          anonymous_alias: string | null;
+          program: string | null;
+          year_level: string | null;
+          college: string | null;
+          created_at: string;
+        }[];
+      };
+      get_student_record_counts: {
+        Args: { p_student_id: string };
+        Returns: {
+          total_sessions: number;
+          completed_sessions: number;
+          open_referrals: number;
+          latest_band: string | null;
+          follow_ups_due: number;
+        }[];
+      };
+      get_student_timeline: {
+        Args: { p_student_id: string; p_limit?: number };
+        Returns: {
+          event_type: string;
+          event_id: string;
+          occurred_at: string | null;
+          status: string | null;
+          label: string | null;
+          band: string | null;
+          score: number | null;
+          rating: number | null;
+          note_id: string | null;
+          follow_up_at: string | null;
+          appointment_id: string | null;
+        }[];
+      };
+      // Added by hand (00071) — head-only aggregate analytics + quality.
+      head_wellbeing_trends: {
+        Args: { from_ts: string | null; to_ts: string | null };
+        Returns: {
+          day: string;
+          screenings: number;
+          low: number;
+          moderate: number;
+          high: number;
+          avg_score: number | null;
+        }[];
+      };
+      head_cohort_stress: {
+        Args: { from_ts: string | null; to_ts: string | null; group_by?: string };
+        Returns: {
+          cohort: string;
+          screenings: number;
+          high: number;
+          avg_score: number | null;
+        }[];
+      };
+      head_data_quality: {
+        Args: Record<string, never>;
+        Returns: {
+          completed_sessions: number;
+          completed_without_note: number;
+          screenings_unlinked: number;
+          referrals_unassigned: number;
+          feedback_responses: number;
+          feedback_coverage: number | null;
+          summary_last_day: string | null;
+          summary_age_days: number | null;
+        }[];
+      };
+      head_report_digest: {
+        Args: { from_ts: string | null; to_ts: string | null };
+        Returns: Record<string, unknown>;
       };
     };
     Enums: Record<string, never>;
