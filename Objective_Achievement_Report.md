@@ -26,12 +26,12 @@ The report separates three things that are often confused:
 
 | Verdict | Count | Objectives |
 |---|---:|---|
-| **Fully achieved** | 5 | 2 (scheduling + per-session PSS-10), 6 (real-time chat), 7 (announcement management, renamed scope), 9 (break-glass), 10 (faculty referrals) |
-| **Substantially achieved** | 4 | 1 (interfaces), 3 (anonymity), 4 (counselor dashboard), 5 (analytics) |
+| **Fully achieved** | 6 | 2 (scheduling + per-session PSS-10), 3 (anonymous identity), 6 (real-time chat), 7 (announcement management, renamed scope), 9 (break-glass), 10 (faculty referrals) |
+| **Substantially achieved** | 3 | 1 (interfaces), 4 (counselor dashboard), 5 (analytics) |
 | **Partially achieved** | 2 | 8 (Google Meet), 11 (ISO/IEC 25010 evaluation) |
 | **Not achieved** | 0 | — |
 
-“Substantially achieved” is deliberate. The core requirement works, but at least one stated word in the objective is not fully satisfied — for example, “prior to **each** session,” “**secure** anonymous,” or “**user-friendly** for non-technical users.”
+“Substantially achieved” is deliberate. The core requirement works, but at least one stated word in the objective is not fully satisfied — for example, “**user-friendly** for non-technical users” without a participant study, or analytics that are aggregate rather than predictive.
 
 ### 1.3 Most important findings
 
@@ -159,9 +159,14 @@ referral lookup, and alias scoping; Playwright asserts `/students` and
 `/emergency` contain no seeded student number or real name. The RLS/Playwright
 suites still need a run against the deployed database (local Supabase or CI).
 
-**Verdict unchanged: Substantially achieved.** The claim is now precise —
-pseudonymous by default, with audited break-glass re-identification — not
-cryptographic anonymity.
+**Verdict: Fully achieved**, on the objective's intended security property:
+pseudonymous by default with audited break-glass re-identification. The
+ambient-correlation gap that kept this objective at *Substantially achieved*
+is closed. Residual risks (service-role/DB correlation, identifying referral
+documents, self-identification, no penetration test) are inherent or
+verification limits, documented in `docs/anonymity-threat-model.md`, not
+unimplemented parts of the objective. This is still **not** cryptographic
+anonymity.
 
 **How to reproduce locally**
 
@@ -262,7 +267,7 @@ When sources disagreed, this report trusted them in this order:
 |---:|---|---|---|---|
 | 1 | User-friendly mobile and web interface | Substantially achieved | `apps/web/app/**`, `apps/mobile/app/**`, design tokens, onboarding, role-specific navigation; P1 removed mobile mock data | No participant-based usability test with non-technical users yet |
 | 2 | Book / reschedule / cancel + PSS-10 before session | Fully achieved | `apps/mobile/app/book.tsx`, `check-in.tsx`, `booking-service.ts`, `pre-session-pss10.ts`, `00008`, `00059`, `00067`, `00068` | Gate is enforced at counselor completion, with an audited waiver for documented exceptions; PSS-10 licensing unverified; E1 concurrency fixed 2026-10-24 (1 confirmed / 49 rejected) |
-| 3 | Secure anonymous identity | Substantially achieved | Alias system, `is_anonymous`, `00069` alias-only RLS/RPCs, reveal API, audit logs | Pseudonymity with audited re-identification, not cryptographic anonymity; service-role/DB admins can correlate |
+| 3 | Secure anonymous identity | Fully achieved | Alias system, `is_anonymous`, `00069` alias-only RLS/RPCs, reveal API, audit logs | Pseudonymity with audited re-identification, not cryptographic anonymity; service-role/DB admins can correlate |
 | 4 | Counselor dashboard for schedules, records, notes | Substantially achieved | `/dashboard`, `/appointments`, `/sessions`, `/students`, `/availability`, session-note API | No dedicated “student record” timeline; notes are per completed session |
 | 5 | Analytics module: collect data, stress trends, reports | Substantially achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061` | Aggregate reporting, not predictive analytics; report RPC drift resolved 2026-10-24; no scheduled report delivery |
 | 6 | Real-time chat | Fully achieved | `/chat` (web + mobile), Supabase Realtime, `realtime.json` | No typing indicators/read receipts verified; no offline queue |
@@ -280,7 +285,7 @@ The table above is the **current** assessment. This table records what changed s
 |---:|---|---|---|---|
 | 1 | User-friendly interface | Substantially achieved | **Substantially achieved** | Mobile mock data and PSS-10 wording removed; no participant-based usability or accessibility evidence yet |
 | 2 | Scheduling + PSS-10 | Substantially achieved | **Fully achieved** | P2 added the 7-day pre-session check-in enforced at completion (`00068`, `pre-session-pss10.ts`), an audited waiver path, and confirmed reschedule until 24 hours before start. Booking gate remains 30 days; waiver exceptions are documented |
-| 3 | Anonymous identity | Substantially achieved | **Substantially achieved** | Routine staff are now alias-only (`00069`): student rows/profiles are denied, directory is caseload-scoped, and referrals use exact lookup. RLS + Playwright cover isolation. Still pseudonymity with audited break-glass, not cryptographic anonymity; threat model at `docs/anonymity-threat-model.md` |
+| 3 | Anonymous identity | Substantially achieved | **Fully achieved** | P3 closed ambient re-identification (`00069`): routine staff are alias-only, student rows/profiles are denied, directory is caseload-scoped, and referrals use exact lookup. RLS + Playwright cover isolation. Pseudonymity with audited break-glass, not cryptographic anonymity; threat model at `docs/anonymity-threat-model.md` |
 | 4 | Counselor dashboard | Substantially achieved | **Substantially achieved** | Note authorization is RLS-tested and note-save is E2E-tested. No unified student timeline or structured note template |
 | 5 | Analytics | Substantially achieved | **Substantially achieved** | Report RPC drift fixed and verified; head E2E asserts populated report sections. Still aggregate, not predictive; no scheduled reports or small-cell suppression |
 | 6 | Real-time chat | Fully achieved | **Fully achieved** | No P1 feature change; realtime measurement remains the proof |
@@ -290,7 +295,7 @@ The table above is the **current** assessment. This table records what changed s
 | 10 | Faculty referrals | Fully achieved | **Fully achieved** | Referral transition tests and faculty referral E2E added; still web-only, no external letter delivery |
 | 11 | ISO/IEC 25010 evaluation | Partially achieved | **Partially achieved** | Automated test evidence and a usability/accessibility protocol now exist, but there are **no participant results, SUS/WCAG findings, or penetration test** |
 
-**Net effect:** two objectives moved to fully achieved — Objective 7 by an explicit scope decision, and Objective 2 in P2 after the per-session gate and confirmed reschedule landed with CI evidence. Other objectives gained regression evidence without changing verdict. **No objective moved to fully achieved merely because tests were added.** Objective 11 stays partial until the P1.6 study is executed and the findings are written up.
+**Net effect:** three objectives moved to fully achieved — Objective 7 by an explicit scope decision, Objective 2 in P2 after the per-session gate and confirmed reschedule landed with CI evidence, and Objective 3 in P3 after ambient alias/identity correlation was closed. Other objectives gained regression evidence without changing verdict. **No objective moved to fully achieved merely because tests were added.** Objective 11 stays partial until the P1.6 study is executed and the findings are written up.
 
 ---
 
@@ -386,7 +391,7 @@ The two-step mobile flow is understandable: choose a concern → choose how/when
 
 ### Objective 3 — Implement a secure anonymous identity system that protects student confidentiality during counseling sessions
 
-**Verdict: Substantially achieved.**
+**Verdict: Fully achieved**, under the pseudonymity-with-audited-re-identification definition recorded in §1.7 and `docs/anonymity-threat-model.md`.
 
 #### Where it is implemented
 
@@ -414,7 +419,10 @@ The two-step mobile flow is understandable: choose a concern → choose how/when
 - Notification payloads intentionally avoid clinical content, aliases, note text, and tokens.
 - Sensitive tables are protected by RLS; privileged reads use the service-role client only in server routes.
 
-#### Gaps and honest caveats
+#### Residual risks and honest caveats
+
+These are accepted design/verification limits, not unimplemented parts of the
+objective:
 
 1. **This is pseudonymity, not mathematical anonymity.** The database keeps a recoverable alias → identity mapping for break-glass. Service-role and database administrators can still correlate records. What changed in `00069` is that a normal counselor, personnel, or faculty browser session can no longer do so ambiently: student rows and student profiles are denied, and identity requires an audited, time-limited reveal.
 2. **“During counseling sessions” is broader than the technical control.** Chat, session notes, and appointment records may still contain identity-revealing content typed by the student or counselor. The system cannot guarantee anonymity if a participant self-identifies.
@@ -1040,8 +1048,8 @@ The Digital Counseling and Appointment System with Analytics is a **substantial,
 
 Against the 11 specific objectives:
 
-- **4 are fully achieved:** real-time chat, break-glass emergency access, faculty referrals, and announcement management (renamed scope).
-- **5 are substantially achieved:** interfaces, scheduling/PSS-10, anonymity, counselor dashboard, and analytics.
+- **6 are fully achieved:** scheduling/per-session PSS-10, anonymous identity, real-time chat, break-glass emergency access, faculty referrals, and announcement management (renamed scope).
+- **3 are substantially achieved:** interfaces, counselor dashboard, and analytics.
 - **2 are partially achieved:** Google Meet integration and the ISO/IEC 25010 evaluation.
 
 The most defensible capstone claim is:

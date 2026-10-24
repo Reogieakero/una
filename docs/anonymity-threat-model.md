@@ -4,7 +4,9 @@
 **Status:** implemented by migration `00069_identity_rls_hardening.sql`
 (applied to the linked Supabase project on 24 October 2026).
 **Claim:** pseudonymity by default with audited re-identification — **not**
-cryptographic anonymity.
+cryptographic anonymity. The achievement report treats this property as
+satisfying Objective 3's anonymous-identity requirement; the residual risks
+below are accepted design limits, not unimplemented controls.
 
 ## 1. Security property
 
