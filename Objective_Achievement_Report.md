@@ -139,7 +139,7 @@ pnpm --filter @dorsu/rls-tests test:rls
 pnpm e2e
 ```
 
-CI runs the same suites against a pinned Supabase CLI (`2.122.0`); the e2e job uploads `e2e/playwright-report/` and `e2e/test-results/` (traces/screenshots) on every run.
+CI runs the same suites against a pinned Supabase CLI (`2.122.0`); the e2e job uploads `e2e/playwright-report/` and `e2e/test-results/` (traces/screenshots) on every run. The post-consolidation green run is **CI #40058807640** (typecheck/unit/build 1m34s, RLS 2m57s, Playwright 4m28s); the staging job was skipped because staging secrets are not configured.
 
 ---
 
