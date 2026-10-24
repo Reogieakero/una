@@ -202,6 +202,26 @@ When sources disagreed, this report trusted them in this order:
 | 10 | Faculty referral feature | Fully achieved | `/refer-student`, `/referrals`, `referrals/mutations.ts`, `referral_actions` | No mobile faculty app (web only); no external referral letter delivery |
 | 11 | ISO/IEC 25010 evaluation | Partially achieved | Performance harness and results; this report | No formal usability study, accessibility audit, security test, or complete ISO 25010 instrument |
 
+### 3.1 Status after P1 (24 October 2026)
+
+The table above is the **current** assessment. This table records what changed since the original review; it does not inflate a verdict where a central promise is still missing.
+
+| # | Objective | At review | After P1 | What changed |
+|---:|---|---|---|---|
+| 1 | User-friendly interface | Substantially achieved | **Substantially achieved** | Mobile mock data and PSS-10 wording removed; no participant-based usability or accessibility evidence yet |
+| 2 | Scheduling + PSS-10 | Substantially achieved | **Substantially achieved** | Concurrency fixed and re-measured (`00067`); booking/freshness/idempotency tests added. The 30-day gate (not per-session) and the confirmed-reschedule restriction remain |
+| 3 | Anonymous identity | Substantially achieved | **Substantially achieved** | RLS tests now prove cross-student and cross-role isolation. Still pseudonymity, not cryptographic anonymity; no threat model |
+| 4 | Counselor dashboard | Substantially achieved | **Substantially achieved** | Note authorization is RLS-tested and note-save is E2E-tested. No unified student timeline or structured note template |
+| 5 | Analytics | Substantially achieved | **Substantially achieved** | Report RPC drift fixed and verified; head E2E asserts populated report sections. Still aggregate, not predictive; no scheduled reports or small-cell suppression |
+| 6 | Real-time chat | Fully achieved | **Fully achieved** | No P1 feature change; realtime measurement remains the proof |
+| 7 | Announcement management | Partially achieved (as “events”) | **Fully achieved (renamed scope)** | Objective renamed; calendar/RSVP/attendance documented as out of scope |
+| 8 | Google Meet link | Partially achieved | **Partially achieved** | Validation tests added, but still manual paste; no Calendar/Meet API |
+| 9 | Break-glass + audit | Fully achieved | **Fully achieved** | Caseload unit tests and audit RLS tests added; active alerting and full expiry/review E2E remain absent |
+| 10 | Faculty referrals | Fully achieved | **Fully achieved** | Referral transition tests and faculty referral E2E added; still web-only, no external letter delivery |
+| 11 | ISO/IEC 25010 evaluation | Partially achieved | **Partially achieved** | Automated test evidence and a usability/accessibility protocol now exist, but there are **no participant results, SUS/WCAG findings, or penetration test** |
+
+**Net effect:** one objective moved from partial to fully achieved (Objective 7, by an explicit scope decision), and five objectives gained regression evidence without changing verdict. **No objective moved to fully achieved merely because tests were added.** Objective 11 stays partial until the P1.6 study is executed and the findings are written up.
+
 ---
 
 ## 4. Detailed Objective Assessment
@@ -243,7 +263,7 @@ When sources disagreed, this report trusted them in this order:
 
 #### Non-technical user lens
 
-A first-time student can plausibly complete onboarding → login → book → check-in without training, because the flow is linear and the mobile copy is friendly. A counselor can learn the pipeline from `/about`. The main risk is not visual complexity; it is **trust**: mock profile data and non-validated PSS-10 wording can make the product feel less real than it is.
+A first-time student can plausibly complete onboarding → login → book → check-in without training, because the flow is linear and the mobile copy is friendly. A counselor can learn the pipeline from `/about`. P1 removed the trust problem from mock profile data and local PSS-10 wording; the remaining risk is **unmeasured usability** — the flows look approachable, but no representative user has completed the tasks under observation yet.
 
 ---
 
@@ -265,7 +285,7 @@ A first-time student can plausibly complete onboarding → login → book → ch
 | Student cancel / reschedule | `apps/mobile/app/(tabs)/sessions.tsx`; `components/SessionDetailsModal.tsx`, `RescheduleModal.tsx` |
 | Staff assignment / confirmation | `apps/web/app/(staff)/appointments/page.tsx`; `appointments/mutations.ts` |
 | Availability windows | `apps/web/app/(staff)/availability/page.tsx`; `counselor_availability` table |
-| Slot-race backstop | `supabase/migrations/00059_phase1_perf_indexes_slotguard.sql` |
+| Slot-race backstop | `supabase/migrations/00067_fix_slot_overlap_guard.sql` (replaces the silently-skipped guard in `00059`); verified on staging, E1 1 confirmed / 49 × `23P01` |
 
 #### What works
 
@@ -403,11 +423,7 @@ The page includes an explicit note that PSS-10 bands are **signals, not diagnose
 #### Gaps and honest caveats
 
 1. **It is aggregate reporting, not advanced analytics.** There is no predictive model, no risk scoring, no cohort comparison, and no anomaly detection. “Identifies stress trends” is satisfied at the level of band distribution and session trends over a date range — not longitudinal per-student trend analysis (which would also raise privacy concerns).
-2. **The measured environment was missing the report RPCs.** `perf-tests/results/explain.json` records:
-   - `head_appointment_daily_counts(...) does not exist`
-   - `head_referral_status_counts() does not exist`
-
-   Both functions are defined in `00061_phase3b_report_rpcs.sql`. This strongly suggests the performance database had not applied migration 00061. The reports may still work through fallback queries, but the mismatch must be resolved and verified in the deployed environment.
+2. ~~**The measured environment was missing the report RPCs.**~~ **Resolved on staging 2026-10-24 — see §1.5.** `00061_phase3b_report_rpcs.sql` was applied and `perf-tests/check-rpc.mjs` confirms both `head_appointment_daily_counts` and `head_referral_status_counts` return OK. Production still needs the same migration verified.
 3. **No scheduled or emailed reports.** Reports are viewed/exported on demand.
 4. **No data-quality indicators.** The head cannot see how many records are incomplete, how many sessions lack notes, or how fresh the summary view is.
 5. **Small-cell privacy risk.** Aggregate reports can still expose individuals in small groups (e.g., one high-stress student in a program). No minimum-cell suppression is evidenced.
@@ -625,7 +641,7 @@ The referral form is the most policy-heavy screen for a non-technical faculty me
 | Performance | `perf-tests/` harness; `results/pages.json`, `pages-throttled.json`, `booking.json`, `mutations.json`, `realtime.json`, `explain.json` |
 | Reliability | Realtime reconnect test, 0 lost messages; concurrency test re-run green after `00067` (§1.5); 41 unit + 8 RLS + 4 role smoke tests in CI (§1.6) |
 | Security | RBAC, RLS, audit logs, break-glass, guarded writes, server-only service role, Zod validation, rate limiting |
-| Usability | Interface review only; no SUS or task-based study |
+| Usability | Interface review only; protocol written at `docs/usability-accessibility-protocol.md`, but **no participants, SUS, or task-based results yet** |
 | ISO/IEC 25010 structure | This report provides a structured evaluation; no formal instrument was found in the repo |
 
 #### What is genuinely evaluated
@@ -646,7 +662,7 @@ ISO/IEC 25010 is not satisfied by a performance script alone. A defensible evalu
 5. Reliability evidence beyond a single happy-path run (failure injection, recovery, long-run stability).
 6. A documented limitations section (this report provides one).
 
-This report supplies the structure and the honest evidence, but it cannot manufacture user-study data that was never collected. That is why Objective 11 is marked **partially achieved** — the evaluation is real but incomplete.
+This report supplies the structure and the honest evidence, but it cannot manufacture user-study data that was never collected. P1 narrowed the gap by adding automated reliability/security-regression evidence and a ready study protocol; it did not produce user results. That is why Objective 11 remains **partially achieved** — the evaluation is real but incomplete.
 
 ---
 
