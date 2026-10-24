@@ -1,7 +1,8 @@
 # Anonymity Threat Model — Students, Aliases, and Break-Glass
 
 **Scope:** the staff/admin portal, Supabase RLS, and the identity-reveal API.
-**Status:** implemented by migration `00069_identity_rls_hardening.sql`.
+**Status:** implemented by migration `00069_identity_rls_hardening.sql`
+(applied to the linked Supabase project on 24 October 2026).
 **Claim:** pseudonymity by default with audited re-identification — **not**
 cryptographic anonymity.
 

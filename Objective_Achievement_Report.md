@@ -147,10 +147,17 @@ modal performs one exact lookup instead of loading 200 student rows.
 `docs/anonymity-threat-model.md` records the security property, boundaries,
 and residual risks.
 
+**Applied:** `00069_identity_rls_hardening.sql` was executed against the linked
+Supabase project on **24 October 2026** using the project's `DATABASE_URL`
+(Prisma `db execute`). A post-apply check confirmed all five RPCs exist, the
+new `students_select_own_or_oversight` policy is active, and the old
+`students_select_own_or_staff` policy is gone.
+
 **Verification:** `pnpm --filter @dorsu/web typecheck`; RLS coverage for
 cross-role student/profile isolation, caseload-scoped directory, exact-only
 referral lookup, and alias scoping; Playwright asserts `/students` and
-`/emergency` contain no seeded student number or real name.
+`/emergency` contain no seeded student number or real name. The RLS/Playwright
+suites still need a run against the deployed database (local Supabase or CI).
 
 **Verdict unchanged: Substantially achieved.** The claim is now precise —
 pseudonymous by default, with audited break-glass re-identification — not
