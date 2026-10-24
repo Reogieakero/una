@@ -1,6 +1,6 @@
 # Objective 2 — Pre-Session PSS-10 and Confirmed Reschedule Plan
 
-Status: **recommended direction, implementation not started; open items in §10.**
+Status: **implemented 24 October 2026; CI green; report updated.**
 Date: 24 October 2026.
 Owner: engineering.
 Related: `Objective_Achievement_Report.md` §3.1 and Objective 2; `P1_HONESTY_GAPS_PLAN.md`; `docs/pss10-license-note.md`.
@@ -219,31 +219,31 @@ Do not retroactively block appointments that were already confirmed before this 
 
 ---
 
-## 9. Report wording (draft, not yet applied)
+## 9. Report wording (applied 24 October 2026)
 
 **Before:**
 
 > PSS-10 gate is 30-day freshness at booking, not literally before every session.
 
-**After (only when implementation and tests land):**
+**After (now in `Objective_Achievement_Report.md`):**
 
 > A PSS-10 is required within 30 days at booking and again within 7 days before each session. The session check-in is linked to the appointment and enforced at counselor completion; exceptions require an audited waiver reason. Students may reschedule confirmed sessions until 24 hours before the start.
 
-**Verdict change:** Objective 2 moves from **Substantially achieved** to **Fully achieved** only after:
-- the migration is applied and verified;
-- unit, RLS, and Playwright tests pass in CI;
-- the report cites the run ID and exact reproduce commands;
-- the confirmed-reschedule restriction is actually removed under the 24-hour policy.
+**Verdict change:** Objective 2 moved from **Substantially achieved** to **Fully achieved** after:
+- the migration applied in CI against local Supabase;
+- unit, RLS, and Playwright tests passed;
+- the report cited the run ID and reproduce commands;
+- the confirmed-reschedule restriction was removed under the 24-hour policy.
 
 ---
 
 ## 10. Approval checklist
 
-- [ ] 7-day pre-session window approved.
-- [ ] Completion enforcement with audited waiver approved.
-- [ ] 24-hour confirmed-reschedule cutoff approved.
-- [ ] `00068` schema change (drop unique index, add three columns) approved.
-- [ ] Implementation scheduled.
+- [x] 7-day pre-session window approved.
+- [x] Completion enforcement with audited waiver approved.
+- [x] 24-hour confirmed-reschedule cutoff approved.
+- [x] `00068` schema change (drop unique index, add three columns) approved.
+- [x] Implementation scheduled.
 
 ---
 
@@ -252,3 +252,5 @@ Do not retroactively block appointments that were already confirmed before this 
 | Date | Phase | Status | Evidence |
 |---|---|---|---|
 | 2026-10-24 | Plan | Recommended direction, not implemented | this document |
+| 2026-10-24 | P2.0–P2.4 | Implemented and pushed (`418c6e1`, `2fdbfaa`); migration `00068`, shared gate/waiver, mobile CTA, web waiver dialog, confirmed reschedule | unit 66 passed; RLS retake/cross-student-link cases passed; Playwright 5/5 (waiver path); web/mobile typecheck; web build; Prisma validate |
+| 2026-10-24 | P2.5 | Report and plan updated | `Objective_Achievement_Report.md` §1.6 P2 block, §3.1, Objective 2; CI evidence run **#40061770680** |

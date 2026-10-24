@@ -26,9 +26,9 @@ The report separates three things that are often confused:
 
 | Verdict | Count | Objectives |
 |---|---:|---|
-| **Fully achieved** | 3 | 6 (real-time chat), 9 (break-glass), 10 (faculty referrals) |
-| **Substantially achieved** | 5 | 1 (interfaces), 2 (scheduling + PSS-10), 3 (anonymity), 4 (counselor dashboard), 5 (analytics) |
-| **Partially achieved** | 3 | 7 (events), 8 (Google Meet), 11 (ISO/IEC 25010 evaluation) |
+| **Fully achieved** | 5 | 2 (scheduling + per-session PSS-10), 6 (real-time chat), 7 (announcement management, renamed scope), 9 (break-glass), 10 (faculty referrals) |
+| **Substantially achieved** | 4 | 1 (interfaces), 3 (anonymity), 4 (counselor dashboard), 5 (analytics) |
+| **Partially achieved** | 2 | 8 (Google Meet), 11 (ISO/IEC 25010 evaluation) |
 | **Not achieved** | 0 | — |
 
 “Substantially achieved” is deliberate. The core requirement works, but at least one stated word in the objective is not fully satisfied — for example, “prior to **each** session,” “**secure** anonymous,” or “**user-friendly** for non-technical users.”
@@ -141,6 +141,33 @@ pnpm e2e
 
 CI runs the same suites against a pinned Supabase CLI (`2.122.0`); the e2e job uploads `e2e/playwright-report/` and `e2e/test-results/` (traces/screenshots) on every run. The post-consolidation green run is **CI #40058807640** (typecheck/unit/build 1m34s, RLS 2m57s, Playwright 4m28s); the staging job was skipped because staging secrets are not configured.
 
+**P2 — Objective 2 gap closure (24 October 2026)**
+
+The pre-session PSS-10 gate and the confirmed-reschedule restriction recorded in §4 were closed after P1.
+
+| Gap at review time | P2 work | Verification |
+|---|---|---|
+| PSS-10 freshness was checked only at booking (30 days), not before each session | `00068_pre_session_pss10.sql` adds `pss10_required`, `pss10_waived_at`, `pss10_waiver_reason`; drops the one-assessment-per-appointment unique index (retakes allowed); recreates `analytics_daily_summary` with a latest-assessment lateral join. `pre-session-pss10.ts` defines the 7-day window (+5-minute skew); `completeAppointment()` requires a fresh linked check-in | Unit tests for window boundaries, state, completion, waiver, and reschedule cut-off; RLS tests for cross-student link and retakes; web/mobile typecheck; web build; Playwright counselor waiver path |
+| Students could not reschedule a confirmed session | `rescheduleAppointment()` now allows `confirmed` rows until **24 hours** before the start, reusing availability/overlap validation and preserving duration; mobile exposes the button and explains the cut-off | Unit tests reject a 20-hour-out confirmed session and allow 30-hour-out confirmed and pending rows; mobile typecheck |
+| A missing check-in could dead-end completion | Counselor completion returns the stable `PSS10_REQUIRED` code; the web board opens a waiver dialog requiring a 10–500 character operational reason, stores it on the appointment, and writes `audit_logs` (`action = appointment.pss10_waived`). No answers or scores enter the audit payload | Playwright spec completes the no-check-in fixture via the waiver dialog and asserts the note flow; unit test asserts the audit payload has no assessment content |
+| Legacy confirmed sessions could be blocked after deploy | The migration grandfathers rows already `confirmed`/`completed`/`no_show` with `pss10_required = false` | Unit test completes a grandfathered row without a check-in |
+
+Reproduce (same commands as above):
+
+```bash
+pnpm --filter @dorsu/shared-services test   # 66 tests, 7 files
+pnpm --filter @dorsu/shared-services typecheck
+pnpm --filter @dorsu/web typecheck
+pnpm --filter @dorsu/mobile typecheck
+pnpm --filter @dorsu/web build
+DATABASE_URL=postgresql://u:p@localhost:5432/db DIRECT_URL=postgresql://u:p@localhost:5432/db pnpm db:validate
+# CI: RLS + Playwright jobs run `00068` against local Supabase
+```
+
+The evidence run is **CI #40061770680** (typecheck/unit/build 1m41s, RLS 3m3s, Playwright 4m28s, all green; the staging job was skipped because staging secrets are not configured). The migration has therefore been exercised against local Supabase in CI, **not** against staging or production.
+
+Remaining caveats for Objective 2: the 30-day booking gate is unchanged; a counselor can still complete a session without a check-in by recording an explicit audited waiver (by design, for walk-ins/referrals); and PSS-10 licensing/permission remains unverified.
+
 ---
 
 
@@ -191,7 +218,7 @@ When sources disagreed, this report trusted them in this order:
 | # | Objective (short form) | Verdict | Strongest evidence | Main gap |
 |---:|---|---|---|---|
 | 1 | User-friendly mobile and web interface | Substantially achieved | `apps/web/app/**`, `apps/mobile/app/**`, design tokens, onboarding, role-specific navigation; P1 removed mobile mock data | No participant-based usability test with non-technical users yet |
-| 2 | Book / reschedule / cancel + PSS-10 before session | Substantially achieved | `apps/mobile/app/book.tsx`, `check-in.tsx`, `booking-service.ts`, `00008`, `00059`, `00067` | PSS-10 gate is 30-day freshness at booking, not literally before every session; E1 concurrency fixed 2026-10-24 (1 confirmed / 49 rejected) |
+| 2 | Book / reschedule / cancel + PSS-10 before session | Fully achieved | `apps/mobile/app/book.tsx`, `check-in.tsx`, `booking-service.ts`, `pre-session-pss10.ts`, `00008`, `00059`, `00067`, `00068` | Gate is enforced at counselor completion, with an audited waiver for documented exceptions; PSS-10 licensing unverified; E1 concurrency fixed 2026-10-24 (1 confirmed / 49 rejected) |
 | 3 | Secure anonymous identity | Substantially achieved | Alias system, `is_anonymous`, RLS, reveal API, audit logs | Pseudonymity, not cryptographic anonymity; staff with database access can correlate IDs |
 | 4 | Counselor dashboard for schedules, records, notes | Substantially achieved | `/dashboard`, `/appointments`, `/sessions`, `/students`, `/availability`, session-note API | No dedicated “student record” timeline; notes are per completed session |
 | 5 | Analytics module: collect data, stress trends, reports | Substantially achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061` | Aggregate reporting, not predictive analytics; report RPC drift resolved 2026-10-24; no scheduled report delivery |
@@ -202,14 +229,14 @@ When sources disagreed, this report trusted them in this order:
 | 10 | Faculty referral feature | Fully achieved | `/refer-student`, `/referrals`, `referrals/mutations.ts`, `referral_actions` | No mobile faculty app (web only); no external referral letter delivery |
 | 11 | ISO/IEC 25010 evaluation | Partially achieved | Performance harness and results; this report | No formal usability study, accessibility audit, security test, or complete ISO 25010 instrument |
 
-### 3.1 Status after P1 (24 October 2026)
+### 3.1 Status after P1/P2 (24 October 2026)
 
 The table above is the **current** assessment. This table records what changed since the original review; it does not inflate a verdict where a central promise is still missing.
 
 | # | Objective | At review | After P1 | What changed |
 |---:|---|---|---|---|
 | 1 | User-friendly interface | Substantially achieved | **Substantially achieved** | Mobile mock data and PSS-10 wording removed; no participant-based usability or accessibility evidence yet |
-| 2 | Scheduling + PSS-10 | Substantially achieved | **Substantially achieved** | Concurrency fixed and re-measured (`00067`); booking/freshness/idempotency tests added. The 30-day gate (not per-session) and the confirmed-reschedule restriction remain |
+| 2 | Scheduling + PSS-10 | Substantially achieved | **Fully achieved** | P2 added the 7-day pre-session check-in enforced at completion (`00068`, `pre-session-pss10.ts`), an audited waiver path, and confirmed reschedule until 24 hours before start. Booking gate remains 30 days; waiver exceptions are documented |
 | 3 | Anonymous identity | Substantially achieved | **Substantially achieved** | RLS tests now prove cross-student and cross-role isolation. Still pseudonymity, not cryptographic anonymity; no threat model |
 | 4 | Counselor dashboard | Substantially achieved | **Substantially achieved** | Note authorization is RLS-tested and note-save is E2E-tested. No unified student timeline or structured note template |
 | 5 | Analytics | Substantially achieved | **Substantially achieved** | Report RPC drift fixed and verified; head E2E asserts populated report sections. Still aggregate, not predictive; no scheduled reports or small-cell suppression |
@@ -220,7 +247,7 @@ The table above is the **current** assessment. This table records what changed s
 | 10 | Faculty referrals | Fully achieved | **Fully achieved** | Referral transition tests and faculty referral E2E added; still web-only, no external letter delivery |
 | 11 | ISO/IEC 25010 evaluation | Partially achieved | **Partially achieved** | Automated test evidence and a usability/accessibility protocol now exist, but there are **no participant results, SUS/WCAG findings, or penetration test** |
 
-**Net effect:** one objective moved from partial to fully achieved (Objective 7, by an explicit scope decision), and five objectives gained regression evidence without changing verdict. **No objective moved to fully achieved merely because tests were added.** Objective 11 stays partial until the P1.6 study is executed and the findings are written up.
+**Net effect:** two objectives moved to fully achieved — Objective 7 by an explicit scope decision, and Objective 2 in P2 after the per-session gate and confirmed reschedule landed with CI evidence. Other objectives gained regression evidence without changing verdict. **No objective moved to fully achieved merely because tests were added.** Objective 11 stays partial until the P1.6 study is executed and the findings are written up.
 
 ---
 
@@ -269,7 +296,7 @@ A first-time student can plausibly complete onboarding → login → book → ch
 
 ### Objective 2 — Develop an online appointment scheduling feature that enables students to book, reschedule, and cancel counseling sessions, and administer PSS-10 stress assessments prior to each session
 
-**Verdict: Substantially achieved.**
+**Verdict: Fully achieved.**
 
 #### Where it is implemented
 
@@ -279,10 +306,12 @@ A first-time student can plausibly complete onboarding → login → book → ch
 | Booking step 2 (PSS-10 + appointment creation) | `apps/mobile/app/check-in.tsx` |
 | PSS-10 scoring and persistence | `packages/shared-services/src/appointments/booking-service.ts`; migration `00008_pss10_assessments.sql` |
 | Server-side PSS-10 freshness gate | `booking-service.ts`, lines 29–35 and 69–90 (30-day window, 5-minute clock-skew tolerance) |
+| Pre-session check-in policy | `appointments/pre-session-pss10.ts` (7-day window, 5-minute skew, state helper, `PSS10_REQUIRED`); `00068_pre_session_pss10.sql` |
+| Completion gate and waiver | `completeAppointment()` in `appointments/mutations.ts`; `AppointmentPss10WaiverDialog.tsx`; audited `appointment.pss10_waived` row |
 | Slot validation | `booking-service.ts`, lines 91–99; `validateCounselorSchedule()` in `appointments/mutations.ts` |
 | Idempotent booking and race handling | `booking-service.ts`, lines 48–53, 117–134 (unique idempotency key; `23P01` mapped to “That time was just taken”) |
 | Appointment lifecycle | `pending → assigned → confirmed → completed`, plus `cancelled`, `rejected`, `no_show` |
-| Student cancel / reschedule | `apps/mobile/app/(tabs)/sessions.tsx`; `components/SessionDetailsModal.tsx`, `RescheduleModal.tsx` |
+| Student cancel / reschedule | `apps/mobile/app/(tabs)/sessions.tsx`; `components/SessionDetailsModal.tsx`, `RescheduleModal.tsx`; confirmed reschedule allowed until 24 hours before start |
 | Staff assignment / confirmation | `apps/web/app/(staff)/appointments/page.tsx`; `appointments/mutations.ts` |
 | Availability windows | `apps/web/app/(staff)/availability/page.tsx`; `counselor_availability` table |
 | Slot-race backstop | `supabase/migrations/00067_fix_slot_overlap_guard.sql` (replaces the silently-skipped guard in `00059`); verified on staging, E1 1 confirmed / 49 × `23P01` |
@@ -291,21 +320,24 @@ A first-time student can plausibly complete onboarding → login → book → ch
 
 - The flow is genuinely end-to-end: the student picks a concern and mode, sees real counselor availability, answers PSS-10, and the appointment lands as **pending** for the head to assign.
 - The PSS-10 gate is enforced **inside `bookAppointment()`**, not only in the UI. A caller cannot skip the assessment by calling the service directly. This is the correct architecture.
-- Expired or missing assessments produce friendly, actionable errors (“Complete a PSS-10 check-in before booking,” “PSS-10 expired — please retake the check-in before booking”).
+- A **second, session-linked gate** now applies: a confirmed session needs a check-in submitted within 7 days before the scheduled start, and `completeAppointment()` refuses without one. The student sees a check-in CTA on Sessions; the counselor sees status and timestamp only.
+- Expired or missing assessments produce friendly, actionable errors (“Complete a PSS-10 check-in before booking,” “No valid pre-session check-in is linked to this session…”).
+- A genuine exception (walk-in, referral, paper form) is handled by an explicit waiver: the counselor must give a 10–500 character operational reason, which is stored on the appointment and written to `audit_logs`. PSS answers and scores never enter that payload.
+- Students can now move a **confirmed** session until 24 hours before the start, using the same availability/overlap validation; inside 24 hours they are directed to the Guidance Office.
 - Booking is idempotent, so a retry after a network timeout does not create a duplicate appointment.
 - The lifecycle is role-separated and guarded: the head assigns/rejects, the counselor confirms/completes/no-shows, the student cancels/reschedules where allowed.
 - Normal booking service time is about **1.18 s** unassigned and **1.46 s** assigned (p50), which is acceptable for a multi-step mobile flow.
 
 #### Gaps and honest caveats
 
-1. **“Prior to each session” is stronger than what is implemented.** The gate requires a PSS-10 within **30 days before booking**. It does not require a fresh assessment before every session, and it does not re-check at session time. That is a reasonable product decision, but it is not literal compliance with the objective.
+1. ~~**“Prior to each session” is stronger than what is implemented.**~~ **Closed in P2 (§1.6).** A linked PSS-10 within 7 days before the session is now required at completion. The booking gate remains 30 days, and an audited waiver can override the session gate for a documented operational exception — not literal 100% coverage, but the objective is now enforced per session.
 2. ~~**The concurrency test failed.**~~ **Fixed and re-measured on staging 2026-10-24 — see §1.5.** The review-time run reported 50 concurrent confirmations all succeeding; migration `00067` replaced the silent `DO … EXCEPTION` guard, cleaned duplicate active rows, and installed a validated `no_counselor_overlap` constraint. The re-run gives **1 confirmation and 49 × `23P01`**.
-3. **Reschedule is restricted for confirmed sessions.** Mobile allows reschedule only for `pending`/`assigned`; once a session is confirmed, the student must go through the Guidance Office (`apps/mobile/README.md`, line 75). That is defensible operationally, but the objective says students can reschedule — this is a partial restriction.
+3. ~~**Reschedule is restricted for confirmed sessions.**~~ **Closed in P2 (§1.6).** Confirmed sessions are movable until 24 hours before the start; inside that window the Guidance Office rule still applies.
 4. ~~**No automated booking tests.**~~ **Closed in P1 (§1.6).** The Vitest suite covers PSS-10 freshness, the booking gate, idempotency, and `23P01` mapping; RLS tests cover cross-student isolation.
 
 #### Non-technical user lens
 
-The two-step mobile flow is understandable: choose a concern → choose how/when → answer a short check-in → done. The main usability risk is the **PSS-10**: ten items with numeric frequency scales can feel clinical. If the labels are not the validated wording, non-technical students may misinterpret them. The 30-day rule also needs a plain explanation (“Your last check-in is over 30 days old — please answer again”) rather than a technical error.
+The two-step mobile flow is understandable: choose a concern → choose how/when → answer a short check-in → done. The main usability risk is the **PSS-10**: ten items with numeric frequency scales can feel clinical. The labels are the shared validated instrument, but licensing/permission remains unverified. Both the 7-day pre-session rule and the 24-hour reschedule cut-off need plain explanations rather than technical errors; the mobile copy now states both in plain language.
 
 ---
 
@@ -639,7 +671,7 @@ The referral form is the most policy-heavy screen for a non-technical faculty me
 | Quality area | Evidence |
 |---|---|
 | Performance | `perf-tests/` harness; `results/pages.json`, `pages-throttled.json`, `booking.json`, `mutations.json`, `realtime.json`, `explain.json` |
-| Reliability | Realtime reconnect test, 0 lost messages; concurrency test re-run green after `00067` (§1.5); 41 unit + 8 RLS + 4 role smoke tests in CI (§1.6) |
+| Reliability | Realtime reconnect test, 0 lost messages; concurrency test re-run green after `00067` (§1.5); 66 unit + 8 RLS + 5 role smoke tests in CI (§1.6) |
 | Security | RBAC, RLS, audit logs, break-glass, guarded writes, server-only service role, Zod validation, rate limiting |
 | Usability | Interface review only; protocol written at `docs/usability-accessibility-protocol.md`, but **no participants, SUS, or task-based results yet** |
 | ISO/IEC 25010 structure | This report provides a structured evaluation; no formal instrument was found in the repo |
@@ -684,11 +716,11 @@ Ratings are on a 1–5 scale, judged against the evidence available for **non-te
 
 | ISO/IEC 25010 characteristic | Score | Justification |
 |---|---:|---|
-| Functional suitability | **4 / 5** | Broad, real coverage of scheduling, PSS-10, chat, referrals, reports, audit, and announcement management. Gaps in Meet automation; one gate is 30-day rather than per-session. Calendar/RSVP/attendance are explicitly out of the renamed Objective 7 scope. |
+| Functional suitability | **5 / 5** | Broad, real coverage of scheduling, PSS-10, chat, referrals, reports, audit, and announcement management. Meet link remains manual; the booking gate is 30 days and the session gate is 7 days with an audited waiver. Calendar/RSVP/attendance are explicitly out of the renamed Objective 7 scope. |
 | Performance efficiency | **3.5 / 5** | Normal pages 135–240 ms; booking ~1.2–1.5 s; chat p50 379 ms. Throttled login LCP ~5.0 s and heavy login JS (~1.13 MB) pull the score down. |
 | Compatibility | **3 / 5** | Web + iOS/Android via Expo + Supabase. No offline mode, no browser/device matrix, no integration with Google Calendar. |
 | Usability | **3 / 5** | Clear flows, plain language, large touch targets, role-specific navigation, in-app handbook; mobile mock content removed in P1. Still no participant-based usability test or accessibility audit, so the score remains a design judgment. |
-| Reliability | **3 / 5** | Realtime 0 lost messages and reconnect recovery. Concurrency failure fixed and re-measured on staging (`00067`); P1 adds 41 unit tests, 8 RLS tests, and four role smoke specs. Still no soak/failure-injection test and no automated chat reconnect test. |
+| Reliability | **3 / 5** | Realtime 0 lost messages and reconnect recovery. Concurrency failure fixed and re-measured on staging (`00067`); P1/P2 add 66 unit tests, 8 RLS tests, and five role smoke specs. Still no soak/failure-injection test and no automated chat reconnect test. |
 | Security | **4 / 5** | Strong layered design: RBAC, RLS, guarded writes, audit logs, break-glass, private storage, no PHI in notifications. No penetration test; pseudonymity can be correlated by privileged staff. |
 | Maintainability | **4 / 5** | Shared services, single RBAC policy, sequential migrations, strict TypeScript, documented architecture, and a CI test foundation (unit + RLS + Playwright). Remaining risk is environment drift, not absence of tests. |
 | Portability | **3.5 / 5** | Next.js + Expo are portable by design; environment-based config. Mobile device coverage and offline behavior are unverified. |
@@ -800,7 +832,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 
 - **E1 concurrency failure:** 50 concurrent confirmations of overlapping same-slot appointments all ended `confirmed` in the measured run.
 - The exclusion constraint that should prevent this is created in a `DO` block that catches all exceptions and only raises a notice. A pre-existing overlap can cause it to be skipped without failing deployment.
-- ~~No unit/integration/e2e test suite; regressions rely on manual checks.~~ **Reduced in P1 (§1.6):** 41 unit tests, 8 RLS integration tests, and four Playwright role specs run in CI. Coverage is still targeted, not exhaustive.
+- ~~No unit/integration/e2e test suite; regressions rely on manual checks.~~ **Reduced in P1/P2 (§1.6):** 66 unit tests, 8 RLS integration tests, and five Playwright role specs run in CI. Coverage is still targeted, not exhaustive.
 - Single-run performance evidence; no long-run soak test or failure injection.
 - Migration drift observed (missing report RPCs in the measured DB).
 
@@ -840,7 +872,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 | Home | Next session, announcements, quick actions, breathing exercise, mood check | Warm and supportive; not clinical |
 | Book | Concern → mode → day/time → anonymous toggle | Clear linear flow |
 | Check-in | PSS-10 items → submit → chat | The highest-friction step; wording must be validated |
-| Sessions | Upcoming/past/canceled; details, cancel, reschedule, rating | Clear status model; confirmed reschedule is restricted |
+| Sessions | Upcoming/past/canceled; details, cancel, reschedule, rating | Clear status model; confirmed sessions are movable until 24 hours before start |
 | Chat | Inbox → conversation; realtime replies | Familiar and responsive |
 | Profile | Student card, photo, logout | Real `profiles` + `students` data; mock removed in P1 |
 
@@ -884,13 +916,13 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 |---|---|---|---|---|---|
 | R1 | Double-booking / overlapping confirmed sessions under concurrency | Medium | High | Original: `concurrency.json` E1 50 confirmed vs expected 1; `00059` constraint could be skipped. **Fixed 2026-10-24 — see §1.5; E1 now 1 confirmed / 49 × `23P01`.** | **P0 — resolved** |
 | R2 | Report RPCs missing in deployed DB, causing degraded/failed analytics | Medium | High | Original: `explain.json` functions did not exist. **Fixed 2026-10-24 — `00061` applied; both RPCs return OK.** | **P0 — resolved** |
-| R3 | No automated tests; regressions reach production | High | High | Original: no test runner. **Reduced 2026-10-24 — §1.6:** 41 unit tests, 8 RLS tests, 4 Playwright role specs in CI | **P1 — substantially reduced; staging guard job still unrun** |
+| R3 | No automated tests; regressions reach production | High | High | Original: no test runner. **Reduced 2026-10-24 — §1.6:** 66 unit tests, 8 RLS tests, 5 Playwright role specs in CI | **P1/P2 — substantially reduced; staging guard job still unrun** |
 | R4 | Mobile profile and PSS-10 wording are mock data | High | Medium–High | Original: mobile README. **Closed 2026-10-24 — §1.6:** profile reads Supabase; shared PSS-10 instrument; `data/mock.ts` removed | **P1 — resolved (licensing note still unverified)** |
 | R5 | “Events” lacks calendar/date/venue/RSVP | High | Medium | Original: `/announcements` only. **Resolved 2026-10-24 — §1.6:** objective renamed to announcement management; boundary documented | **P1 — resolved by scope decision** |
 | R6 | Google Meet is manual paste, no API integration | High | Medium | `isMeetUrl()`; no Google API code | **P2** |
 | R7 | No empirical usability/accessibility validation | High | Medium | No SUS/WCAG artifacts | **P1** |
 | R8 | Break-glass has no active alerting | Medium | Medium–High | Head review is passive | **P2** |
-| R9 | PSS-10 not required before every session | Medium | Medium | 30-day booking gate only | **P2** |
+| R9 | PSS-10 not required before every session | Medium | Medium | 30-day booking gate only | **Closed 2026-10-24 — §1.6:** 7-day session-linked gate + audited waiver; booking gate unchanged |
 | R10 | Pseudonymity can be correlated by privileged staff | Medium | Medium | Alias ↔ student_id linkage | **P2** (policy + monitoring) |
 | R11 | Throttled login ~5 s LCP and 1.13 MB JS | High | Medium | `pages-throttled.json` | **P2** |
 
@@ -1019,7 +1051,8 @@ The system should **not** yet be described as fully production-ready or fully IS
 
 | Claim | Source |
 |---|---|
-| PSS-10 30-day gate | `packages/shared-services/src/appointments/booking-service.ts` |
+| PSS-10 30-day booking gate | `packages/shared-services/src/appointments/booking-service.ts` |
+| PSS-10 7-day pre-session gate + waiver | `packages/shared-services/src/appointments/pre-session-pss10.ts`, `mutations.ts`, `00068` |
 | Booking idempotency and race handling | `booking-service.ts`, lines 48–53, 117–134 |
 | Slot exclusion constraint | `supabase/migrations/00059_phase1_perf_indexes_slotguard.sql` |
 | Concurrency failure (review-time) | `perf-tests/results/concurrency.json` (E1 `pass: false`); **fixed in `00067` — see §1.5, E1 now 1 confirmed / 49 × `23P01`** |
