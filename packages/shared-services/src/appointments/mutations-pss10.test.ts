@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DbClient } from "../platform";
 import { PreSessionPss10RequiredError } from "./pre-session-pss10";
-import { completeAppointment } from "./mutations";
+import { completeAppointment, rescheduleAppointment } from "./mutations";
 
 const STUDENT = "11111111-1111-4111-8111-111111111111";
 const APPOINTMENT = "22222222-2222-4222-8222-222222222222";
@@ -27,6 +27,7 @@ function fakeDb(options: {
   const builder: any = {};
   builder.select = () => builder;
   builder.eq = () => builder;
+  builder.in = () => builder;
   builder.order = () => builder;
   builder.limit = () => builder;
   builder.insert = (value: Record<string, unknown>) => {
@@ -154,5 +155,43 @@ describe("completeAppointment pre-session gate", () => {
     // No assessment content ever reaches the audit payload.
     expect(audit()).not.toHaveProperty("answers");
     expect(audit()).not.toHaveProperty("total_score");
+  });
+});
+
+describe("rescheduleAppointment confirmed-session window", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  function rescheduleDb(status: string, scheduledAt: string) {
+    return fakeDb({
+      appointment: {
+        id: APPOINTMENT,
+        status,
+        counselor_id: null,
+        scheduled_at: scheduledAt,
+        ends_at: null,
+      },
+    }).db;
+  }
+
+  it("allows a confirmed session more than 24 hours before the start", async () => {
+    const start = new Date(Date.now() + 30 * HOUR).toISOString();
+    const db = rescheduleDb("confirmed", start);
+    const row = await rescheduleAppointment(db, APPOINTMENT, new Date(Date.now() + 48 * HOUR));
+    expect(row.scheduled_at).toBeTruthy();
+  });
+
+  it("rejects a confirmed session inside the 24-hour cut-off", async () => {
+    const start = new Date(Date.now() + 20 * HOUR).toISOString();
+    const db = rescheduleDb("confirmed", start);
+    await expect(
+      rescheduleAppointment(db, APPOINTMENT, new Date(Date.now() + 48 * HOUR)),
+    ).rejects.toThrow(/24 hours/);
+  });
+
+  it("still allows pending requests to move", async () => {
+    const start = new Date(Date.now() + 20 * HOUR).toISOString();
+    const db = rescheduleDb("pending", start);
+    const row = await rescheduleAppointment(db, APPOINTMENT, new Date(Date.now() + 48 * HOUR));
+    expect(row.scheduled_at).toBeTruthy();
   });
 });
