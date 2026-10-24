@@ -47,17 +47,17 @@ The report separates three things that are often confused:
 - The performance artifacts contain a **failed same-slot concurrency test**: 50 concurrent confirmations of overlapping appointments produced **50 confirmed rows** where exactly 1 was expected (`perf-tests/results/concurrency.json`, E1 `pass: false`). The code contains an exclusion constraint intended to prevent this (`00059_phase1_perf_indexes_slotguard.sql`), but the constraint is wrapped in a `DO … EXCEPTION` block that silently skips creation if overlapping rows already exist. This must be verified in the deployed database. **This is the single highest-risk finding in the review.** **Fixed and re-measured on staging on 24 October 2026 — see §1.5.**
 - The same artifacts show the analytics RPCs `head_appointment_daily_counts` and `head_referral_status_counts` as **missing** in the measured environment (`perf-tests/results/explain.json`), even though they exist in migration `00061_phase3b_report_rpcs.sql`. This is migration drift, not necessarily a code defect — but it means reports may silently degrade if deployment is not verified. **Resolved on staging on 24 October 2026 — see §1.5.**
 - The mobile app still uses **local mock data** for the profile identity card and the PSS-10 question wording/labels (`apps/mobile/README.md`, lines 81–84). Scoring and persistence are real; presentation is not fully real.
-- “Event management” is really **announcement/newsfeed management**. There is no event calendar, venue, date range, RSVP, or attendance tracking.
+- Objective 7 was originally worded as “event management.” It is now explicitly **announcement management**: targeted news posts with drafts, images, realtime delivery, and insights. There is no event calendar, venue, date range, RSVP, or attendance tracking; that boundary is recorded in `docs/objective-7-announcement-scope.md`.
 - Google Meet is a **manually pasted URL field with validation**, not a Google Calendar/Meet API integration.
 - There is **no unit-test runner**, no automated end-to-end suite, and no formal usability study with non-technical users. Objective 11 is therefore only partially demonstrated by evidence.
 
 ### 1.4 Bottom line
 
-The system **does achieve the functional intent of most objectives**. It is strongest in scheduling, privacy controls, referrals, and real-time communication. It is weakest in formal quality evaluation, event management, and deployment verification of concurrency and analytics migrations.
+The system **does achieve the functional intent of most objectives**. It is strongest in scheduling, privacy controls, referrals, real-time communication, and announcement management. It is weakest in formal quality evaluation and deployment verification of concurrency and analytics migrations.
 
 For a capstone defense, the honest claim is:
 
-> “Ten of eleven objectives are implemented in software to a substantial degree; one objective (ISO/IEC 25010 evaluation) is only partially evidenced because the evaluation is performance-focused and not yet supported by formal usability testing or a complete quality test suite.”
+> “Nine of eleven objectives are implemented in software to a substantial degree. Two are partially evidenced: Google Meet is a validated manual link rather than an API integration, and the ISO/IEC 25010 evaluation is performance-focused and not yet supported by formal usability testing or a complete quality test suite.”
 
 ### 1.5 Post-review P0 remediation — 24 October 2026
 
@@ -152,7 +152,7 @@ When sources disagreed, this report trusted them in this order:
 | 4 | Counselor dashboard for schedules, records, notes | Substantially achieved | `/dashboard`, `/appointments`, `/sessions`, `/students`, `/availability`, session-note API | No dedicated “student record” timeline; notes are per completed session |
 | 5 | Analytics module: collect data, stress trends, reports | Substantially achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061` | Aggregate reporting, not predictive analytics; report RPC drift resolved 2026-10-24; no scheduled report delivery |
 | 6 | Real-time chat | Fully achieved | `/chat` (web + mobile), Supabase Realtime, `realtime.json` | No typing indicators/read receipts verified; no offline queue |
-| 7 | Event management for announcements/activities | Partially achieved | `/announcements`, drafts, audience targeting, images, insights, mobile home feed | No event calendar, date/venue, RSVP, or attendance |
+| 7 | Announcement management for publishing announcements/activities | Fully achieved (renamed scope) | `/announcements`, drafts, audience targeting, images, insights, mobile home feed | Event calendar, date/venue, RSVP, attendance are explicitly out of scope (`docs/objective-7-announcement-scope.md`) |
 | 8 | Embedded Google Meet link | Partially achieved | `meeting_url` column, `isMeetUrl()` validation, online-confirm gate | Manual URL paste; no Google Calendar/Meet API or automatic link creation |
 | 9 | Break-glass emergency access with audit | Fully achieved | `/emergency`, `break-glass-service.ts`, `/api/staff/security/*`, `00017`, `00018` | No automated alerting to the head; no automated tests |
 | 10 | Faculty referral feature | Fully achieved | `/refer-student`, `/referrals`, `referrals/mutations.ts`, `referral_actions` | No mobile faculty app (web only); no external referral letter delivery |
@@ -413,9 +413,9 @@ Chat is one of the most familiar surfaces in the product. The inbox → conversa
 
 ---
 
-### Objective 7 — Implement an event management feature for publishing announcements and counseling-related activities
+### Objective 7 — Announcement management for publishing announcements and counseling-related activities (renamed from “event management”)
 
-**Verdict: Partially achieved.**
+**Verdict: Fully achieved for the renamed scope.** The original “event management” wording is withdrawn; see `docs/objective-7-announcement-scope.md` for the decision record.
 
 #### Where it is implemented
 
@@ -437,9 +437,9 @@ Chat is one of the most familiar surfaces in the product. The inbox → conversa
 - The page includes an insights tab with basic content statistics.
 - The mobile home screen surfaces announcements to students.
 
-#### What is missing for “event management”
+#### Scope boundary: no event entity
 
-There is **no event entity**. Specifically, the system does not have:
+The renamed objective covers announcements only. The system deliberately does **not** have:
 
 - event title separate from announcement body,
 - event date and time range,
@@ -450,7 +450,7 @@ There is **no event entity**. Specifically, the system does not have:
 - reminders specific to an event,
 - recurrence.
 
-In short: the implementation is a **newsfeed/announcement manager**, not an event management module. If the capstone panel expects “events” to mean scheduled activities with dates and attendance, this objective is only partially met.
+In short: the implementation is an **announcement manager**, not an event management module. This is a documented scope decision, not an unfinished feature; see `docs/objective-7-announcement-scope.md`.
 
 #### Non-technical user lens
 
@@ -871,9 +871,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
    - WCAG 2.1 AA audit (contrast, focus, labels, screen reader, text scaling).
    - **Acceptance:** report results and fix high-severity findings.
 
-6. **Decide what “event management” means.**
-   - If the panel expects real events, add `events` with date/time, venue/link, capacity, RSVP, calendar view, and event reminders.
-   - If announcements are sufficient, rename the objective in the manuscript to “announcement management” and state the scope honestly.
+6. **Event wording — decided.** The objective is renamed to “announcement management.” No events MVP is built; the boundary is recorded in `docs/objective-7-announcement-scope.md`.
 
 ### P2 — Improve quality and trust
 
@@ -903,9 +901,9 @@ The Digital Counseling and Appointment System with Analytics is a **substantial,
 
 Against the 11 specific objectives:
 
-- **3 are fully achieved:** real-time chat, break-glass emergency access, and faculty referrals.
+- **4 are fully achieved:** real-time chat, break-glass emergency access, faculty referrals, and announcement management (renamed scope).
 - **5 are substantially achieved:** interfaces, scheduling/PSS-10, anonymity, counselor dashboard, and analytics.
-- **3 are partially achieved:** event management, Google Meet integration, and the ISO/IEC 25010 evaluation.
+- **2 are partially achieved:** Google Meet integration and the ISO/IEC 25010 evaluation.
 
 The most defensible capstone claim is:
 

@@ -44,7 +44,7 @@ Every P1 task must name the objective it protects. If a task cannot, it is out o
 | 4 | Counselor dashboard: schedules, records, notes | Substantially achieved | P1-B, P1-C, P1-D | RBAC tests; counselor confirm → complete → note E2E; usability findings |
 | 5 | Analytics: data, stress trends, reports | Substantially achieved | P0 (done), P1-B, P1-C | Report RPCs verified in P0; analytics query tests; head report E2E with populated sections |
 | 6 | Real-time chat | Fully achieved | Regression guard only | Existing realtime perf evidence remains the primary proof; no P1 feature change |
-| 7 | Event management / announcements | Partially achieved | P1-E | Decision record: rename to announcement management, or events MVP + E2E |
+| 7 | Announcement management (renamed from events) | Fully achieved for renamed scope | P1-E (done) | Decision record `docs/objective-7-announcement-scope.md`; no events MVP; report wording updated |
 | 8 | Google Meet link | Partially achieved | P1-B (validation test only) | `isMeetUrl()` unit tests; feature scope remains P2 |
 | 9 | Break-glass emergency access + audit | Fully achieved | P1-B | Audit/RLS tests proving append-only logs and role boundaries |
 | 10 | Faculty referral feature | Fully achieved | P1-B, P1-C | Referral transition unit tests; faculty referral E2E; head assignment path |
@@ -418,7 +418,7 @@ Updated 24 October 2026.
 - [x] **P1.2 — CI:** `.github/workflows/ci.yml` runs typecheck, unit tests, and web build on PRs; a scheduled/manual job runs staging `check:schema` + P0 concurrency when staging secrets exist.
 - [x] **P1.3 — RLS integration tests:** `tests/rls` has 8 cases covering cross-student appointment/PSS/profile isolation, cross-role insert denial, counselor note isolation with head oversight, self-promotion blocking, audit read scope + append-only behavior, and notification content minimization. CI job starts local Supabase, applies all migrations, runs the suite, and stops the stack. First green run: `CI` #39990715576 (RLS job 3m19s).
 - [x] **P1.4 — Role-based E2E:** `e2e/` (Playwright, 4 specs) seeds one account per role plus a past confirmed session, pending referral, and PSS-10 row, then asserts the student route boundary, counselor Complete → session-note save, faculty referral history + form modal, and head referral board + populated report KPIs/sections. CI job builds the web app against local Supabase and uploads traces/screenshots on every run. Green run: `CI` #39994834656 (e2e job 4m48s, 4/4 specs).
-- [ ] **P1.5 — Event scope note:** decision recorded; manuscript wording still to update.
+- [x] **P1.5 — Event scope note:** Objective 7 is renamed to **announcement management**. Decision record at `docs/objective-7-announcement-scope.md`; `Objective_Achievement_Report.md` uses the new wording, marks the renamed scope fully achieved, and lists calendar/RSVP/attendance as explicitly out of scope. No events MVP was built.
 - [ ] **P1.6 — Usability/accessibility study:** not started (human-dependent).
 - [ ] **P1.7 — Report consolidation:** not started.
 
