@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   Pressable,
@@ -7,15 +8,17 @@ import {
   ScrollView,
   StyleSheet,
   useWindowDimensions,
-  type ViewToken,
+  type ListViewToken,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import Check from 'lucide-react-native/icons/check';
 import { colors, fontFamily, fontSize, spacing, sizes, hitSlop } from '@/theme';
 import { Button } from '@/components/Button';
 import { Mascot } from '@/components/mascot/Lumi';
 import { useMascot } from '@/components/mascot/useMascot';
+import { getSupabase } from '@/lib/supabase/client';
+import { hasSeenOnboarding, markOnboardingSeen } from '@/lib/onboarding';
 
 interface Page {
   key: string;
@@ -52,13 +55,65 @@ const pages: Page[] = [
 const VIEWABILITY = { itemVisiblePercentThreshold: 60 };
 
 export default function Onboarding() {
+  const params = useLocalSearchParams<{ replay?: string }>();
+  const replay = params.replay === '1';
+
+  // `app/index` is the start route, so it doubles as the launch gate: an
+  // existing session goes to Home, a returning visitor goes to Login, and
+  // only a genuinely new student sees the welcome carousel. Profile can
+  // still force it open with `?replay=1`.
+  const [showOnboarding, setShowOnboarding] = useState(replay);
+
+  useEffect(() => {
+    // Replay is only reachable from Profile, which pushes a fresh screen, so
+    // the initial state already shows the carousel — no gate check needed.
+    if (replay) return;
+    let cancelled = false;
+    void (async () => {
+      const {
+        data: { session },
+      } = await getSupabase().auth.getSession();
+      if (cancelled) return;
+      if (session) {
+        await markOnboardingSeen();
+        if (!cancelled) router.replace('/(tabs)/home');
+        return;
+      }
+      if (await hasSeenOnboarding()) {
+        if (!cancelled) router.replace('/login');
+        return;
+      }
+      if (!cancelled) setShowOnboarding(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [replay]);
+
   const [index, setIndex] = useState(0);
   const list = useRef<FlatList<Page> | null>(null);
   const lumi = useMascot('happy');
   const { width } = useWindowDimensions();
   const last = index === pages.length - 1;
 
-  const goLogin = () => router.push('/login');
+  const goLogin = async () => {
+    await markOnboardingSeen();
+    router.replace('/login');
+  };
+
+  // Replaying from Profile means the student is already signed in; "Log in"
+  // would be wrong there, so the last page simply closes the carousel.
+  const closeReplay = async () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    const {
+      data: { session },
+    } = await getSupabase().auth.getSession();
+    router.replace(session ? '/(tabs)/home' : '/login');
+  };
+
   const goNext = () => {
     if (last) return;
     list.current?.scrollToIndex({ index: index + 1, animated: true });
@@ -68,10 +123,18 @@ export default function Onboarding() {
     list.current?.scrollToIndex({ index: index - 1, animated: true });
   };
 
-  const onViewable = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+  const onViewable = useCallback(({ viewableItems }: { viewableItems: ListViewToken[] }) => {
     const first = viewableItems[0]?.index;
     if (first !== undefined && first !== null) setIndex(first);
   }, []);
+
+  if (!showOnboarding) {
+    return (
+      <View style={styles.gate}>
+        <ActivityIndicator size="large" color={colors.blue} />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.root} {...lumi.gaze}>
@@ -122,7 +185,12 @@ export default function Onboarding() {
             >
               <Text style={styles.backText}>Back</Text>
             </Pressable>
-            <Button label="Log in" variant="accent" onPress={goLogin} style={styles.btn} />
+            <Button
+              label={replay ? 'Done' : 'Log in'}
+              variant="accent"
+              onPress={() => void (replay ? closeReplay() : goLogin())}
+              style={styles.btn}
+            />
           </View>
         ) : (
           <View style={styles.buttons}>
@@ -147,6 +215,7 @@ export default function Onboarding() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.cream },
+  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.cream },
   mascot: { alignItems: 'center', paddingTop: spacing.md },
   tapme: { fontFamily: fontFamily.bold, fontSize: fontSize.sm, color: colors.blue, marginTop: spacing.xs },
   page: { flex: 1 },

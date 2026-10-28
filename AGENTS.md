@@ -11,7 +11,7 @@ Read this file before exploring. It is intentionally dense: follow it first, the
 A mental-health and guidance-office platform for DOrSU:
 
 - **`apps/web`** — Next.js 14 App Router staff/admin portal (counselors, guidance head, faculty, admin) plus public auth/landing pages.
-- **`apps/mobile`** — Expo SDK 57 student app (`Chekie Student`): booking, check-in/PSS-10, chat, sessions, profile.
+- **`apps/mobile`** — Expo SDK 58 student app (`Chekie Student`): booking, check-in/PSS-10, chat, sessions, profile.
 - **Supabase** — Postgres, Auth, Storage, Realtime, RLS. SQL migrations are the schema source of truth.
 - **Shared packages** — domain logic, Zod schemas, DB types, RBAC, Supabase config, design tokens.
 
@@ -27,7 +27,7 @@ This is **privacy-sensitive health software**. Session notes, PSS-10 results, br
 | Node | `>=22.13.0` |
 | Task runner | Turborepo (`turbo.json`) |
 | Web stack | Next.js **14.2** App Router, React **18.3**, TypeScript strict, Tailwind, TanStack Query v5, Supabase SSR |
-| Mobile stack | Expo **57**, expo-router, React **19**, TypeScript (declared **6.x**), StyleSheet + `theme.ts` tokens |
+| Mobile stack | Expo **58** (React Native **0.88**, React **19.3**), expo-router, TypeScript (declared **6.x**), StyleSheet + `theme.ts` tokens |
 | Backend | Supabase (remote project). Migrations in `supabase/migrations/`, 5-digit sequential names `00000_…` → `00061_…` |
 | ORM | Prisma exists only as a **dictionary mirror** (`packages/db/prisma/schema.prisma`); runtime data access uses Supabase clients |
 | Tests | **No unit-test runner is configured.** Validation = typecheck + lint + build (+ manual flows / `perf-tests`). |

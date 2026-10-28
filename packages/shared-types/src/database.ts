@@ -420,10 +420,10 @@ export interface Database {
       analytics_daily_summary: { Row: AnalyticsDailySummaryRow; Relationships: [] };
     };
     Functions: {
-      // Added by hand (00049) — db:types regen will keep it.
+      // Added by hand (00049; role added in 00074) - db:types regen will keep it.
       counselor_directory: {
         Args: Record<string, never>;
-        Returns: { counselor_id: string; display_name: string }[];
+        Returns: { counselor_id: string; display_name: string; profile_role: string }[];
       };
       // Added by hand (00061) — db:types regen will keep it.
       head_appointment_daily_counts: {

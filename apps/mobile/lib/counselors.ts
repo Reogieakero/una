@@ -5,6 +5,8 @@ export type CounselorDirectory = {
   names: Record<string, string>;
   /** counselor_id -> specialization (nullable column, omitted when empty). */
   specialties: Record<string, string>;
+  /** counselor_id -> profile role (00074 RPC; empty until the migration lands). */
+  roles: Record<string, string>;
 };
 
 /**
@@ -22,11 +24,14 @@ export async function loadCounselorDirectory(
   ]);
 
   const names: Record<string, string> = {};
+  const roles: Record<string, string> = {};
   for (const c of (directoryRes.data ?? []) as {
     counselor_id: string;
     display_name: string;
+    profile_role?: string | null;
   }[]) {
     names[c.counselor_id] = c.display_name;
+    if (c.profile_role) roles[c.counselor_id] = c.profile_role;
   }
 
   const specialties: Record<string, string> = {};
@@ -37,5 +42,5 @@ export async function loadCounselorDirectory(
     if (c.specialization) specialties[c.id] = c.specialization;
   }
 
-  return { names, specialties };
+  return { names, specialties, roles };
 }

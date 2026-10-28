@@ -166,6 +166,11 @@ export default function Sessions() {
 
   const completedCount = (rows ?? []).filter((r) => r.status === 'completed').length;
   const list = tab === 'Upcoming' ? upcoming : tab === 'Past' ? past : canceled;
+  const tabCounts: Record<Tab, number> = {
+    Upcoming: upcoming.length,
+    Past: past.length,
+    Canceled: canceled.length,
+  };
   const loading = rows === null;
   const nowMs = new Date().getTime();
   const selected = openId === null ? null : (rows ?? []).find((r) => r.id === openId) ?? null;
@@ -257,9 +262,17 @@ export default function Sessions() {
                 onPress={() => setTab(t)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: tab === t }}
+                accessibilityLabel={`${t}, ${tabCounts[t]} sessions`}
                 style={styles.tabWrap}
               >
-                <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>{t}</Text>
+                <View style={styles.tabInner}>
+                  <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>{t}</Text>
+                  <View style={[styles.tabCount, tab === t && styles.tabCountOn]}>
+                    <Text style={[styles.tabCountText, tab === t && styles.tabCountTextOn]}>
+                      {loading ? '—' : tabCounts[t]}
+                    </Text>
+                  </View>
+                </View>
               </Pressable>
             ))}
           </View>
@@ -495,6 +508,19 @@ const styles = StyleSheet.create({
   statLLight: { color: colors.white },
   tabs: { flexDirection: 'row', gap: spacing.md },
   tabWrap: { borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabInner: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  tabCount: {
+    minWidth: 18,
+    borderRadius: 9,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.chip,
+  },
+  tabCountOn: { backgroundColor: colors.sky },
+  tabCountText: { fontFamily: fontFamily.bold, fontSize: fontSize.xxs, color: colors.muted },
+  tabCountTextOn: { color: colors.blue },
   tabText: {
     fontFamily: fontFamily.medium,
     fontSize: fontSize.sm,

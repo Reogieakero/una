@@ -2,7 +2,6 @@ import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,18 +13,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import Eye from 'lucide-react-native/icons/eye';
-import Camera from 'lucide-react-native/icons/camera';
 import ChevronRight from 'lucide-react-native/icons/chevron-right';
 import {
   removeAvatar,
   setAvatarSharing,
-  signAvatarUrl,
   uploadAvatar,
 } from '@dorsu/shared-services';
 import { getSupabase } from '@/lib/supabase/client';
 import { colors, fontFamily, fontSize, radius, spacing, sizes, hitSlop } from '@/theme';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
+import { LumiFigure } from '@/components/mascot/Lumi';
 
 type Me = {
   id: string;
@@ -45,7 +43,6 @@ function decodeBase64(base64: string): Uint8Array {
 
 export default function Profile() {
   const [me, setMe] = useState<Me | null>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<'photo' | 'share' | null>(null);
 
@@ -85,7 +82,6 @@ export default function Profile() {
       avatarPath: p?.avatar_url ?? null,
       share: p?.share_avatar_with_counselor ?? false,
     });
-    setAvatarUrl(await signAvatarUrl(supabase, p?.avatar_url ?? null));
     setLoading(false);
   }, []);
 
@@ -140,7 +136,6 @@ export default function Profile() {
         contentType,
       });
       setMe((prev) => (prev ? { ...prev, avatarPath: path } : prev));
-      setAvatarUrl(await signAvatarUrl(supabase, path));
     } catch (e) {
       Alert.alert("Couldn't upload photo", e instanceof Error ? e.message : 'Please try again.');
     } finally {
@@ -161,7 +156,6 @@ export default function Profile() {
             try {
               await removeAvatar(getSupabase(), me.id, me.avatarPath);
               setMe((prev) => (prev ? { ...prev, avatarPath: null } : prev));
-              setAvatarUrl(null);
             } catch {
               Alert.alert("Couldn't remove photo", 'Please try again.');
             } finally {
@@ -192,8 +186,6 @@ export default function Profile() {
     router.replace('/login');
   };
 
-  const initial = (me?.fullName || me?.alias || '?').trim().charAt(0).toUpperCase();
-
   return (
     <View style={styles.root}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
@@ -202,53 +194,43 @@ export default function Profile() {
             {loading ? (
               <ActivityIndicator color={colors.blue} style={styles.loader} />
             ) : (
-              <>
-                <View style={styles.avatarWrap}>
-                  {avatarUrl ? (
-                    <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-                  ) : (
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{initial}</Text>
-                    </View>
-                  )}
-                  <Pressable
-                    onPress={() => void changePhoto()}
-                    disabled={busy === 'photo'}
-                    hitSlop={hitSlop}
-                    accessibilityRole="button"
-                    accessibilityLabel="Change profile photo"
-                    style={styles.camera}
-                  >
-                    {busy === 'photo' ? (
-                      <ActivityIndicator size="small" color={colors.ink} />
-                    ) : (
-                      <Camera size={sizes.tabIcon} color={colors.ink} />
-                    )}
-                  </Pressable>
+              <View style={styles.headerRow}>
+                <View style={styles.mascot}>
+                  <LumiFigure look={4} feel="happy" size={56} />
                 </View>
-                <Text style={styles.name}>{me?.fullName || 'Student'}</Text>
-                {me?.alias ? <Text style={styles.alias}>{me.alias}</Text> : null}
-                <View style={styles.photoActions}>
-                  <Pressable
-                    onPress={() => void changePhoto()}
-                    disabled={busy === 'photo'}
-                    hitSlop={hitSlop}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.link}>{busy === 'photo' ? 'Uploading…' : 'Change photo'}</Text>
-                  </Pressable>
-                  {me?.avatarPath ? (
+                <View style={styles.headerText}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {me?.fullName || 'Student'}
+                  </Text>
+                  {me?.alias ? (
+                    <Text style={styles.alias} numberOfLines={1}>
+                      {me.alias}
+                    </Text>
+                  ) : null}
+                  <View style={styles.photoActions}>
                     <Pressable
-                      onPress={confirmRemovePhoto}
+                      onPress={() => void changePhoto()}
                       disabled={busy === 'photo'}
                       hitSlop={hitSlop}
                       accessibilityRole="button"
                     >
-                      <Text style={[styles.link, styles.remove]}>Remove photo</Text>
+                      <Text style={styles.link}>
+                        {busy === 'photo' ? 'Uploading…' : 'Change photo'}
+                      </Text>
                     </Pressable>
-                  ) : null}
+                    {me?.avatarPath ? (
+                      <Pressable
+                        onPress={confirmRemovePhoto}
+                        disabled={busy === 'photo'}
+                        hitSlop={hitSlop}
+                        accessibilityRole="button"
+                      >
+                        <Text style={[styles.link, styles.remove]}>Remove photo</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </View>
-              </>
+              </View>
             )}
           </Card>
 
@@ -279,7 +261,7 @@ export default function Profile() {
           <Text style={styles.section}>Settings</Text>
           <Card style={styles.menu}>
             <Pressable
-              onPress={() => router.push('/')}
+              onPress={() => router.push({ pathname: '/', params: { replay: '1' } })}
               hitSlop={hitSlop}
               accessibilityRole="button"
               accessibilityLabel="See onboarding screens"
@@ -309,35 +291,22 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.cream },
   safe: { flex: 1, backgroundColor: colors.cream },
   content: { paddingHorizontal: spacing.lg, paddingBottom: 96, gap: spacing.md },
-  card: { alignItems: 'center', gap: spacing.xs },
+  card: { gap: spacing.sm, padding: spacing.lg },
   loader: { paddingVertical: spacing.xl },
-  avatarWrap: { position: 'relative' },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: colors.sun,
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  mascot: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.sky,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  avatarImage: { width: 96, height: 96, borderRadius: 48, backgroundColor: colors.chip },
-  avatarText: { fontFamily: fontFamily.bold, fontSize: 32, color: colors.ink },
-  camera: {
-    position: 'absolute',
-    right: -2,
-    bottom: -2,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  name: { fontFamily: fontFamily.bold, fontSize: fontSize.xl, color: colors.ink, marginTop: spacing.xs },
+  headerText: { flex: 1, gap: 2 },
+  name: { fontFamily: fontFamily.bold, fontSize: fontSize.xl, color: colors.ink },
   alias: { fontFamily: fontFamily.regular, fontSize: fontSize.sm, color: colors.muted },
-  photoActions: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs },
+  photoActions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs },
   link: { fontFamily: fontFamily.bold, fontSize: fontSize.sm, color: colors.blue },
   remove: { color: colors.danger },
   section: { fontFamily: fontFamily.bold, fontSize: fontSize.lg, color: colors.ink },

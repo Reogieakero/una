@@ -20,7 +20,11 @@ export function getSupabase(): TypedSupabaseClient {
       storage: AsyncStorage,
       autoRefreshToken: true,
       persistSession: true,
+      // The app handles the OAuth/deep-link redirect itself (googleAuth.ts),
+      // so the SDK must not try to parse the URL. PKCE stores the verifier in
+      // AsyncStorage and we exchange the returned code for a session.
       detectSessionInUrl: false,
+      flowType: 'pkce',
     },
   });
   return cached;

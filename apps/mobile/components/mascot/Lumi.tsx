@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ComponentRef } from 'react';
 import { Animated, Easing, Pressable, StyleProp, View, ViewStyle } from 'react-native';
 import Svg, { Circle, Ellipse, G, Path } from 'react-native-svg';
 import { colors, hitSlop } from '@/theme';
@@ -178,7 +178,7 @@ export interface MascotProps {
 
 export function Mascot({ controller, size = 140, breathing = false, style }: MascotProps) {
   const { look, feel, squash, reducedMotion, poke, setCenter } = controller;
-  const box = useRef<View>(null);
+  const box = useRef<ComponentRef<typeof View> | null>(null);
   const float = useRef(new Animated.Value(0)).current;
   const breath = useRef(new Animated.Value(0)).current;
 

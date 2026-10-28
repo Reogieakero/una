@@ -11,9 +11,11 @@ import TriangleAlert from 'lucide-react-native/icons/triangle-alert';
 import { loginSchema } from '@dorsu/shared-schemas';
 import { getSupabase } from '@/lib/supabase/client';
 import { ensureStudentRows, friendlyDbError } from '@/lib/supabase/ensureStudent';
+import { continueWithGoogle } from '@/lib/supabase/googleAuth';
 import { colors, fontFamily, fontSize, radius, cardRadius, spacing, sizes, hitSlop, cardShadow } from '@/theme';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
+import { GoogleButton, OrDivider } from '@/components/GoogleButton';
 import { SunCorner } from '@/components/illustrations/SunCorner';
 import { Mascot } from '@/components/mascot/Lumi';
 import { useMascot } from '@/components/mascot/useMascot';
@@ -38,7 +40,30 @@ export default function Login() {
   const [keep, setKeep] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const lumi = useMascot('happy');
+
+  const google = async () => {
+    setError('');
+    setGoogleBusy(true);
+    try {
+      const res = await continueWithGoogle();
+      if (res.status === 'cancelled') return;
+      if (res.status === 'error') {
+        setError(res.message);
+        lumi.react('worried', 1500);
+        return;
+      }
+      if (res.next === 'complete-profile') {
+        router.replace({ pathname: '/register', params: { google: '1' } });
+        return;
+      }
+      lumi.react('cheer', 800);
+      setTimeout(() => router.replace('/(tabs)/home'), 600);
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
 
   const submit = async () => {
     setError('');
@@ -109,6 +134,8 @@ export default function Login() {
             <Text style={styles.tapme}>Tap me!</Text>
           </View>
           <View style={styles.card}>
+            <GoogleButton onPress={() => void google()} busy={googleBusy} disabled={busy} />
+            <OrDivider label="OR CONTINUE WITH EMAIL" />
             <Field
               label="Email"
               placeholder="you@student.dorsu.edu.ph"
@@ -165,7 +192,7 @@ export default function Login() {
 
             <Button
               label={busy ? 'Logging in…' : 'Log in'}
-              disabled={busy}
+              disabled={busy || googleBusy}
               onPress={() => void submit()}
               style={styles.loginBtn}
             />

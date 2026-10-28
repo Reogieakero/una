@@ -2,6 +2,73 @@ import type { DbClient } from "../platform";
 import { isUniqueViolation } from "../platform";
 import { createThreadSchema, sendMessageSchema } from "@dorsu/shared-schemas";
 
+/** A counselor the student may message, derived from a confirmed/completed session. */
+export type MessageableCounselor = {
+  counselorId: string;
+  /** The session that unlocked the conversation (used for the card subtitle). */
+  appointmentId: string;
+  scheduledAt: string;
+  status: "confirmed" | "completed";
+};
+
+type AppointmentLike = {
+  id: string;
+  counselor_id: string | null;
+  status: string;
+  scheduled_at: string;
+};
+
+/** Only a counselor who confirmed (or already held) a session can be messaged. */
+const MESSAGEABLE_STATUSES = new Set(["confirmed", "completed"]);
+
+function isUpcoming(iso: string, nowMs: number): boolean {
+  const at = new Date(iso).getTime();
+  return !Number.isNaN(at) && at >= nowMs;
+}
+
+function ranksAbove(candidate: MessageableCounselor, current: MessageableCounselor, nowMs: number) {
+  const candidateUpcoming = isUpcoming(candidate.scheduledAt, nowMs);
+  const currentUpcoming = isUpcoming(current.scheduledAt, nowMs);
+  if (candidateUpcoming !== currentUpcoming) return candidateUpcoming;
+  const candidateAt = new Date(candidate.scheduledAt).getTime();
+  const currentAt = new Date(current.scheduledAt).getTime();
+  // Upcoming: the soonest session wins. Past: the most recent session wins.
+  return candidateUpcoming ? candidateAt < currentAt : candidateAt > currentAt;
+}
+
+/**
+ * Collapse a student's appointments to one entry per messageable counselor
+ * (the Messages screen shows one conversation per counselor). Prefers the
+ * soonest upcoming confirmed session, then the most recent completed one.
+ * Pure: no DB access, so the screen and any future staff view share it.
+ */
+export function messageableCounselors(
+  appointments: AppointmentLike[],
+  now: Date = new Date(),
+): MessageableCounselor[] {
+  const nowMs = now.getTime();
+  const best = new Map<string, MessageableCounselor>();
+  for (const a of appointments) {
+    if (!a.counselor_id || !MESSAGEABLE_STATUSES.has(a.status)) continue;
+    if (Number.isNaN(new Date(a.scheduled_at).getTime())) continue;
+    const candidate: MessageableCounselor = {
+      counselorId: a.counselor_id,
+      appointmentId: a.id,
+      scheduledAt: a.scheduled_at,
+      status: a.status as MessageableCounselor["status"],
+    };
+    const current = best.get(candidate.counselorId);
+    if (!current || ranksAbove(candidate, current, nowMs)) best.set(candidate.counselorId, candidate);
+  }
+  return [...best.values()].sort((a, b) => {
+    const aUpcoming = isUpcoming(a.scheduledAt, nowMs);
+    const bUpcoming = isUpcoming(b.scheduledAt, nowMs);
+    if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+    const delta = new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+    return aUpcoming ? delta : -delta;
+  });
+}
+
 /** List threads for a student (pure read, RLS scopes to participants). */
 export async function listThreads(db: DbClient, studentId: string) {
   const { data, error } = await db
@@ -40,7 +107,13 @@ export async function getThreadWithMessages(
   return { thread, messages };
 }
 
-/** Open a thread; one open thread per appointment (idempotency rule). */
+/**
+ * Open a thread; one open thread per (student, counselor) and per appointment
+ * (idempotency rules). Re-tapping the same contact in the student inbox must
+ * reopen the existing conversation instead of minting a new one, and an
+ * appointment always implies its counselor so a thread can never end up with
+ * `counselor_id = null` (those rows are invisible to every counselor inbox).
+ */
 export async function openThread(
   db: DbClient,
   input: { studentId: string; counselorId?: string; appointmentId?: string },
@@ -49,20 +122,44 @@ export async function openThread(
     counselorId: input.counselorId,
     appointmentId: input.appointmentId,
   });
+
+  let counselorId = input.counselorId ?? null;
   if (input.appointmentId) {
     const { data: existing } = await db
       .from("chat_threads")
-      .select("id")
+      .select("*")
       .eq("appointment_id", input.appointmentId)
       .eq("status", "open")
       .maybeSingle();
     if (existing) return existing;
+    if (!counselorId) {
+      const { data: appointment } = await db
+        .from("appointments")
+        .select("counselor_id")
+        .eq("id", input.appointmentId)
+        .maybeSingle();
+      counselorId = (appointment as { counselor_id: string | null } | null)?.counselor_id ?? null;
+    }
   }
+
+  if (counselorId) {
+    const { data: existing } = await db
+      .from("chat_threads")
+      .select("*")
+      .eq("student_id", input.studentId)
+      .eq("counselor_id", counselorId)
+      .eq("status", "open")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing) return existing;
+  }
+
   const { data, error } = await db
     .from("chat_threads")
     .insert({
       student_id: input.studentId,
-      counselor_id: input.counselorId ?? null,
+      counselor_id: counselorId,
       appointment_id: input.appointmentId ?? null,
       status: "open",
     })

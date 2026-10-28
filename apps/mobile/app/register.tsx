@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import User from 'lucide-react-native/icons/user';
 import Mail from 'lucide-react-native/icons/mail';
 import IdCard from 'lucide-react-native/icons/id-card';
@@ -16,10 +16,13 @@ import TriangleAlert from 'lucide-react-native/icons/triangle-alert';
 import { registerStudentSchema } from '@dorsu/shared-schemas';
 import { getSupabase } from '@/lib/supabase/client';
 import { ensureStudentRows, friendlyDbError } from '@/lib/supabase/ensureStudent';
+import { continueWithGoogle } from '@/lib/supabase/googleAuth';
+import { saveStudentDetails } from '@/lib/supabase/studentSetup';
 import { colors, fontFamily, fontSize, radius, buttonRadius, cardRadius, spacing, sizes, hitSlop, cardShadow } from '@/theme';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
 import { Chip } from '@/components/Chip';
+import { GoogleButton, OrDivider } from '@/components/GoogleButton';
 import { DORSU_FACULTIES, YEAR_LEVELS } from '@/data/academics';
 
 function friendlySignupError(message: string): string {
@@ -83,6 +86,111 @@ export default function Register() {
   // and the `profiles` insert cannot run yet (RLS needs `authenticated`).
   // Hold the email here and finish setup at first login instead.
   const [awaitingEmail, setAwaitingEmail] = useState<string | null>(null);
+
+  // Google sign-up skips the email/password form, so the school details are
+  // collected once here (`/register?google=1`) before the student reaches Home.
+  const params = useLocalSearchParams<{ google?: string }>();
+  const finishingGoogle = params.google === '1';
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [finishBusy, setFinishBusy] = useState(false);
+  const [googleProfile, setGoogleProfile] = useState<{ name: string; email: string } | null>(null);
+
+  useEffect(() => {
+    if (!finishingGoogle) return;
+    let cancelled = false;
+    void (async () => {
+      const supabase = getSupabase();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (!user) {
+        router.replace('/login');
+        return;
+      }
+      const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+      const name =
+        (typeof meta.full_name === 'string' && meta.full_name) ||
+        (typeof meta.name === 'string' && meta.name) ||
+        '';
+      setGoogleProfile({ name, email: user.email ?? '' });
+
+      // Prefill anything already saved (second visit or a partially filled row).
+      const { data } = await supabase
+        .from('students')
+        .select('student_no, program, year_level')
+        .eq('profile_id', user.id)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      const row = data as {
+        student_no: string | null;
+        program: string | null;
+        year_level: string | null;
+      };
+      if (row.student_no) setStudentNo(row.student_no);
+      if (row.program) setProgram(row.program);
+      if (row.year_level) setYearLevel(row.year_level);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [finishingGoogle]);
+
+  const google = async () => {
+    setFieldError('');
+    setServerError('');
+    setGoogleBusy(true);
+    try {
+      const res = await continueWithGoogle();
+      if (res.status === 'cancelled') return;
+      if (res.status === 'error') {
+        setServerError(res.message);
+        return;
+      }
+      if (res.next === 'complete-profile') {
+        router.replace({ pathname: '/register', params: { google: '1' } });
+        return;
+      }
+      router.replace('/(tabs)/home');
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
+
+  const finishGoogleSignup = async () => {
+    setFieldError('');
+    setServerError('');
+    const no = registerStudentSchema.shape.studentNo.safeParse(studentNo.trim());
+    if (!no.success) {
+      setFieldError(no.error.issues[0]?.message ?? 'Check your student number.');
+      return;
+    }
+    const prog = registerStudentSchema.shape.program.safeParse(program.trim());
+    if (!prog.success) {
+      setFieldError(prog.error.issues[0]?.message ?? 'Choose your faculty.');
+      return;
+    }
+    const year = registerStudentSchema.shape.yearLevel.safeParse(yearLevel.trim());
+    if (!year.success) {
+      setFieldError(year.error.issues[0]?.message ?? 'Choose your year level.');
+      return;
+    }
+    setFinishBusy(true);
+    try {
+      const saved = await saveStudentDetails(getSupabase(), {
+        studentNo: no.data,
+        program: prog.data,
+        yearLevel: year.data,
+      });
+      if (!saved.ok) {
+        setServerError(friendlyDbError(saved.error));
+        return;
+      }
+      router.replace('/(tabs)/home');
+    } finally {
+      setFinishBusy(false);
+    }
+  };
 
   const submit = async () => {
     setFieldError('');
@@ -212,26 +320,54 @@ export default function Register() {
     <View style={styles.root}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.title}>Create student account</Text>
-          <Text style={styles.helper}>Students only — staff accounts are issued by Guidance.</Text>
+          <Text style={styles.title}>
+            {finishingGoogle ? 'Finish your account' : 'Create student account'}
+          </Text>
+          <Text style={styles.helper}>
+            {finishingGoogle
+              ? 'You are signed in with Google. Add your school details once and you are set.'
+              : 'Students only — staff accounts are issued by Guidance.'}
+          </Text>
 
           <View style={styles.card}>
-            <Field
-              label="Full name"
-              placeholder="e.g. Maria Santos"
-              value={fullName}
-              onChangeText={setFullName}
-              icon={<User size={sizes.tabIcon} color={colors.muted} />}
-            />
-            <Field
-              label="University email"
-              placeholder="you@student.dorsu.edu.ph"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              icon={<Mail size={sizes.tabIcon} color={colors.muted} />}
-            />
+            {finishingGoogle ? (
+              <View style={styles.googleNotice}>
+                <Text style={styles.googleNoticeTitle} numberOfLines={1}>
+                  {googleProfile?.name || 'Google account'}
+                </Text>
+                {googleProfile?.email ? (
+                  <Text style={styles.googleNoticeEmail} numberOfLines={1}>
+                    {googleProfile.email}
+                  </Text>
+                ) : null}
+              </View>
+            ) : (
+              <>
+                <GoogleButton
+                  label="Sign up with Google"
+                  onPress={() => void google()}
+                  busy={googleBusy}
+                  disabled={busy}
+                />
+                <OrDivider label="OR SIGN UP WITH EMAIL" />
+                <Field
+                  label="Full name"
+                  placeholder="e.g. Maria Santos"
+                  value={fullName}
+                  onChangeText={setFullName}
+                  icon={<User size={sizes.tabIcon} color={colors.muted} />}
+                />
+                <Field
+                  label="University email"
+                  placeholder="you@student.dorsu.edu.ph"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  icon={<Mail size={sizes.tabIcon} color={colors.muted} />}
+                />
+              </>
+            )}
             <Field
               label="Student number"
               placeholder="e.g. 2021-00001"
@@ -274,72 +410,76 @@ export default function Register() {
                 ))}
               </View>
             </View>
-            <Field
-              label="Password"
-              placeholder="••••••"
-              value={pw}
-              onChangeText={setPw}
-              secureTextEntry={!showPw}
-              autoCapitalize="none"
-              icon={<Lock size={sizes.tabIcon} color={colors.muted} />}
-              trailing={
-                <Pressable
-                  onPress={() => setShowPw((s) => !s)}
-                  hitSlop={hitSlop}
-                  accessibilityRole="button"
-                  accessibilityLabel={showPw ? 'Hide password' : 'Show password'}
-                >
-                  {showPw ? (
-                    <EyeOff size={sizes.tabIcon} color={colors.muted} />
-                  ) : (
-                    <Eye size={sizes.tabIcon} color={colors.muted} />
-                  )}
-                </Pressable>
-              }
-            />
-            {pw !== '' ? (
-              <View>
-                <View style={styles.meter}>
-                  {[0, 1, 2, 3].map((i) => (
-                    <View
-                      key={`seg-${i}`}
-                      style={[styles.meterSeg, i < score && { backgroundColor: segFill }]}
-                    />
-                  ))}
-                </View>
-                <Text style={[styles.meterLabel, { color: segText }]}>
-                  Password strength: {strengthLabel}
-                </Text>
-                <View style={styles.reqs}>
-                  <ReqRow met={checks.length} text="At least 8 characters" />
-                  <ReqRow met={checks.lower && checks.upper} text="Upper and lower case letters" />
-                  <ReqRow met={checks.digit} text="At least one number" />
-                </View>
-              </View>
+            {!finishingGoogle ? (
+              <>
+                <Field
+                  label="Password"
+                  placeholder="••••••"
+                  value={pw}
+                  onChangeText={setPw}
+                  secureTextEntry={!showPw}
+                  autoCapitalize="none"
+                  icon={<Lock size={sizes.tabIcon} color={colors.muted} />}
+                  trailing={
+                    <Pressable
+                      onPress={() => setShowPw((s) => !s)}
+                      hitSlop={hitSlop}
+                      accessibilityRole="button"
+                      accessibilityLabel={showPw ? 'Hide password' : 'Show password'}
+                    >
+                      {showPw ? (
+                        <EyeOff size={sizes.tabIcon} color={colors.muted} />
+                      ) : (
+                        <Eye size={sizes.tabIcon} color={colors.muted} />
+                      )}
+                    </Pressable>
+                  }
+                />
+                {pw !== '' ? (
+                  <View>
+                    <View style={styles.meter}>
+                      {[0, 1, 2, 3].map((i) => (
+                        <View
+                          key={`seg-${i}`}
+                          style={[styles.meterSeg, i < score && { backgroundColor: segFill }]}
+                        />
+                      ))}
+                    </View>
+                    <Text style={[styles.meterLabel, { color: segText }]}>
+                      Password strength: {strengthLabel}
+                    </Text>
+                    <View style={styles.reqs}>
+                      <ReqRow met={checks.length} text="At least 8 characters" />
+                      <ReqRow met={checks.lower && checks.upper} text="Upper and lower case letters" />
+                      <ReqRow met={checks.digit} text="At least one number" />
+                    </View>
+                  </View>
+                ) : null}
+                <Field
+                  label="Confirm password"
+                  placeholder="••••••"
+                  value={confirm}
+                  onChangeText={setConfirm}
+                  secureTextEntry={!showConfirm}
+                  autoCapitalize="none"
+                  icon={<Lock size={sizes.tabIcon} color={colors.muted} />}
+                  trailing={
+                    <Pressable
+                      onPress={() => setShowConfirm((s) => !s)}
+                      hitSlop={hitSlop}
+                      accessibilityRole="button"
+                      accessibilityLabel={showConfirm ? 'Hide confirm password' : 'Show confirm password'}
+                    >
+                      {showConfirm ? (
+                        <EyeOff size={sizes.tabIcon} color={colors.muted} />
+                      ) : (
+                        <Eye size={sizes.tabIcon} color={colors.muted} />
+                      )}
+                    </Pressable>
+                  }
+                />
+              </>
             ) : null}
-            <Field
-              label="Confirm password"
-              placeholder="••••••"
-              value={confirm}
-              onChangeText={setConfirm}
-              secureTextEntry={!showConfirm}
-              autoCapitalize="none"
-              icon={<Lock size={sizes.tabIcon} color={colors.muted} />}
-              trailing={
-                <Pressable
-                  onPress={() => setShowConfirm((s) => !s)}
-                  hitSlop={hitSlop}
-                  accessibilityRole="button"
-                  accessibilityLabel={showConfirm ? 'Hide confirm password' : 'Show confirm password'}
-                >
-                  {showConfirm ? (
-                    <EyeOff size={sizes.tabIcon} color={colors.muted} />
-                  ) : (
-                    <Eye size={sizes.tabIcon} color={colors.muted} />
-                  )}
-                </Pressable>
-              }
-            />
             {err !== '' ? (
               <View style={styles.inlineErr}>
                 <TriangleAlert size={sizes.tabIcon} color={colors.danger} />
@@ -347,9 +487,17 @@ export default function Register() {
               </View>
             ) : null}
             <Button
-              label={busy ? 'Creating account…' : 'Create account'}
-              disabled={busy}
-              onPress={() => void submit()}
+              label={
+                finishingGoogle
+                  ? finishBusy
+                    ? 'Saving…'
+                    : 'Finish setup'
+                  : busy
+                    ? 'Creating account…'
+                    : 'Create account'
+              }
+              disabled={busy || googleBusy || finishBusy}
+              onPress={() => void (finishingGoogle ? finishGoogleSignup() : submit())}
             />
           </View>
 
@@ -388,12 +536,14 @@ export default function Register() {
             </View>
           </Modal>
 
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>Already have an account?</Text>
-            <Pressable hitSlop={hitSlop} accessibilityRole="link" onPress={() => router.back()}>
-              <Text style={styles.footerLink}>Log in</Text>
-            </Pressable>
-          </View>
+          {!finishingGoogle ? (
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Already have an account?</Text>
+              <Pressable hitSlop={hitSlop} accessibilityRole="link" onPress={() => router.back()}>
+                <Text style={styles.footerLink}>Log in</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -423,6 +573,15 @@ const styles = StyleSheet.create({
   },
   inlineErr: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   inlineErrText: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.danger, flex: 1 },
+  googleNotice: {
+    backgroundColor: colors.chip,
+    borderRadius: radius,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: 2,
+  },
+  googleNoticeTitle: { fontFamily: fontFamily.bold, fontSize: fontSize.md, color: colors.ink },
+  googleNoticeEmail: { fontFamily: fontFamily.regular, fontSize: fontSize.xs, color: colors.muted },
   confirmHint: {
     fontFamily: fontFamily.regular,
     fontSize: fontSize.sm,
