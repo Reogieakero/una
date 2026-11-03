@@ -137,7 +137,7 @@ Staff body adds `role` (`counselor`, `faculty`, or `guidance_head`) and optional
 **Notes**
 
 - Student emails are created pre-confirmed so students can sign in immediately. This is a deliberate registrar-trust decision, not an email-verification flow.
-- The alias (`Client-NNNN`) is generated server-side with a uniqueness retry. See [SECURITY-PRIVACY.md](SECURITY-PRIVACY.md).
+- The alias (`Client-NNNN`) is generated server-side with a uniqueness retry. See [security-privacy.md](../security/security-privacy.md).
 - Mobile registration does not use this route; it signs up directly and inserts its own student row under RLS `00030`, finishing at first login.
 
 ---
@@ -302,7 +302,7 @@ Deletes the Google Calendar event when the session has a managed event, then cle
 
 ## 6. Session-note routes
 
-Session notes are the most sensitive write surface. See [SECURITY-PRIVACY.md](SECURITY-PRIVACY.md) and migration `00052`.
+Session notes are the most sensitive write surface. See [security-privacy.md](../security/security-privacy.md) and migration `00052`.
 
 ### 6.1 `GET /api/session-notes?appointmentId=<uuid>`
 
@@ -735,16 +735,16 @@ In-memory limits are a per-instance mitigation, not a distributed quota. A multi
 6. **Break-glass is not a read shortcut.** A reveal requires a grant, and a counselor also requires head review.
 7. **Cron routes are not user endpoints.** They accept only the bearer secret and must stay out of navigation.
 
-See [SECURITY-PRIVACY.md](SECURITY-PRIVACY.md) for the full control matrix and residual risks.
+See [security-privacy.md](../security/security-privacy.md) for the full control matrix and residual risks.
 
 ---
 
 ## 19. What this reference does not cover
 
 - **Supabase Auth endpoints** (`/auth/v1/*`) and Storage endpoints. These are platform APIs, configured by Supabase, not defined in this repository.
-- **Realtime channels.** The table/channel design and payload rules are documented in `docs/realtime-audit.md`; this file only notes that payloads carry IDs/status, not content.
-- **Google Calendar API.** The server calls it through `apps/web/lib/google/meet.ts`; the provider contract is Google's, and the integration notes are in `docs/google-meet-integration.md`.
-- **Database columns and policies.** See [DATABASE-DIAGRAM.md](DATABASE-DIAGRAM.md) and the migrations; this file names only the functions and tables a caller touches.
+- **Realtime channels.** The table/channel design and payload rules are documented in `docs/architecture/realtime-audit.md`; this file only notes that payloads carry IDs/status, not content.
+- **Google Calendar API.** The server calls it through `apps/web/lib/google/meet.ts`; the provider contract is Google's, and the integration notes are in `docs/operations/google-meet-integration.md`.
+- **Database columns and policies.** See [database-diagram.md](./database-diagram.md) and the migrations; this file names only the functions and tables a caller touches.
 - **Generated types.** `packages/shared-types/src/database.ts` is hand-maintained; it is not a generated OpenAPI or GraphQL schema.
 
 If a route is added, update this file in the same change: add the row to the inventory, the method section, and any new schema or RPC. A route that exists only in code is invisible to the next reviewer.

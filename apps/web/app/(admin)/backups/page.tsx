@@ -230,7 +230,7 @@ export default function BackupsPage() {
         <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-[13px] leading-relaxed text-ink-muted">
           <li>Download the newest <span className="font-bold text-ink">Completed</span> artifact above (link expires in 30 minutes; the download is audit-logged).</li>
           <li>Verify its sha256 checksum matches the run record before touching the database.</li>
-          <li>Follow <span className="font-mono text-[12px]">docs/BACKUP_RESTORE.md</span> — guided table-ordered restore into a staging project first, then production.</li>
+          <li>Follow <span className="font-mono text-[12px]">docs/operations/backup-restore.md</span> — guided table-ordered restore into a staging project first, then production.</li>
           <li>Recovery never overwrites from inside the app: there is deliberately no restore button.</li>
         </ol>
         <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">

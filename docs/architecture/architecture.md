@@ -149,7 +149,7 @@ Domain services accept a `DbClient` and optional platform adapters; they never t
 3. Head assigns a counselor (`assigned`), then the counselor confirms inside availability (`confirmed`). Online confirmation requires a `meet.google.com` URL.
 4. Postgres triggers fan out notifications and realtime events; the student sees the counselor and schedule.
 
-The full sequence is documented in [OBJECTIVE-FOCUS-WORKFLOW.md](OBJECTIVE-FOCUS-WORKFLOW.md).
+The full sequence is documented in [objective-focus-workflow.md](../objectives/objective-focus-workflow.md).
 
 ### Analytics
 
@@ -195,6 +195,6 @@ No `.env.example` exists in this checkout, although several documents reference 
 
 - Students have **no web portal**; the web shell rejects the student role.
 - `packages/db/prisma/schema.prisma` does not mirror every table (for example `audit_events`, `staff_messages`, `backup_runs`); migrations remain authoritative.
-- Session-note bodies are stored as plain text columns; there is no field-level encryption layer (see [SECURITY-PRIVACY.md](SECURITY-PRIVACY.md)).
+- Session-note bodies are stored as plain text columns; there is no field-level encryption layer (see [security-privacy.md](../security/security-privacy.md)).
 - The push-delivery worker is documented as a contract (`notification-service.ts`) but is not present in this repository.
-- `rbac.ts` still lists `/analytics`, `/resources`, and `/appointments/new` even though no pages exist for them; see [UI-SITEMAP.md](UI-SITEMAP.md).
+- `rbac.ts` still lists `/analytics`, `/resources`, and `/appointments/new` even though no pages exist for them; see [ui-sitemap.md](../ux/ui-sitemap.md).

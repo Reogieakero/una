@@ -1,6 +1,6 @@
 # System Objectives Guide
 
-This document takes each of the eleven study objectives, names the screen that proves it, the service that enforces it, the table that stores it, and the test or migration that backs the claim. It is the bridge between the plain-language [OBJECTIVE_STATUS.md](../OBJECTIVE_STATUS.md) and the detailed audit in [Objective_Achievement_Report.md](../Objective_Achievement_Report.md).
+This document takes each of the eleven study objectives, names the screen that proves it, the service that enforces it, the table that stores it, and the test or migration that backs the claim. It is the bridge between the plain-language [OBJECTIVE_STATUS.md](../../OBJECTIVE_STATUS.md) and the detailed audit in [Objective_Achievement_Report.md](../../Objective_Achievement_Report.md).
 
 **Audience:** thesis panel, adviser, demo presenter, and new developers.
 
@@ -24,17 +24,17 @@ There is no "Done" label here on purpose. "Done" invites the question "done agai
 
 | # | Objective (short) | Status | Why that status | Primary evidence |
 |---:|---|---|---|---|
-| 1 | User-friendly interface for students, counselors, head | **Partial** | Interface is built and role-aware; no participant usability study, SUS score, or WCAG audit has been run. | Mobile onboarding and tabs; web staff shell; `docs/usability-accessibility-protocol.md` (protocol only). |
+| 1 | User-friendly interface for students, counselors, head | **Partial** | Interface is built and role-aware; no participant usability study, SUS score, or WCAG audit has been run. | Mobile onboarding and tabs; web staff shell; `docs/ux/usability-accessibility-protocol.md` (protocol only). |
 | 2 | Book, reschedule, cancel, PSS-10 before session | **Implemented** | All transitions, the 7-day pre-session gate, audited waiver, and slot guard work. | `bookAppointment`, `mutations.ts`, migration `00068`, `no_counselor_overlap`. |
-| 3 | Secure anonymous identity | **Implemented** | Alias-first staff views plus time-limited, reviewed, audited reveal. Mathematical anonymity is not claimed. | `00069_identity_rls_hardening.sql`, `break-glass-service.ts`, `docs/anonymity-threat-model.md`. |
+| 3 | Secure anonymous identity | **Implemented** | Alias-first staff views plus time-limited, reviewed, audited reveal. Mathematical anonymity is not claimed. | `00069_identity_rls_hardening.sql`, `break-glass-service.ts`, `docs/security/anonymity-threat-model.md`. |
 | 4 | Counselor dashboard, records, notes | **Implemented** | Dashboard, appointment board, calendar, student timeline, and S.O.A.P./freeform notes are wired. | `apps/web/app/(staff)/dashboard`, `/sessions`, `/students/[id]`, `session_notes`. |
 | 5 | Analytics, stress trends, reports | **Implemented** | Head-only aggregates, cohort views, quality panel, suppression, and Excel export exist. | `00061`, `00071` RPCs, `suppression.ts`, `lib/reports/`. |
 | 6 | Real-time chat | **Implemented** | Student and staff threads persist and update through realtime; notifications fire on new messages. | `chat-service.ts`, `chat_threads`, `chat_messages`, realtime provider. |
-| 7 | Announcement management | **Partial** | Publishing, targeting, drafts, images, and insights work. Events, venue, date range, RSVP, and attendance do **not** exist. | `announcements`, `docs/objective-7-announcement-scope.md`. |
+| 7 | Announcement management | **Partial** | Publishing, targeting, drafts, images, and insights work. Events, venue, date range, RSVP, and attendance do **not** exist. | `announcements`, `docs/objectives/objective-7-announcement-scope.md`. |
 | 8 | Google Meet link | **Implemented** | Server-side event creation plus validated manual paste fallback; link is stored and surfaced. | `/api/appointments/meet`, `meeting.ts`, migration `00072`. |
 | 9 | Break-glass emergency access with audit | **Implemented** | Grant, caseload check, head review, reveal, expiry, and audit rows are all present. | `break-glass-service.ts`, `/api/staff/security/*`, `break_glass_logs`, `audit_logs`. |
 | 10 | Faculty referral feature | **Implemented** | Faculty file referrals by exact student number; head assigns; counselor confirms into a real session, resolves, escalates, or rejects. | `referrals/mutations.ts`, `referral_actions`, `/refer-student`, `/referrals`. |
-| 11 | ISO/IEC 25010 evaluation | **Partial** | Performance harness and automated tests exist; no usability study, accessibility audit, or penetration test. | `perf-tests/`, Vitest suites, RLS tests, Playwright, CI; [ISO-25010-EVALUATION.md](ISO-25010-EVALUATION.md). |
+| 11 | ISO/IEC 25010 evaluation | **Partial** | Performance harness and automated tests exist; no usability study, accessibility audit, or penetration test. | `perf-tests/`, Vitest suites, RLS tests, Playwright, CI; [iso-25010-evaluation.md](../quality/iso-25010-evaluation.md). |
 
 **Nine objectives are implemented, two are partial.** Objective 1 is partial only for evidence, not for software. Objective 7 is partial because its wording was narrowed from event management to announcement management. Objective 11 is partial because the evaluation instrument is not fully exercised.
 
@@ -73,7 +73,7 @@ Notes:
 - Route access and action access are different checks. For example, the head can reach `/availability` but `availability.manage` is granted only to `counselor` in `actionPolicy`.
 - The student is **mobile-only**. `apps/web/app/(staff)/layout.tsx` rejects the student role; students are redirected away from the web shell.
 - `admin` is a narrow account: it may enter the staff shell but only `/settings` is written to allow it, and the sidebar hides everything else. Head-only tools live under `app/(admin)` and require `guidance_head`.
-- `rbac.ts` lists `/analytics`, `/resources`, and `/appointments/new`, but no page exists for those URLs. See [UI-SITEMAP.md](UI-SITEMAP.md); the entries are stale policy, not hidden features.
+- `rbac.ts` lists `/analytics`, `/resources`, and `/appointments/new`, but no page exists for those URLs. See [ui-sitemap.md](../ux/ui-sitemap.md); the entries are stale policy, not hidden features.
 
 ---
 
@@ -90,7 +90,7 @@ Each objective uses the same six rows: **What the objective asks**, **Where it l
 | **How it works** | One role-aware shell (`components/shared/staff-shell.tsx`, `staff-nav.tsx`) hides links a role cannot open. Mobile uses `theme.ts` tokens, large tap targets, plain-language errors, and empty/loading states. The `/about` page is a role-scoped staff handbook. |
 | **Where it is saved** | Interface state only: onboarding flag on the device, local UI state. Content comes from Supabase. |
 | **Status** | **Partial.** |
-| **Limit or caveat** | No usability study with non-technical participants, no SUS score, task-success rate, or time-on-task. The protocol exists in `docs/usability-accessibility-protocol.md`; no sessions have been run. Also, the split is students = mobile, staff = web; there is no student web portal. |
+| **Limit or caveat** | No usability study with non-technical participants, no SUS score, task-success rate, or time-on-task. The protocol exists in `docs/ux/usability-accessibility-protocol.md`; no sessions have been run. Also, the split is students = mobile, staff = web; there is no student web portal. |
 
 ### Objective 2 — Booking, rescheduling, cancellation, and PSS-10 before the session
 
@@ -151,7 +151,7 @@ Each objective uses the same six rows: **What the objective asks**, **Where it l
 
 | Row | Detail |
 |---|---|
-| **What the objective asks (as adjusted)** | Publish announcements and activities to the right audience. The original event-management wording is narrowed and recorded in `docs/objective-7-announcement-scope.md`. |
+| **What the objective asks (as adjusted)** | Publish announcements and activities to the right audience. The original event-management wording is narrowed and recorded in `docs/objectives/objective-7-announcement-scope.md`. |
 | **Where it lives** | Web `/announcements` (compose, draft, publish, unpublish, delete, insights). Mobile `/(tabs)/home` feed. Staff feed in the same web page for counselor and faculty audiences. |
 | **How it works** | `announcements` stores title, body, audience role array, optional `event_date`, image URL, and `published_at`. Drafts have no `published_at` and are hidden from non-head staff. Publishing fans out notifications to the targeted roles. Images live in the public `announcement-images` bucket with head-only writes. Insights read engagement and reach. |
 | **Where it is saved** | `announcements`, `notifications`, `storage.objects` (announcement images). |
@@ -198,7 +198,7 @@ Each objective uses the same six rows: **What the objective asks**, **Where it l
 | **What the objective asks** | Evaluate the system against software-quality characteristics. |
 | **Where it lives** | `perf-tests/` (page load, booking, mutations, concurrency, realtime, query plans), `packages/shared-services/**/*.test.ts` (86 Vitest cases), `tests/rls/rls.test.ts` (14 RLS cases), `e2e/specs/` (4 Playwright role journeys), `.github/workflows/ci.yml`. |
 | **How it works** | Performance scripts record JSON results. Unit tests cover PSS-10 integrity and scoring, booking gates, idempotency, slot races, Meet URL validation, RBAC, and suppression. RLS tests cover cross-student and cross-role isolation, note privacy, and audit scope. Playwright covers student, counselor, faculty, and head journeys. CI runs typecheck, unit tests, web build, RLS, and browser smoke. |
-| **Where it is saved** | Test files, `perf-tests/results/*.json`, CI logs, and [ISO-25010-EVALUATION.md](ISO-25010-EVALUATION.md). |
+| **Where it is saved** | Test files, `perf-tests/results/*.json`, CI logs, and [iso-25010-evaluation.md](../quality/iso-25010-evaluation.md). |
 | **Status** | **Partial.** |
 | **Limit or caveat** | Missing a participant usability study (SUS, task success, time-on-task), a WCAG/screen-reader audit, and an external penetration test. The protocol exists; the participants have not been run. Performance numbers are staging measurements, not production SLAs. |
 
@@ -210,14 +210,14 @@ Every objective maps to a route, a service entry point, a schema object, and a v
 
 | # | Routes / screens | Service entry points | Tables / views / RPCs | Verification |
 |---:|---|---|---|---|
-| 1 | Mobile `/(tabs)/home`, `/book`, `/check-in`; web shell, `/about` | UI only; shared `rbac.ts` shapes navigation | `profiles`, `students` (read) | `docs/usability-accessibility-protocol.md`; no results yet |
+| 1 | Mobile `/(tabs)/home`, `/book`, `/check-in`; web shell, `/about` | UI only; shared `rbac.ts` shapes navigation | `profiles`, `students` (read) | `docs/ux/usability-accessibility-protocol.md`; no results yet |
 | 2 | Mobile `/book`, `/check-in`, `/(tabs)/sessions`; web `/appointments`, `/sessions` | `bookAppointment`, `submitPss10`, `assignAppointment`, `confirmAppointment`, `completeAppointment`, `cancelAppointment`, `markAppointmentNoShow`, `rescheduleAppointment`, `submitFeedback` | `appointments`, `pss10_assessments`, `counselor_availability`, `feedback`; `no_counselor_overlap` | `booking-service.test.ts`, `mutations.test.ts`, `mutations-pss10.test.ts`, `pre-session-pss10.test.ts` |
-| 3 | Mobile `/book`; web `/appointments`, `/sessions`, `/students`, `/chat`, `/reports`, `/emergency`, `/security` | `breakGlassAccess`, `isStudentOnCounselorCaseload`, reveal/review route handlers | `students.anonymous_alias`, `appointments.is_anonymous`, `break_glass_logs`, `audit_logs` | RLS tests; `docs/anonymity-threat-model.md`; `00069` |
+| 3 | Mobile `/book`; web `/appointments`, `/sessions`, `/students`, `/chat`, `/reports`, `/emergency`, `/security` | `breakGlassAccess`, `isStudentOnCounselorCaseload`, reveal/review route handlers | `students.anonymous_alias`, `appointments.is_anonymous`, `break_glass_logs`, `audit_logs` | RLS tests; `docs/security/anonymity-threat-model.md`; `00069` |
 | 4 | Web `/dashboard`, `/appointments`, `/sessions`, `/availability`, `/students`, `/students/[id]` | `listAppointmentPage`, `completeAppointment`, `syncFollowUpSession`, note routes | `appointments`, `session_notes`, `session_note_attachments`, `counselor_availability` | `mutations.test.ts`; session-note route tests; RLS note privacy |
 | 5 | Web `/reports` | `getDailySummary`, `getStressOverview`, `suppressCohorts`; head RPCs | `analytics_daily_summary`, `report_digests`, `head_*` RPCs | `suppression.test.ts`; `00061`, `00071`; Excel builders |
 | 6 | Mobile `/chat`; web `/chat` | `messageableCounselors`, `listThreads`, `openThread`, `sendMessage`, `listStaffMessages` | `chat_threads`, `chat_messages`, `staff_messages`, `notifications` | `chat-service` tests; realtime provider; RLS |
-| 7 | Web `/announcements`; mobile `/(tabs)/home` | announcement page actions; notification service | `announcements`, `notifications`, `announcement-images` bucket | migration `00025`; `00044` tone; `docs/objective-7-announcement-scope.md` |
-| 8 | Web `/appointments`, session detail, referral confirm | `meeting.ts`, `/api/appointments/meet` | `appointments.meeting_url`, `meeting_provider`, `meeting_event_id` | `meeting.test.ts`; `00072`; `docs/google-meet-integration.md` |
+| 7 | Web `/announcements`; mobile `/(tabs)/home` | announcement page actions; notification service | `announcements`, `notifications`, `announcement-images` bucket | migration `00025`; `00044` tone; `docs/objectives/objective-7-announcement-scope.md` |
+| 8 | Web `/appointments`, session detail, referral confirm | `meeting.ts`, `/api/appointments/meet` | `appointments.meeting_url`, `meeting_provider`, `meeting_event_id` | `meeting.test.ts`; `00072`; `docs/operations/google-meet-integration.md` |
 | 9 | Web `/emergency`, `/security`, `/security/events` | `breakGlassAccess`, `isStudentOnCounselorCaseload`, `reviewBreakGlass` | `break_glass_logs`, `audit_logs` | RLS tests; `00027`, `00069`; break-glass service tests |
 | 10 | Web `/refer-student`, `/referrals`, `/dashboard`, `/reports` | `createReferral`, `triageReferral`, `assignReferral`, `confirmReferralWithSession`, `rejectReferral`, `escalateStaleUrgent` | `referrals`, `referral_actions`, `appointments.source_referral_id` | `referrals/mutations` tests; `00039`, `00040`; Playwright faculty journey |
 | 11 | CI, performance harness, test suites | N/A | N/A | `perf-tests/results/*.json`, 86 Vitest cases, 14 RLS tests, 4 Playwright specs, `ci.yml` |
@@ -272,7 +272,7 @@ Run this against staging, not production data. Each step deliberately touches a 
 
 ## 7. ISO/IEC 25010 mapping
 
-This is a preview. The full evaluation method and evidence slots are in [ISO-25010-EVALUATION.md](ISO-25010-EVALUATION.md).
+This is a preview. The full evaluation method and evidence slots are in [iso-25010-evaluation.md](../quality/iso-25010-evaluation.md).
 
 | ISO characteristic | Where DCAS addresses it | Evidence state |
 |---|---|---|

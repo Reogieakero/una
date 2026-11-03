@@ -68,7 +68,7 @@ Tab bar: `components/TabBar.tsx` (home, book, chat, sessions, profile). Chat is 
 **Wired to Supabase / shared services:**
 
 - Authentication: login, logout, student registration (`registerStudentSchema`, strong-password rule), session persistence.
-- **Google sign-in / sign-up:** `Continue with Google` opens the provider in an in-app browser, exchanges the PKCE code, and bootstraps the student rows. New Google users finish student number/faculty/year on `/register?google=1`. Setup is documented in [`docs/google-signin.md`](../../docs/google-signin.md).
+- **Google sign-in / sign-up:** `Continue with Google` opens the provider in an in-app browser, exchanges the PKCE code, and bootstraps the student rows. New Google users finish student number/faculty/year on `/register?google=1`. Setup is documented in [`docs/operations/google-signin.md`](../../docs/operations/google-signin.md).
 - Profile bootstrap: `lib/supabase/ensureStudent.ts` creates the `profiles` + `students` rows for a signed-in student (RLS-safe, idempotent, alias collision retry).
 - Home: upcoming appointments and notifications via `listStudentAppointments`; cancellation via `cancelAppointment`. Notifications now have a real screen (`app/notifications.tsx`) with per-item mark-read, an exact unread badge on the bell/tab bar, and a single realtime subscription (`lib/notifications-context.tsx`) scoped to the signed-in student.
 - Reminders: `00065_session_reminders` runs in Postgres every minute and inserts a generic “starts in 10 minutes” notification for the student and the assigned counselor; it arrives through the same realtime bell/toast/inbox path as other notifications.
@@ -148,5 +148,5 @@ Icons come from `lucide-react-native/icons/<name>` (per-icon imports keep the bu
 ## Related docs
 
 - Root [`AGENTS.md`](../../AGENTS.md) — architecture rules, commands, shared-package boundaries.
-- [`docs/realtime-audit.md`](../../docs/realtime-audit.md) — web realtime/notification architecture.
-- [`docs/google-signin.md`](../../docs/google-signin.md) — Google OAuth setup for Supabase, Google Cloud, and mobile redirects.
+- [`docs/architecture/realtime-audit.md`](../../docs/architecture/realtime-audit.md) — web realtime/notification architecture.
+- [`docs/operations/google-signin.md`](../../docs/operations/google-signin.md) — Google OAuth setup for Supabase, Google Cloud, and mobile redirects.

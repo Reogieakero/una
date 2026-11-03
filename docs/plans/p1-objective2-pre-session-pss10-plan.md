@@ -3,7 +3,7 @@
 Status: **implemented 24 October 2026; CI green; report updated.**
 Date: 24 October 2026.
 Owner: engineering.
-Related: `Objective_Achievement_Report.md` §3.1 and Objective 2; `P1_HONESTY_GAPS_PLAN.md`; `docs/pss10-license-note.md`.
+Related: `Objective_Achievement_Report.md` §3.1 and Objective 2; `P1_HONESTY_GAPS_PLAN.md`; `docs/security/pss10-license-note.md`.
 
 ---
 

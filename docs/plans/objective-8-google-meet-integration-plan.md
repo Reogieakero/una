@@ -201,7 +201,7 @@ Error: “Couldn't create a Meet link — paste one instead or try again.”
 
 ### Phase 5 — Documentation (0.25 day)
 - [x] Update report verdict and residual risks.
-- [x] Add a short `docs/google-meet-integration.md` covering setup, scopes, rotation, and failure modes.
+- [x] Add a short `docs/operations/google-meet-integration.md` covering setup, scopes, rotation, and failure modes.
 - [x] Note the 7-day testing-token caveat.
 
 **Total:** ~3–4 days with option A; ~2 days if option B credentials already exist.

@@ -47,7 +47,7 @@ The report separates three things that are often confused:
 - The performance artifacts contain a **failed same-slot concurrency test**: 50 concurrent confirmations of overlapping appointments produced **50 confirmed rows** where exactly 1 was expected (`perf-tests/results/concurrency.json`, E1 `pass: false`). The code contains an exclusion constraint intended to prevent this (`00059_phase1_perf_indexes_slotguard.sql`), but the constraint is wrapped in a `DO … EXCEPTION` block that silently skips creation if overlapping rows already exist. This must be verified in the deployed database. **This is the single highest-risk finding in the review.** **Fixed and re-measured on staging on 24 October 2026 — see §1.5.**
 - The same artifacts show the analytics RPCs `head_appointment_daily_counts` and `head_referral_status_counts` as **missing** in the measured environment (`perf-tests/results/explain.json`), even though they exist in migration `00061_phase3b_report_rpcs.sql`. This is migration drift, not necessarily a code defect — but it means reports may silently degrade if deployment is not verified. **Resolved on staging on 24 October 2026 — see §1.5.**
 - ~~The mobile app still uses local mock data for the profile identity card and the PSS-10 question wording/labels.~~ **Closed in P1 — see §1.6.** The profile card reads `profiles` + `students`, and PSS-10 wording/labels come from `packages/shared-services/src/assessments/pss10-instrument.ts`; `apps/mobile/data/mock.ts` was removed.
-- Objective 7 was originally worded as “event management.” It is now explicitly **announcement management**: targeted news posts with drafts, images, realtime delivery, and insights. There is no event calendar, venue, date range, RSVP, or attendance tracking; that boundary is recorded in `docs/objective-7-announcement-scope.md`.
+- Objective 7 was originally worded as “event management.” It is now explicitly **announcement management**: targeted news posts with drafts, images, realtime delivery, and insights. There is no event calendar, venue, date range, RSVP, or attendance tracking; that boundary is recorded in `docs/objectives/objective-7-announcement-scope.md`.
 - Google Meet is a **validated Meet link with API integration** (server-side Calendar/Meet API Route A with manual paste fallback); the system creates, stores, and manages the join URL automatically while retaining paste as an always-available fallback.
 - ~~There is no unit-test runner, no automated end-to-end suite, and no formal usability study with non-technical users.~~ **Partly closed in P1 — see §1.6.** Unit tests (41), RLS integration tests (8), and four Playwright role specs now run in CI. The formal usability/accessibility study still has no participants, so Objective 11 remains only partially demonstrated by evidence.
 
@@ -110,13 +110,13 @@ This section records the P1 work completed after the review. The findings in §4
 | No RLS regression tests | `tests/rls` with 8 cases: cross-student appointment/PSS/profile isolation, cross-role insert denial, counselor-note isolation with head oversight, self-promotion blocking, audit read scope/append-only, content-free notification fan-out | CI `rls` job, green run **#39990715576** |
 | No browser-driven role smoke test | `e2e/` Playwright, 4 specs (student route boundary, counselor Complete → note save, faculty referral history/form, head referral board + populated report sections) | CI `e2e` job, green run **#39994834656** (4/4 specs) |
 | Mobile PSS-10 wording was local mock text | Canonical instrument in `packages/shared-services/src/assessments/pss10-instrument.ts`; mobile check-in and scoring import it; `apps/mobile/data/mock.ts` removed | Unit-test instrument-integrity cases; mobile typecheck |
-| Objective 7 was described as events | Renamed to **announcement management**; calendar/RSVP/attendance documented as out of scope | `docs/objective-7-announcement-scope.md` |
+| Objective 7 was described as events | Renamed to **announcement management**; calendar/RSVP/attendance documented as out of scope | `docs/objectives/objective-7-announcement-scope.md` |
 | “No automated test for note authorization” | Counselor-note isolation covered in the RLS suite; note save exercised in Playwright | Run **#39990715576**, **#39994834656** |
 
 **Still open**
 
 - P1.6 usability/accessibility study: protocol and participant plan exist, but **no participants have been run**. There is no SUS score, task-success rate, time-on-task, or WCAG audit result yet. Objective 11 therefore remains partially achieved.
-- PSS-10 licensing/permission is recorded in `docs/pss10-license-note.md` but is **not verified** in writing.
+- PSS-10 licensing/permission is recorded in `docs/security/pss10-license-note.md` but is **not verified** in writing.
 - No penetration test, SAST/DAST, or production deployment verification.
 - Staging guard secrets are not configured, so the scheduled staging job has not run in CI.
 
@@ -144,7 +144,7 @@ Migration `00069_identity_rls_hardening.sql` closes that path:
 Routine UI removed the remaining leaks: `/students` no longer renders or
 searches `student_no`; `/emergency` shows `alias` only; the faculty referral
 modal performs one exact lookup instead of loading 200 student rows.
-`docs/anonymity-threat-model.md` records the security property, boundaries,
+`docs/security/anonymity-threat-model.md` records the security property, boundaries,
 and residual risks.
 
 **Applied:** `00069_identity_rls_hardening.sql` was executed against the linked
@@ -164,7 +164,7 @@ pseudonymous by default with audited break-glass re-identification. The
 ambient-correlation gap that kept this objective at *Substantially achieved*
 is closed. Residual risks (service-role/DB correlation, identifying referral
 documents, self-identification, no penetration test) are inherent or
-verification limits, documented in `docs/anonymity-threat-model.md`, not
+verification limits, documented in `docs/security/anonymity-threat-model.md`, not
 unimplemented parts of the objective. This is still **not** cryptographic
 anonymity.
 
@@ -257,7 +257,7 @@ Objective 4's remaining gap was the absence of a single student record, and Obje
 | Database | `supabase/migrations/**` (schema, RLS, triggers, RPCs, constraints) |
 | Performance evidence | `perf-tests/results/*.json` (pages, throttled pages, booking, mutations, concurrency, realtime, explain plans) |
 | Automated tests (P1) | `packages/shared-services/src/**/*.test.ts` (Vitest), `tests/rls/rls.test.ts`, `e2e/specs/*.spec.ts`, `.github/workflows/ci.yml` |
-| Product documentation | `AGENTS.md`, `apps/mobile/README.md`, `docs/realtime-audit.md`, `docs/BACKUP_RESTORE.md` |
+| Product documentation | `AGENTS.md`, `apps/mobile/README.md`, `docs/architecture/realtime-audit.md`, `docs/operations/backup-restore.md` |
 
 ### 2.2 Evidence hierarchy
 
@@ -297,7 +297,7 @@ When sources disagreed, this report trusted them in this order:
 | 4 | Counselor dashboard for schedules, records, notes | Fully achieved | `/dashboard`, `/appointments`, `/sessions`, `/students`, `/students/[id]`, session-note API, `00070` record/timeline RPCs, S.O.A.P. notes | Note bodies are per-session by privacy design; record is a metadata-first timeline, not a full narrative case file |
 | 5 | Analytics module: collect data, stress trends, reports | Fully achieved | `/reports`, `head-reports-view.tsx`, `analytics-queries.ts`, `00019`, `00061`, `00071` trends/cohort/quality/digest, `MIN_CELL=5` suppression | Predictive modeling explicitly out of scope; email delivery out of scope (in-app digest delivered) |
 | 6 | Real-time chat | Fully achieved | `/chat` (web + mobile), Supabase Realtime, `realtime.json` | No typing indicators/read receipts verified; no offline queue |
-| 7 | Announcement management for publishing announcements/activities | Fully achieved (renamed scope) | `/announcements`, drafts, audience targeting, images, insights, mobile home feed | Event calendar, date/venue, RSVP, attendance are explicitly out of scope (`docs/objective-7-announcement-scope.md`) |
+| 7 | Announcement management for publishing announcements/activities | Fully achieved (renamed scope) | `/announcements`, drafts, audience targeting, images, insights, mobile home feed | Event calendar, date/venue, RSVP, attendance are explicitly out of scope (`docs/objectives/objective-7-announcement-scope.md`) |
 | 8 | Embedded Google Meet link | Fully achieved (Route A) | `00072` provider/event-id columns, server-side Google Calendar/Meet API (`apps/web/lib/google/meet.ts`), `/api/appointments/meet` create/patch/delete, `meeting_provider = 'google_meet'` persistence, Create Meet link wired in appointment + referral confirm flows, provider badge + Remove link in the session detail modal | No real-account verification recorded (requires Google credentials); no per-counselor OAuth; student-initiated cancel (mobile) does not auto-detach the calendar event — staff detach via the detail-modal Remove link or a reject from the appointments board
 | 9 | Break-glass emergency access with audit | Fully achieved | `/emergency`, `break-glass-service.ts`, `/api/staff/security/*`, `00017`, `00018`; caseload unit tests + audit RLS tests | No automated alerting to the head; full expiry/review flow not browser-tested |
 | 10 | Faculty referral feature | Fully achieved | `/refer-student`, `/referrals`, `referrals/mutations.ts`, `referral_actions` | No mobile faculty app (web only); no external referral letter delivery |
@@ -311,7 +311,7 @@ The table above is the **current** assessment. This table records what changed s
 |---:|---|---|---|---|
 | 1 | User-friendly interface | Substantially achieved | **Substantially achieved** | Mobile mock data and PSS-10 wording removed; no participant-based usability or accessibility evidence yet |
 | 2 | Scheduling + PSS-10 | Substantially achieved | **Fully achieved** | P2 added the 7-day pre-session check-in enforced at completion (`00068`, `pre-session-pss10.ts`), an audited waiver path, and confirmed reschedule until 24 hours before start. Booking gate remains 30 days; waiver exceptions are documented |
-| 3 | Anonymous identity | Substantially achieved | **Fully achieved** | P3 closed ambient re-identification (`00069`): routine staff are alias-only, student rows/profiles are denied, directory is caseload-scoped, and referrals use exact lookup. RLS + Playwright cover isolation. Pseudonymity with audited break-glass, not cryptographic anonymity; threat model at `docs/anonymity-threat-model.md` |
+| 3 | Anonymous identity | Substantially achieved | **Fully achieved** | P3 closed ambient re-identification (`00069`): routine staff are alias-only, student rows/profiles are denied, directory is caseload-scoped, and referrals use exact lookup. RLS + Playwright cover isolation. Pseudonymity with audited break-glass, not cryptographic anonymity; threat model at `docs/security/anonymity-threat-model.md` |
 | 4 | Counselor dashboard | Substantially achieved | **Fully achieved** | P4 (`00070`) adds an alias-only student record/timeline and backward-compatible S.O.A.P. notes; `/students/[id]` links from the directory. Note bodies stay per-session and out of the bulk timeline |
 | 5 | Analytics | Substantially achieved | **Fully achieved** | P5 (`00071`) adds daily wellbeing trends, cohort stress, data-quality indicators, `MIN_CELL=5` suppression, a persisted in-app digest, and a “Quality & trends” export. Predictive modeling is documented as out of scope |
 | 6 | Real-time chat | Fully achieved | **Fully achieved** | No P1 feature change; realtime measurement remains the proof |
@@ -357,7 +357,7 @@ The table above is the **current** assessment. This table records what changed s
 #### Gaps and honest caveats
 
 1. ~~**Mobile profile is not fully real.**~~ **Closed in P1 (§1.6).** The profile card now reads `profiles` + `students`, with private-bucket avatar upload; `apps/mobile/README.md` no longer lists an identity-card mock.
-2. ~~**PSS-10 question wording/labels are mocked on mobile.**~~ **Closed in P1 (§1.6).** The canonical instrument lives in `packages/shared-services/src/assessments/pss10-instrument.ts`; mobile check-in and scoring import it, and the unit suite asserts instrument integrity. Licensing/permission remains unverified — see `docs/pss10-license-note.md`.
+2. ~~**PSS-10 question wording/labels are mocked on mobile.**~~ **Closed in P1 (§1.6).** The canonical instrument lives in `packages/shared-services/src/assessments/pss10-instrument.ts`; mobile check-in and scoring import it, and the unit suite asserts instrument integrity. Licensing/permission remains unverified — see `docs/security/pss10-license-note.md`.
 3. **No formal usability test with non-technical users.** The interface *looks* approachable, but there is no SUS score, task-success rate, time-on-task, or error-rate evidence. “User-friendly” is therefore an informed design judgment, not a measured result.
 4. **Accessibility is not verified.** There is no WCAG audit, no screen-reader test, and no documented keyboard/focus review. Color contrast and reduced-motion behavior are not evidenced.
 5. **Web bundle weight on login is high** — about **1.13 MB JS** in the normal run (`perf-tests/results/pages.json`), which is heavy for low-end devices and slow connections.
@@ -417,7 +417,7 @@ The two-step mobile flow is understandable: choose a concern → choose how/when
 
 ### Objective 3 — Implement a secure anonymous identity system that protects student confidentiality during counseling sessions
 
-**Verdict: Fully achieved**, under the pseudonymity-with-audited-re-identification definition recorded in §1.7 and `docs/anonymity-threat-model.md`.
+**Verdict: Fully achieved**, under the pseudonymity-with-audited-re-identification definition recorded in §1.7 and `docs/security/anonymity-threat-model.md`.
 
 #### Where it is implemented
 
@@ -431,8 +431,8 @@ The two-step mobile flow is understandable: choose a concern → choose how/when
 | Audit trail | `supabase/migrations/00018_audit_logs.sql`; `apps/web/lib/log-event.ts` |
 | Emergency UI | `apps/web/app/(staff)/emergency/page.tsx` |
 | Routine alias-only RLS/RPCs | `supabase/migrations/00069_identity_rls_hardening.sql` (`list_student_directory`, `get_student_aliases`, `lookup_student_for_referral`, `get_referral_student`) |
-| Threat model | `docs/anonymity-threat-model.md` |
-| No sensitive content in notifications | `AGENTS.md` rules; `notifyStaff()` usage; `docs/realtime-audit.md` |
+| Threat model | `docs/security/anonymity-threat-model.md` |
+| No sensitive content in notifications | `AGENTS.md` rules; `notifyStaff()` usage; `docs/architecture/realtime-audit.md` |
 
 #### What works
 
@@ -453,7 +453,7 @@ objective:
 1. **This is pseudonymity, not mathematical anonymity.** The database keeps a recoverable alias → identity mapping for break-glass. Service-role and database administrators can still correlate records. What changed in `00069` is that a normal counselor, personnel, or faculty browser session can no longer do so ambiently: student rows and student profiles are denied, and identity requires an audited, time-limited reveal.
 2. **“During counseling sessions” is broader than the technical control.** Chat, session notes, and appointment records may still contain identity-revealing content typed by the student or counselor. The system cannot guarantee anonymity if a participant self-identifies.
 3. **No data-retention or alias-rotation policy is evidenced.** Old aliases, audit logs, and chat history can accumulate indefinitely unless a retention process exists.
-4. **No penetration test has been run.** A threat model now exists (`docs/anonymity-threat-model.md`) and RLS/Playwright tests cover identity isolation, but the system has not been independently penetration-tested.
+4. **No penetration test has been run.** A threat model now exists (`docs/security/anonymity-threat-model.md`) and RLS/Playwright tests cover identity isolation, but the system has not been independently penetration-tested.
 
 #### Non-technical user lens
 
@@ -574,7 +574,7 @@ The reports page is visually structured and includes explanatory hints, which he
 | Chat domain service | `packages/shared-services/src/chat/**` |
 | Contact discovery | `apps/web/app/api/chat/contacts/route.ts` |
 | Realtime subscriptions | Supabase Realtime `chat_messages` INSERT subscription (web and mobile) |
-| Realtime behavior audit | `docs/realtime-audit.md` |
+| Realtime behavior audit | `docs/architecture/realtime-audit.md` |
 | Schema and policies | `supabase/migrations/**` (`chat_threads`, `chat_messages`, RLS) |
 | Measured latency | `perf-tests/results/realtime.json` |
 
@@ -602,7 +602,7 @@ Chat is one of the most familiar surfaces in the product. The inbox → conversa
 
 ### Objective 7 — Announcement management for publishing announcements and counseling-related activities (renamed from “event management”)
 
-**Verdict: Fully achieved for the renamed scope.** The original “event management” wording is withdrawn; see `docs/objective-7-announcement-scope.md` for the decision record.
+**Verdict: Fully achieved for the renamed scope.** The original “event management” wording is withdrawn; see `docs/objectives/objective-7-announcement-scope.md` for the decision record.
 
 #### Where it is implemented
 
@@ -637,7 +637,7 @@ The renamed objective covers announcements only. The system deliberately does **
 - reminders specific to an event,
 - recurrence.
 
-In short: the implementation is an **announcement manager**, not an event management module. This is a documented scope decision, not an unfinished feature; see `docs/objective-7-announcement-scope.md`.
+In short: the implementation is an **announcement manager**, not an event management module. This is a documented scope decision, not an unfinished feature; see `docs/objectives/objective-7-announcement-scope.md`.
 
 #### Non-technical user lens
 
@@ -794,7 +794,7 @@ The referral form is the most policy-heavy screen for a non-technical faculty me
 | Performance | `perf-tests/` harness; `results/pages.json`, `pages-throttled.json`, `booking.json`, `mutations.json`, `realtime.json`, `explain.json` |
 | Reliability | Realtime reconnect test, 0 lost messages; concurrency test re-run green after `00067` (§1.5); 69 unit + 8 RLS + 5 role smoke tests in CI (§1.6) |
 | Security | RBAC, RLS, audit logs, break-glass, guarded writes, server-only service role, Zod validation, rate limiting |
-| Usability | Interface review only; protocol written at `docs/usability-accessibility-protocol.md`, but **no participants, SUS, or task-based results yet** |
+| Usability | Interface review only; protocol written at `docs/ux/usability-accessibility-protocol.md`, but **no participants, SUS, or task-based results yet** |
 | ISO/IEC 25010 structure | This report provides a structured evaluation; no formal instrument was found in the repo |
 
 #### What is genuinely evaluated
@@ -946,7 +946,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 - Booking is idempotent; duplicate submissions do not create duplicate appointments.
 - Guarded updates use `.eq("status", expectedFrom)` to avoid lost updates in normal flows.
 - Database constraints/triggers backstop several rules.
-- Backups exist with a documented restore procedure (`docs/BACKUP_RESTORE.md`), and scheduled runs require `CRON_SECRET`.
+- Backups exist with a documented restore procedure (`docs/operations/backup-restore.md`), and scheduled runs require `CRON_SECRET`.
 - Session reminders run in Postgres and arrive through the same notification path.
 
 **Weaknesses**
@@ -970,7 +970,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
 | Anonymity/aliases | Yes | Alias bootstrap; `is_anonymous`; reveal API | Pseudonymity, correlatable by privileged staff |
 | Break-glass | Yes | 30-min grant; justification; caseload; head review; audit | No active alerting; no tamper-evident audit |
 | Audit logs | Yes | `audit_logs`, `break_glass_logs`, `referral_actions` | Retention/monitoring not evidenced |
-| Sensitive data in notifications | Avoided | `notifyStaff()` rules; `docs/realtime-audit.md` | Human error in future changes |
+| Sensitive data in notifications | Avoided | `notifyStaff()` rules; `docs/architecture/realtime-audit.md` | Human error in future changes |
 | Service-role isolation | Yes | Server-only `lib/supabase/admin.ts` | Any server-route bug could expose it |
 | Input validation | Yes | Zod schemas in shared packages | Coverage depends on every route using them |
 | File storage | Private buckets | Session-note attachments; avatar signed URLs | Signed-URL leakage if logs capture URLs |
@@ -1084,7 +1084,7 @@ Measured query execution times are low (0.088–7.117 ms). However, two report R
    - WCAG 2.1 AA audit (contrast, focus, labels, screen reader, text scaling).
    - **Acceptance:** report results and fix high-severity findings.
 
-6. **Event wording — decided.** The objective is renamed to “announcement management.” No events MVP is built; the boundary is recorded in `docs/objective-7-announcement-scope.md`.
+6. **Event wording — decided.** The objective is renamed to “announcement management.” No events MVP is built; the boundary is recorded in `docs/objectives/objective-7-announcement-scope.md`.
 
 ### P2 — Improve quality and trust
 

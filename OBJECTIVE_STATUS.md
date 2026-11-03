@@ -440,7 +440,7 @@ Known limits: no typing indicator or read receipt was verified, and there is no 
 **Where it is saved:** `announcements` (`published_at`, audience/role, image path), `notifications`, storage bucket for images.
 
 **Status: DONE — scope adjusted.**
-This is **announcement management**, not event management. There is **no event calendar, venue, date range, RSVP, or attendance tracking**. That boundary is written in `docs/objective-7-announcement-scope.md`. Say it before the panel asks.
+This is **announcement management**, not event management. There is **no event calendar, venue, date range, RSVP, or attendance tracking**. That boundary is written in `docs/objectives/objective-7-announcement-scope.md`. Say it before the panel asks.
 
 ---
 
@@ -551,7 +551,7 @@ Faculty use the **web only** — there is no faculty mobile app. Referral letter
 4. Role journeys were automated so a regression is visible in CI.
 
 **Status: PARTLY.**
-This is the one objective still short of full evidence. Missing: a **participant usability study** (SUS, task success, time-on-task), a **WCAG/accessibility audit**, and a **penetration test**. The protocol exists (`docs/usability-accessibility-protocol.md`) but no participants have been run.
+This is the one objective still short of full evidence. Missing: a **participant usability study** (SUS, task success, time-on-task), a **WCAG/accessibility audit**, and a **penetration test**. The protocol exists (`docs/ux/usability-accessibility-protocol.md`) but no participants have been run.
 
 ---
 
@@ -566,7 +566,7 @@ This is the one objective still short of full evidence. Missing: a **participant
 | No student web portal | 1 | Low (scope) | State clearly: students = mobile, staff = web |
 | Mobile README says confirmed reschedules are locked | 2 | Low (docs) | Code allows confirmed reschedules until 24 h — the README line is stale |
 | Google Meet needs credentials | 8 | Low | Manual paste fallback is always available |
-| Announcements ≠ events | 7 | Low (scope) | Point to `docs/objective-7-announcement-scope.md` |
+| Announcements ≠ events | 7 | Low (scope) | Point to `docs/objectives/objective-7-announcement-scope.md` |
 | No email delivery | 5, 7 | Low (scope) | In-app digest/notifications only, by decision |
 | Admin role is limited | 1 | Low (scope) | Head performs admin duties; `admin` is settings-only |
 

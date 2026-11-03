@@ -69,7 +69,7 @@ These may be exposed through authorized directory/RPC paths:
 
 ### Phase 0 — Threat model and field policy
 
-Create `docs/anonymity-threat-model.md` documenting:
+Create `docs/security/anonymity-threat-model.md` documenting:
 
 - identity fields versus alias-only fields;
 - student self-access, oversight access, faculty referral creation, and break-glass exceptions;
@@ -207,7 +207,7 @@ Update `Objective_Achievement_Report.md`:
 
 - `tests/rls/rls.test.ts`
 - `e2e/specs/counselor.spec.ts`
-- `docs/anonymity-threat-model.md` (new)
+- `docs/security/anonymity-threat-model.md` (new)
 - `Objective_Achievement_Report.md`
 
 ## 7. Estimated Total

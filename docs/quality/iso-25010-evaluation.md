@@ -24,9 +24,9 @@ This document maps DCAS against the eight software-quality characteristics of **
 | Concurrency | `perf-tests/results/concurrency.json` | 50 simultaneous confirms (E1), 50 idempotent bookings (E2) |
 | Realtime | `perf-tests/results/realtime.json` | 50 message deliveries + reconnect |
 | Query plans | `perf-tests/results/explain.json` | Slow-query plan capture |
-| Usability protocol | `docs/usability-accessibility-protocol.md` | Method only; **no participants run** |
-| Security model | `docs/SECURITY-PRIVACY.md`, `docs/anonymity-threat-model.md` | Controls and residual risks |
-| Backup runbook | `docs/BACKUP_RESTORE.md` | Recovery procedure; no drill record |
+| Usability protocol | `docs/ux/usability-accessibility-protocol.md` | Method only; **no participants run** |
+| Security model | `docs/security/security-privacy.md`, `docs/security/anonymity-threat-model.md` | Controls and residual risks |
+| Backup runbook | `docs/operations/backup-restore.md` | Recovery procedure; no drill record |
 
 All performance numbers below come from the JSON artifacts dated **11 October 2026** (pages, booking, mutations, realtime) and **23 October 2026** (concurrency). They are staging measurements, not a production service-level agreement.
 
@@ -36,9 +36,9 @@ All performance numbers below come from the JSON artifacts dated **11 October 20
 
 | Sub-characteristic | Metric | Method | Target | Evidence | Result |
 |---|---|---|---|---|---|
-| Functional completeness | Objectives 2-10 with an end-to-end path | Trace each objective to route, service, table, test | 8 of 9 fully implemented; 1 scope-adjusted | [SYSTEM-OBJECTIVES-GUIDE.md](SYSTEM-OBJECTIVES-GUIDE.md) | Objectives 2-6, 8-10 implemented; Objective 7 partial (announcements, no events/RSVP) |
+| Functional completeness | Objectives 2-10 with an end-to-end path | Trace each objective to route, service, table, test | 8 of 9 fully implemented; 1 scope-adjusted | [system-objectives-guide.md](../objectives/system-objectives-guide.md) | Objectives 2-6, 8-10 implemented; Objective 7 partial (announcements, no events/RSVP) |
 | Functional correctness | Unit/RLS/browser tests passing | `pnpm test`, `pnpm --filter @dorsu/rls-tests test:rls`, `pnpm e2e` | All pass in CI | `ci.yml`; test files; `perf-tests/results/` | 86 unit, 14 RLS, 6 browser tests exist; CI runs them. Per-run pass status is not stored in this repository |
-| Functional appropriateness | Each role sees the task it needs | Manual route and capability comparison | No wrong-role task surface | [UI-SITEMAP.md](UI-SITEMAP.md); `rbac.ts` | Designed and enforced; admin deliberately narrow; student mobile-only |
+| Functional appropriateness | Each role sees the task it needs | Manual route and capability comparison | No wrong-role task surface | [ui-sitemap.md](../ux/ui-sitemap.md); `rbac.ts` | Designed and enforced; admin deliberately narrow; student mobile-only |
 | Completeness of check-in gate | Booking and completion both gated | Code review + tests | No path bypasses the gate | `booking-service.ts`, `pre-session-pss10.ts`, `mutations-pss10.test.ts`, `pre-session-pss10.test.ts` | Measured by unit tests; waiver path is audited |
 | Small-cell protection | Cells under five hidden | Code review + suppression test | No small cell in display/export | `suppression.ts`, `suppression.test.ts` | Implemented; 3 unit cases |
 
@@ -127,8 +127,8 @@ Realtime:
 
 | Sub-characteristic | Metric | Method | Target | Evidence | Result |
 |---|---|---|---|---|---|
-| Co-existence | Web and mobile against one backend | Manual + shared services | Both clients work on the same data | `ARCHITECTURE.md`; shared packages | Designed and implemented |
-| Interoperability | Google Meet create/patch/delete | Unit tests + optional live test | Link creation and fallback both work | `meeting.test.ts`; `docs/google-meet-integration.md` | Unit-tested; live Google path not in CI |
+| Co-existence | Web and mobile against one backend | Manual + shared services | Both clients work on the same data | `docs/architecture/architecture.md`; shared packages | Designed and implemented |
+| Interoperability | Google Meet create/patch/delete | Unit tests + optional live test | Link creation and fallback both work | `meeting.test.ts`; `docs/operations/google-meet-integration.md` | Unit-tested; live Google path not in CI |
 | Browser compatibility | Web pages in Chromium, Firefox, Safari | Cross-browser run | No blocking defect | Not present | **Not measured.** Only Playwright Chromium is documented |
 | Mobile platform | Android and iOS builds | EAS build | Both build and launch | `apps/mobile/eas.json` | Configured; no build artifact or device matrix in the repository |
 | Data portability | Export to Excel | Workbook generation | Report opens in Excel | `apps/web/lib/reports/` | Implemented; file-level verification not automated |
@@ -141,7 +141,7 @@ Realtime:
 
 | Sub-characteristic | Metric | Method | Target | Evidence | Result |
 |---|---|---|---|---|---|
-| Appropriateness recognizability | Task success without help | Moderated UAT with 16 participants | >= 80% unaided per core task | `docs/usability-accessibility-protocol.md` | **Not measured**; protocol only |
+| Appropriateness recognizability | Task success without help | Moderated UAT with 16 participants | >= 80% unaided per core task | `docs/ux/usability-accessibility-protocol.md` | **Not measured**; protocol only |
 | Learnability | Time to first successful booking / note | Same UAT | First-time student books in <= 10 min | Protocol tasks S1-S5 | **Not measured** |
 | Operability | Clicks to core actions; error recovery | Task analysis + UAT | No dead end; actionable errors | UI-SITEMAP §9; screens | Designed for; not measured with users |
 | User error protection | Guarded transitions; confirmation dialogs | Code review + tests | No destructive action without a guard | Guarded updates; confirm dialogs; tests | Implemented |
@@ -162,9 +162,9 @@ Realtime:
 | Fault tolerance | Double-booking race | 50 concurrent confirms | Exactly one winner | `concurrency.json` E1 | Measured: 1 success, 49 conflicts, pass |
 | Fault tolerance | Retry duplication | 50 concurrent idempotent bookings | One row per intent | `concurrency.json` E2 | Measured: 50/50 success, pass |
 | Fault tolerance | Realtime loss | 50 deliveries + reconnect | No lost message | `realtime.json` | 0 lost; reconnect recovers by replay or refetch |
-| Recoverability | Restore from backup | Staging drill | Restore verified against checksums and row counts | `docs/BACKUP_RESTORE.md` | Procedure exists; **no drill record** |
+| Recoverability | Restore from backup | Staging drill | Restore verified against checksums and row counts | `docs/operations/backup-restore.md` | Procedure exists; **no drill record** |
 | Recoverability | Audit durability | Same-transaction trigger | Business write fails if audit write fails | `audit_track` function | Implemented by design; not fault-injected |
-| Availability of integrations | Meet failure fallback | Manual paste path | Session still confirmable | `google-meet-integration.md` | Implemented; live failure not tested in CI |
+| Availability of integrations | Meet failure fallback | Manual paste path | Session still confirmable | `docs/operations/google-meet-integration.md` | Implemented; live failure not tested in CI |
 
 **Assessment:** consistency and recovery-by-design are strong and partly measured. Availability and restore recovery are **not measured**. Do not claim an uptime percentage.
 
@@ -174,7 +174,7 @@ Realtime:
 
 | Sub-characteristic | Metric | Method | Target | Evidence | Result |
 |---|---|---|---|---|---|
-| Confidentiality | Routine staff cannot read student identity | RLS integration tests + manual | Zero identity rows in routine reads | `00069`; `tests/rls`; `docs/SECURITY-PRIVACY.md` | Implemented; 14 RLS cases cover isolation |
+| Confidentiality | Routine staff cannot read student identity | RLS integration tests + manual | Zero identity rows in routine reads | `00069`; `tests/rls`; `docs/security/security-privacy.md` | Implemented; 14 RLS cases cover isolation |
 | Confidentiality | Note privacy | RLS + API ownership tests | Only owner + head/admin | `00052`; `/api/session-notes` | Implemented |
 | Confidentiality | Chat privacy | Participant-only RLS | No non-participant reads | `is_thread_participant`; `00037` | Implemented |
 | Integrity | Guarded status transitions | Unit tests + DB constraint | No skipped state | `mutations.ts`; `00029` | Measured by tests |
@@ -213,7 +213,7 @@ Realtime:
 | Installability | Mobile install on a device | Device/simulator install | App launches and signs in | `apps/mobile/README.md` | Documented; no device matrix in the repo |
 | Replaceability | Swap Supabase project or Google account | Env review | No code change beyond env | `packages/supabase-client`; env names | Designed for; not tested with a second project |
 | Environment portability | Run against local Supabase | CI local reset | Migrations apply cleanly | `ci.yml` `supabase db reset` | Measured in CI |
-| Platform dependency | Vendor lock-in | Architecture review | Documented exit points | `ARCHITECTURE.md` | Supabase/Next/Vercel/Expo coupling documented |
+| Platform dependency | Vendor lock-in | Architecture review | Documented exit points | `docs/architecture/architecture.md` | Supabase/Next/Vercel/Expo coupling documented |
 
 **Assessment:** portability is good within the chosen stack and not tested across stacks. The system is not containerized or self-hosted.
 
@@ -244,13 +244,13 @@ Do **not** read this as a numeric ISO score. It is an evidence status per charac
 
 | Missing evidence | Procedure | Owner | Artifact to produce |
 |---|---|---|---|
-| SUS + task success | Run the 16-participant protocol in `docs/usability-accessibility-protocol.md` on staging; record per-task success, time, errors, SEQ, SUS | Guidance Office + team | `docs/usability-study-report.md` |
+| SUS + task success | Run the 16-participant protocol in `docs/ux/usability-accessibility-protocol.md` on staging; record per-task success, time, errors, SEQ, SUS | Guidance Office + team | `docs/usability-study-report.md` |
 | WCAG 2.1 AA audit | axe/Lighthouse plus manual keyboard, screen reader, 200% zoom, contrast on the five high-risk surfaces | Team + accessibility reviewer | Findings table with WCAG criterion and severity |
 | Cross-browser | Run the 4 Playwright specs on Firefox and WebKit; add a manual Safari/iOS check | Team | CI matrix results or a dated manual matrix |
 | Mobile device matrix | Install the EAS build on at least one Android and one iOS device; run booking, check-in, chat | Team | Device/OS/build table |
 | Production load | Re-run `perf-tests` with a production-like dataset and concurrency (for example 200-500 users); record p95 and error rate | Team + IT | `perf-tests/results/*.json` with a dated profile |
 | Availability | Add uptime monitoring (Vercel/Supabase or external); collect 30 days | IT | Uptime report |
-| Restore drill | Follow `BACKUP_RESTORE.md` into staging; verify checksums and per-table counts | Guidance head + team | Signed drill record with date and discrepancies |
+| Restore drill | Follow `docs/operations/backup-restore.md` into staging; verify checksums and per-table counts | Guidance head + team | Signed drill record with date and discrepancies |
 | Penetration test | Scope: auth, RLS, break-glass, file upload, Meet URL, API abuse; external tester | Institution + team | Pentest report and remediation log |
 | Coverage | Add a coverage reporter to Vitest; publish statement/branch coverage | Team | Coverage report |
 | Audit tamper resistance | Evaluate WORM storage or external log sink for `audit_events` | Team + IT | Design decision record |
@@ -276,7 +276,7 @@ Administered after all tasks, 5-point scale from Strongly disagree (1) to Strong
 
 ### 12.2 UAT task list
 
-Use the role scripts in `docs/usability-accessibility-protocol.md` §4: five student tasks, five counselor tasks, three faculty tasks, and five head tasks. Score success as unaided / helped / failed, record time to completion (cap at 5 minutes), and log errors and prompts.
+Use the role scripts in `docs/ux/usability-accessibility-protocol.md` §4: five student tasks, five counselor tasks, three faculty tasks, and five head tasks. Score success as unaided / helped / failed, record time to completion (cap at 5 minutes), and log errors and prompts.
 
 ### 12.3 Performance profile
 

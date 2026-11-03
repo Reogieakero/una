@@ -175,7 +175,7 @@ These are documented, not fixed, because this task is documentation-only:
 - The `canVisitRoute` implementation is an exact lookup, while a comment describes prefix matching.
 - `routePolicy` excludes `admin` from `/notifications`, but the page has no explicit redirect; the bell can open it.
 
-See [UI-SITEMAP.md](UI-SITEMAP.md) for the full list.
+See [ui-sitemap.md](../ux/ui-sitemap.md) for the full list.
 
 ---
 
@@ -234,7 +234,7 @@ There is **no documented retention schedule** in the repository. The institution
 
 ### 5.6 Backups and recovery
 
-The backup runbook is in [BACKUP_RESTORE.md](BACKUP_RESTORE.md). Security-relevant points:
+The backup runbook is in [backup-restore.md](../operations/backup-restore.md). Security-relevant points:
 
 - Backups are head-triggered or nightly cron; both require the correct role or `CRON_SECRET`.
 - Downloads are head-only, short-lived, and audit-logged.
@@ -281,7 +281,7 @@ The table lists the threat, the control, the residual risk, and the evidence.
 - **Threat:** an unauthorized person obtains a Meet URL and joins a counseling session.
 - **Control:** Google Meet codes are high-entropy; the link is only shown on the appointment to participants; the calendar event has a generic title, no attendees, and no student identity; there is a unit test that fails if identity fields enter the event.
 - **Residual:** a Meet link is a bearer credential; anyone with the URL can attempt to join; the link is stored in plain text; there is no per-session waiting room or PIN in the application.
-- **Evidence:** `/api/appointments/meet`, `meeting.ts`, `meeting.test.ts`, `00072`, `docs/google-meet-integration.md`.
+- **Evidence:** `/api/appointments/meet`, `meeting.ts`, `meeting.test.ts`, `00072`, `docs/operations/google-meet-integration.md`.
 
 ### 6.6 Analytics re-identification
 

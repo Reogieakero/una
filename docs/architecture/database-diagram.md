@@ -663,7 +663,7 @@ These are deliberately exposed to routine staff through scoped RPCs and alias jo
 - `students.created_at`
 - Aggregates derived from appointments, referrals, screenings, and chat
 
-`get_student_aliases(ids)` returns `profile_id` only so notifications can address the student's inbox; profiles RLS prevents routine staff from resolving it (`docs/anonymity-threat-model.md:68-73`).
+`get_student_aliases(ids)` returns `profile_id` only so notifications can address the student's inbox; profiles RLS prevents routine staff from resolving it (`docs/security/anonymity-threat-model.md:68-73`).
 
 ### 5.3 Who reads what
 
@@ -714,7 +714,7 @@ These are deliberately exposed to routine staff through scoped RPCs and alias jo
 | `referrals` | Cascades actions; sets `appointments.source_referral_id` to null. |
 | `notifications` | Cascades delivery ledger rows. |
 
-**Operational note:** the office does not expose delete buttons for clinical rows; deletion is an administrative/database action. Backups are logical exports, not a restore button (`docs/BACKUP_RESTORE.md`).
+**Operational note:** the office does not expose delete buttons for clinical rows; deletion is an administrative/database action. Backups are logical exports, not a restore button (`docs/operations/backup-restore.md`).
 
 ---
 

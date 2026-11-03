@@ -5,7 +5,7 @@
 -- head runs from inside the app: one row per run, artifact bytes in the
 -- private system-backups bucket (versioned, checksummed JSON). Restore is
 -- deliberately NOT a button — a live overwrite of counseling data is too
--- dangerous to one-click; recovery follows docs/BACKUP_RESTORE.md (download
+-- dangerous to one-click; recovery follows docs/operations/backup-restore.md (download
 -- the artifact, guided SQL restore). See the /backups page + API.
 --
 -- SECURITY: backup artifacts contain the office's most sensitive rows, so

@@ -364,7 +364,7 @@ This is announcement management, not event registration. There is no RSVP, venue
 1. Open **Backups**.
 2. **Run backup** creates a compressed, checksummed artifact in the private backup bucket and adds a row to the run history.
 3. **Download** produces a short-lived link. The download is audit-logged.
-4. Automatic backups run nightly. Restore is deliberately not a button; follow the restore runbook in [BACKUP_RESTORE.md](BACKUP_RESTORE.md).
+4. Automatic backups run nightly. Restore is deliberately not a button; follow the restore runbook in [backup-restore.md](../operations/backup-restore.md).
 
 ### 5.7 Referral oversight
 
@@ -513,4 +513,4 @@ When reporting a problem, include the role you were using, the page name, the ti
 
 ## 12. How this guide was checked
 
-This guide was written against the actual screens and actions in `apps/mobile/app`, `apps/web/app/(staff)`, `apps/web/app/(admin)`, and the shared services in `packages/shared-services`. The route and capability detail is in [UI-SITEMAP.md](UI-SITEMAP.md); the rules enforced by the system are in [OBJECTIVE-FOCUS-WORKFLOW.md](OBJECTIVE-FOCUS-WORKFLOW.md) and [SECURITY-PRIVACY.md](SECURITY-PRIVACY.md). Screenshot placeholders are intentionally text-only; no image in this document is a real screenshot or real student data.
+This guide was written against the actual screens and actions in `apps/mobile/app`, `apps/web/app/(staff)`, `apps/web/app/(admin)`, and the shared services in `packages/shared-services`. The route and capability detail is in [ui-sitemap.md](./ui-sitemap.md); the rules enforced by the system are in [objective-focus-workflow.md](../objectives/objective-focus-workflow.md) and [security-privacy.md](../security/security-privacy.md). Screenshot placeholders are intentionally text-only; no image in this document is a real screenshot or real student data.

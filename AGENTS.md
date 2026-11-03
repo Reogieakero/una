@@ -39,8 +39,8 @@ This is **privacy-sensitive health software**. Session notes, PSS-10 results, br
 2. The owning app/package `package.json` and the relevant folder (table below).
 3. `packages/shared-types/src/database.ts` for real columns/statuses.
 4. Relevant migration(s) in `supabase/migrations/`.
-5. `docs/realtime-audit.md` before changing realtime, notifications, or board refresh behavior.
-6. `docs/BACKUP_RESTORE.md` before touching backups.
+5. `docs/architecture/realtime-audit.md` before changing realtime, notifications, or board refresh behavior.
+6. `docs/operations/backup-restore.md` before touching backups.
 
 ---
 
@@ -290,5 +290,5 @@ Before adding a helper, **grep first** — `lib/` already contains pagination, t
 - Is this shape real? → `packages/shared-types/src/database.ts` + the migration that created it.
 - Who may do this? → `rbac.ts`, then RLS in migrations, then the page guard.
 - Is there already a helper? → `apps/web/lib/**` and `packages/shared-services/src/**`.
-- Will this break realtime? → `docs/realtime-audit.md` and `components/shared/realtime-provider.tsx`.
+- Will this break realtime? → `docs/architecture/realtime-audit.md` and `components/shared/realtime-provider.tsx`.
 - Will this break mobile? → does it import React, browser APIs, or Next-only modules? If yes, it cannot go in a shared package.

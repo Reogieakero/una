@@ -16,7 +16,7 @@ This document is the navigable map of DCAS: every web page, every mobile screen,
 - `app/(staff)/dashboard/page.tsx` → `/dashboard`.
 - `app/(staff)/students/[id]/page.tsx` → `/students/<uuid>`.
 - `app/page.tsx` → `/` (the public marketing/landing page).
-- `app/api/**/route.ts` are server endpoints, not pages; see [API-REFERENCE.md](API-REFERENCE.md).
+- `app/api/**/route.ts` are server endpoints, not pages; see [api-reference.md](../architecture/api-reference.md).
 
 ### Mobile (expo-router)
 
@@ -24,6 +24,96 @@ This document is the navigable map of DCAS: every web page, every mobile screen,
 - Root stack screens such as `app/book.tsx` and `app/chat.tsx` are pushed over the tabs, not tabs themselves.
 - `app/index.tsx` is both the launch gate and the onboarding screen.
 - `app/_layout.tsx` wraps every screen in the notifications provider and the session-reminder banner.
+
+### Sitemap at a glance
+
+The diagram shows the two clients and the three web shells. Solid arrows are the normal next step, not an exhaustive link graph; every staff node is role-filtered by `rbac.ts`, and the admin account can reach only `/settings` inside the staff shell.
+
+```mermaid
+flowchart TB
+  subgraph PUBLIC["Public web"]
+    LANDING["/ Landing"]
+    LOGIN["/login"]
+    REGISTER["/register"]
+    RESET["/reset-password"]
+    UPDATE["/update-password"]
+  end
+
+  subgraph STAFF["Staff shell - web"]
+    DASH["/dashboard"]
+    SESSIONS["/sessions"]
+    APPTS["/appointments"]
+    REPORTS["/reports"]
+    STUDENTS["/students"]
+    STUDENT["/students/[id]"]
+    REFERRALS["/referrals"]
+    REFSTUDENT["/refer-student"]
+    CHAT["/chat"]
+    EMERGENCY["/emergency"]
+    ANNOUNCE["/announcements"]
+    FEEDBACK["/feedback"]
+    AVAIL["/availability"]
+    NOTIF["/notifications"]
+    SETTINGS["/settings"]
+    ABOUT["/about"]
+  end
+
+  subgraph ADMIN["Admin shell - guidance head"]
+    USERS["/users"]
+    NEWUSER["/users/new"]
+    SECURITY["/security"]
+    EVENTS["/security/events"]
+    BACKUPS["/backups"]
+  end
+
+  subgraph MOBILE["Student app - mobile"]
+    MROOT["/ launch and onboarding"]
+    MHOME["Home tab"]
+    MSESS["Sessions tab"]
+    MPROF["Profile tab"]
+    MBOOK["/book"]
+    MCHECK["/check-in"]
+    MCHAT["/chat"]
+    MNOTIF["/notifications"]
+  end
+
+  LANDING --> LOGIN
+  LANDING --> REGISTER
+  LOGIN --> RESET
+  RESET --> UPDATE
+  LOGIN --> DASH
+  LOGIN --> MROOT
+  REGISTER --> MROOT
+  MROOT --> MHOME
+  MROOT --> MSESS
+  MROOT --> MPROF
+  MHOME --> MBOOK
+  MHOME --> MCHAT
+  MHOME --> MNOTIF
+  MHOME --> MSESS
+  MBOOK --> MCHECK
+  MSESS --> MCHECK
+  DASH --> SESSIONS
+  DASH --> APPTS
+  DASH --> REPORTS
+  DASH --> STUDENTS
+  DASH --> REFERRALS
+  DASH --> CHAT
+  DASH --> EMERGENCY
+  DASH --> ANNOUNCE
+  DASH --> FEEDBACK
+  DASH --> AVAIL
+  DASH --> NOTIF
+  DASH --> SETTINGS
+  DASH --> ABOUT
+  STUDENTS --> STUDENT
+  REFERRALS --> REFSTUDENT
+  DASH --> USERS
+  DASH --> SECURITY
+  DASH --> BACKUPS
+  USERS --> NEWUSER
+  SECURITY --> EVENTS
+```
 
 ---
 

@@ -11,7 +11,7 @@ import { logEvent } from "@/lib/log-event";
  * run in `backup_runs`, and audit-logs it. Storage-bucket BYTES are not
  * embedded (session/announcement images stay in their private buckets);
  * attachment rows (with storage paths) are included so recovery can
- * re-verify them — see docs/BACKUP_RESTORE.md.
+ * re-verify them — see docs/operations/backup-restore.md.
  *
  * SAFETY: export-only. Nothing here writes app tables (except the run row
  * and its audit row). Restore is a guided SQL procedure in the runbook, NOT

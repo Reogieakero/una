@@ -9,7 +9,7 @@
  *
  * LICENSING: the project must confirm its permission to reproduce the exact
  * instrument wording before external distribution. Until that is recorded in
- * `docs/pss10-license-note.md`, treat this as a pending compliance item — do
+ * `docs/security/pss10-license-note.md`, treat this as a pending compliance item — do
  * not paraphrase, reorder, translate, or relabel the items.
  *
  * The mobile UI renders `PSS10_INSTRUCTIONS` once and then one item per
