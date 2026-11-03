@@ -198,7 +198,7 @@ Realtime:
 | Analysability | Typecheck and lint | CI | Zero errors | `ci.yml`; app scripts | Typecheck for shared, web, mobile; web lint exists |
 | Modifiability | Schema change path | Migration + type + service review | One ordered migration per change | `supabase/migrations`; AGENTS.md | Convention documented; some stale docs |
 | Testability | Automated test count | Count files/cases | Core rules covered | 86 unit + 14 RLS + 6 browser | Measured by count; no coverage percentage |
-| Documentation quality | Docs set complete | Link and content review | Every doc reachable, no dead links | `docs/README.md` | This suite fills the missing docs; link check is manual |
+| Documentation quality | Docs set complete | Link and content review | Every doc reachable, no dead links | `README.md` | This suite fills the missing docs; link check is manual |
 | Consistency | Route/table/status names | Cross-document review | One spelling | All docs | Known stale items: `AGENTS.md` says no test runner; some docs use old names |
 
 **Assessment:** modularity and testability are strong for a capstone project. The main maintainability risks are stale documentation, a Prisma mirror that omits some tables, and the absence of a coverage report. None of these is hidden.

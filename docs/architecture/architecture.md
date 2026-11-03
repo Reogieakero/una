@@ -21,7 +21,7 @@ DCAS is a pnpm/Turborepo monorepo with two clients and one backend:
 | Design tokens | `packages/ui-tokens` | Brand palette, typography, spacing for web; mobile mirrors in `theme.ts`. |
 | Database mirror | `packages/db` | Prisma dictionary schema and trusted-script client; not the runtime data path. |
 | Backend | Supabase project | Postgres, Auth, Storage, Realtime, Row Level Security. |
-| Schema source | `supabase/migrations` | 75 ordered SQL migrations (`00000`–`00074`; `00055` absent). |
+| Schema source | `supabase/migrations` | 74 ordered SQL migrations (`00000`–`00074`; `00055` absent). |
 
 The runtime data path is **Supabase clients + RLS**, not Prisma. Prisma is a dictionary mirror used for validation and trusted scripts (`packages/db/prisma/schema.prisma:1-24`).
 
