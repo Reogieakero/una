@@ -7,14 +7,7 @@ import { cn } from "@/lib/utils";
 import { DEFAULT_REFERRALS_SCOPE, useReferralsBoard } from "@/lib/hooks/use-referrals-board";
 import { Button, Card, Badge } from "@/components/ui/primitives";
 import { IconAction } from "@/components/shared/icon-action";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+import { PageSize, Pager } from "@/components/shared/Pager";
 import { ReferralExcelModal } from "@/components/referrals/ReferralExcelModal";
 import { ReferralFormModal } from "@/components/referrals/ReferralFormModal";
 import { ReferralTrackingModal } from "@/components/referrals/ReferralTrackingModal";
@@ -117,9 +110,15 @@ function WhatNextMenu() {
  * its own route so the faculty referral flow can grow here later.
  */
 export default function ReferStudentPage() {
-  // Sent-history table shows the newest page (faculty's own filings, newest
-  // first); full tracking lives on /referrals with the pager.
-  const { data: board, isLoading, refetch } = useReferralsBoard(DEFAULT_REFERRALS_SCOPE);
+  // Sent history pages through the faculty member's own filings, newest first,
+  // using the same cursor-backed pager as /referrals.
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(10);
+  const { data: board, isLoading, isFetching, refetch } = useReferralsBoard({
+    ...DEFAULT_REFERRALS_SCOPE,
+    page,
+    size,
+  });
   const role = board?.role ?? null;
   const loading = isLoading && !board;
   const [excelOpen, setExcelOpen] = useState(false);
@@ -160,18 +159,6 @@ export default function ReferStudentPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Refer a student</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold">Refer a student</h1>
@@ -208,22 +195,32 @@ export default function ReferStudentPage() {
             facultyId={board.facultyId}
             headIds={board.headIds ?? EMPTY_IDS}
             onSubmitted={() => {
+              setPage(1);
               refetch().catch(() => {});
             }}
             onClose={() => setExcelOpen(false)}
           />
           <Card className="rounded-lg">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="font-display text-lg font-bold text-ink">Sent referrals history</h2>
-              <Link href="/referrals" className="text-[13px] font-bold text-primary-700 hover:underline">
-                Track all
-              </Link>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="font-display text-lg font-bold text-ink">My sent referrals</h2>
+                <p className="mt-0.5 text-[13px] text-ink-muted">
+                  Newest first — page through everything you&apos;ve filed.
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-3">
+                <PageSize value={size} onChange={(next) => { setPage(1); setSize(next); }} disabled={isFetching} />
+                <Link href="/referrals" className="text-[13px] font-bold text-primary-700 hover:underline">
+                  Open full tracker
+                </Link>
+              </div>
             </div>
             {(board.rows ?? []).length === 0 ? (
-              <p className="mt-1 text-sm leading-relaxed text-ink-muted">
+              <p className="mt-3 text-sm leading-relaxed text-ink-muted">
                 No referrals sent yet — your filed referrals will list here.
               </p>
             ) : (
+              <>
               <div className="mt-3 overflow-x-auto rounded-lg border border-ink/10">
                 <table className="w-full border-collapse text-left text-sm">
                   <thead>
@@ -287,6 +284,21 @@ export default function ReferStudentPage() {
                   </tbody>
                 </table>
               </div>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-ink/10 pt-2">
+                <p className="px-1 text-[12px] font-medium text-ink-muted">
+                  Page {board.page} · showing {(board.rows ?? []).length} of ~{board.totalApprox} sent referral
+                  {board.totalApprox === 1 ? "" : "s"}
+                </p>
+                <Pager
+                  page={board.page}
+                  size={board.size}
+                  totalApprox={board.totalApprox}
+                  hasMore={board.hasMore}
+                  onPage={setPage}
+                  busy={isFetching && !isLoading}
+                />
+              </div>
+              </>
             )}
           </Card>
           <ReferralFormModal

@@ -41,6 +41,7 @@ export default function AnnouncementsPage() {
   const [saving, setSaving] = useState<null | "draft" | "publish">(null);
   const { busyId, run: runMutation } = useMutationAction();
   const [confirmDelete, setConfirmDelete] = useState<Announcement | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [tab, setTab] = useState("feed");
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -275,7 +276,8 @@ export default function AnnouncementsPage() {
   };
 
   const removePost = async (a: Announcement) => {
-    setConfirmDelete(null);
+    if (deleting) return;
+    setDeleting(true);
     const result = await runMutation(
       a.id,
       async () => {
@@ -290,7 +292,9 @@ export default function AnnouncementsPage() {
       },
       { label: "delete that post" }
     );
+    setDeleting(false);
     if (!result.ok) return;
+    setConfirmDelete(null);
     await refetch();
     toast.success("Post deleted.");
   };
@@ -514,10 +518,10 @@ export default function AnnouncementsPage() {
               “{confirmDelete.title}” disappears for everyone, photo included. This can&apos;t be undone — unpublish instead to hide it temporarily.
             </p>
             <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => setConfirmDelete(null)} autoFocus>
+              <Button size="sm" variant="outline" disabled={deleting} onClick={() => setConfirmDelete(null)} autoFocus>
                 Back
               </Button>
-              <Button size="sm" variant="danger" onClick={() => void removePost(confirmDelete)}>
+              <Button size="sm" variant="danger" loading={deleting} onClick={() => void removePost(confirmDelete)}>
                 Delete
               </Button>
             </div>

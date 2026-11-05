@@ -174,7 +174,6 @@ Names only; no values belong in this repository.
 | `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Mobile. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only route handlers. |
 | `CRON_SECRET` | Backup and digest cron routes. |
-| `GOOGLE_MEET_ENABLED`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_CALENDAR_ID` | Meet creation route. |
 | `DATABASE_URL`, `DIRECT_URL` | Prisma validation/trusted scripts. |
 | `TEST_SUPABASE_*`, `E2E_*`, `PERF_*` | Test and performance harnesses. |
 

@@ -7,6 +7,7 @@ import {
   CalendarDays,
   ClipboardList,
   Inbox,
+  Loader2,
 } from "lucide-react";
 import { ReportBars, ReportDonut, ReportTrendChart } from "@/components/shared/reports-charts";
 import { CLASSIFICATIONS } from "@/components/referrals/status";
@@ -75,15 +76,15 @@ function KpiGrid({ data }: { data: FacultyReportsPayload }) {
       delta: pointDelta(kpiPointChange(resolution, prevResolution)),
     },
     {
-      label: "Still open",
+      label: "With the office",
       value: String(current.openReferrals),
-      sub: "With the office now",
+      sub: "Still open with a counselor",
       delta: relativeDelta(kpiChange(current.openReferrals, prev?.openReferrals)),
     },
     {
-      label: "Urgent flags",
+      label: "Urgent referrals",
       value: String(current.urgentReferrals),
-      sub: "Needs fastest triage",
+      sub: "Triaged first",
       delta: relativeDelta(kpiChange(current.urgentReferrals, prev?.urgentReferrals)),
     },
   ];
@@ -283,7 +284,12 @@ export function FacultyReportsView({
     <div className="space-y-6" aria-busy={isFetching}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 max-w-[560px]">
-        <h1 className="font-display text-2xl font-bold">My reports{firstName ? ` — ${firstName}` : ""}</h1>
+          <h1 className="font-display text-2xl font-bold">
+            My reports{firstName ? ` — ${firstName}` : ""}
+          </h1>
+          <p className="mt-1 text-sm leading-relaxed text-ink-muted">
+            Every referral you&apos;ve flagged, how it&apos;s moving, and what you flag most.
+          </p>
         </div>
         <Suspense fallback={<ReportsFiltersSkeleton />}>
           <ReportsFilters
@@ -314,9 +320,11 @@ export function FacultyReportsView({
           <button
             type="button"
             onClick={() => refetch()}
-            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            disabled={isFetching}
+            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-60"
           >
-            Try again
+            {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+            {isFetching ? "Retrying…" : "Try again"}
           </button>
         </div>
       ) : (

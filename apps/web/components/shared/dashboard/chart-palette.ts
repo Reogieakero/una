@@ -92,6 +92,18 @@ export const LIGHT_MODE_COLORS: Record<string, string> = {
   in_person: colors.blue[400],
 };
 
+/** Deeper steps for the light dashboard canvas (same semantics). */
+export const LIGHT_CLASSIFICATION_COLORS: Record<string, string> = {
+  Behavioral: colors.yellow[500],
+  Relational: colors.blue[500],
+  Financial: colors.blue[400],
+  Absenteeism: colors.yellow[600],
+  "Social Adjustment": colors.blue[400],
+  "Academic-related": colors.blue[700],
+  Health: colors.yellow[600],
+  Others: colors.blue[300],
+};
+
 const LIGHT_FALLBACK = colors.blue[500];
 
 export function statusColor(key: string): string {
@@ -112,6 +124,10 @@ export function lightStatusColor(key: string): string {
 
 export function lightPriorityColor(key: string): string {
   return LIGHT_PRIORITY_COLORS[key] ?? LIGHT_FALLBACK;
+}
+
+export function lightClassificationColor(key: string): string {
+  return LIGHT_CLASSIFICATION_COLORS[key] ?? LIGHT_FALLBACK;
 }
 
 export function appointmentStatusColor(key: string): string {

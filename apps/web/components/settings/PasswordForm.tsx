@@ -115,7 +115,7 @@ export function PasswordForm({
             )}
           </div>
           <div className="flex justify-end md:col-span-2">
-            <Button size="sm" disabled={saving === "password"}>
+            <Button size="sm" loading={saving === "password"}>
               {saving === "password" ? "Saving…" : "Change password"}
             </Button>
           </div>
@@ -134,7 +134,7 @@ export function PasswordForm({
             <label className="mb-1 block text-xs font-bold text-ink-muted" htmlFor="sec-email">New email</label>
             <Input id="sec-email" type="email" value={newEmail} onChange={(e) => onNewEmail(e.target.value)} autoComplete="email" />
           </div>
-          <Button size="sm" disabled={saving === "email"} className="shrink-0">
+          <Button size="sm" loading={saving === "email"} className="shrink-0">
             {saving === "email" ? "Sending…" : "Send confirmation"}
           </Button>
         </form>

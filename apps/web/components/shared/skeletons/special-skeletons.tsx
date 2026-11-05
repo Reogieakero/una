@@ -199,7 +199,7 @@ export function SettingsSkeleton() {
 export function ReferStudentSkeleton() {
   return (
     <SkeletonRoot>
-      <PageHeaderSkeleton action="buttons" />
+      <PageHeaderSkeleton action="buttons" breadcrumb={false} />
       <div className="rounded-lg border border-ink/10 bg-white p-6 text-center shadow-card">
         <div className="mx-auto h-4 w-56 rounded-full bg-ink/10" />
         <div className="mx-auto mt-2 h-3 w-96 max-w-full rounded-full bg-ink/10" />

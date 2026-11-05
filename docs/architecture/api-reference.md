@@ -71,9 +71,6 @@ There are **20 route files** and **27 exported handlers**.
 | Reports | `GET /api/reports/counselor` | Counselor | Own-scope aggregates. |
 | Reports | `GET /api/reports/faculty` | Faculty | Own-referral list. |
 | Reports | `GET /api/reports/digest/cron` | `CRON_SECRET` bearer | Store the scheduled head digest. |
-| Appointments | `POST /api/appointments/meet` | Counselor, guidance head | Create a Google Meet event. |
-| Appointments | `PATCH /api/appointments/meet` | Counselor, guidance head | Move/update the Meet event. |
-| Appointments | `DELETE /api/appointments/meet` | Counselor, guidance head | Remove the Meet link. |
 | Notes | `GET /api/session-notes` | Counselor (owner), guidance head | Read a note for one appointment. |
 | Notes | `POST /api/session-notes` | Assigned counselor | Create the one note for a completed session. |
 | Notes | `PATCH /api/session-notes` | Assigned counselor | Edit a note or its follow-up. |
@@ -264,39 +261,7 @@ Scheduled only. Requires `Authorization: Bearer <CRON_SECRET>`.
 
 ## 5. Appointment Meet routes
 
-All three methods require counselor or guidance head. A counselor may only act on their own sessions (or referrals assigned to them); the head may act office-wide.
-
-### 5.1 `POST /api/appointments/meet`
-
-**Body** (`appointmentMeetSchema`): exactly one of `appointmentId` or `referralId`, plus optional `scheduledAt`, `endsAt` (ISO with offset).
-
-**Behavior**
-
-- `503` when `GOOGLE_MEET_ENABLED` / Google credentials are absent, with a message telling the caller to paste a link instead.
-- Rate limited to 10 requests per IP per 60 seconds; `429` on excess.
-- Creates a Calendar event with a **generic title**, no attendees, and no student identity, then stores `meeting_url`, `meeting_provider = "google_meet"`, `meeting_event_id`, and `meeting_created_at`.
-- Writes an audit outcome (`created` or failure) without clinical content.
-
-**Success body**
-
-```json
-{
-  "meetingUrl": "https://meet.google.com/abc-defg-hij",
-  "provider": "google_meet",
-  "created": true,
-  "eventId": "<google-event-id>"
-}
-```
-
-**Errors:** `400` schema, `401` no session, `403` wrong role/ownership, `404` session or referral not found, `422` state does not allow a Meet event, `429` rate limit, `503` integration disabled, `500` provider failure.
-
-### 5.2 `PATCH /api/appointments/meet`
-
-Moves an existing Google Meet event to a new `scheduledAt` / `endsAt`. Only allowed while the meeting patch policy permits it (`meetingPatchAllowed`). If the session has a manually pasted link, returns the link unchanged with `provider: "manual"`, `created: false`. Audits `patched` or `patch_failed`.
-
-### 5.3 `DELETE /api/appointments/meet`
-
-Deletes the Google Calendar event when the session has a managed event, then clears the local meeting fields. Audits the outcome. If Google is unreachable, the route still detaches locally so the join button disappears; the orphaned event is a documented manual cleanup item.
+Removed. Chekie no longer calls the Google Calendar API. Staff paste a `meet.google.com` link on the appointment or referral confirm form (`MeetLinkField`), and the link is cleared directly through `clearAppointmentMeetingLink` in `packages/shared-services`. No Google credentials or OAuth configuration are required.
 
 ---
 
@@ -712,7 +677,6 @@ If you add an endpoint, add or reuse a schema here first. A route that parses wi
 | Surface | Limit | Scope | Implementation |
 |---|---|---|---|
 | `POST /api/auth/register` | 10 requests / 10 minutes | Per IP | In-memory (`lib/rate-limit.ts`), resets per instance |
-| `POST /api/appointments/meet` | 10 requests / 60 seconds | Per IP | In-memory |
 | Backups (manual, cron) | `maxDuration = 300` | Per invocation | Vercel plan cap |
 | Digest cron | `maxDuration = 60` | Per invocation | Vercel plan cap |
 | Session-note attachments | 5 images/note, 5 MB each, image MIME | Per note | Route + storage policy |
@@ -743,7 +707,7 @@ See [security-privacy.md](../security/security-privacy.md) for the full control 
 
 - **Supabase Auth endpoints** (`/auth/v1/*`) and Storage endpoints. These are platform APIs, configured by Supabase, not defined in this repository.
 - **Realtime channels.** The table/channel design and payload rules are documented in `docs/architecture/realtime-audit.md`; this file only notes that payloads carry IDs/status, not content.
-- **Google Calendar API.** The server calls it through `apps/web/lib/google/meet.ts`; the provider contract is Google's, and the integration notes are in `docs/operations/google-meet-integration.md`.
+- **Google Calendar API.** Not used. Meet links are pasted manually; no Google credentials are configured or required.
 - **Database columns and policies.** See [database-diagram.md](./database-diagram.md) and the migrations; this file names only the functions and tables a caller touches.
 - **Generated types.** `packages/shared-types/src/database.ts` is hand-maintained; it is not a generated OpenAPI or GraphQL schema.
 

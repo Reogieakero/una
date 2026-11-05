@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ClipboardList,
   Inbox,
+  Loader2,
   Megaphone,
   MessagesSquare,
   Star,
@@ -29,9 +30,11 @@ export const TYPE_META: Record<string, { label: string; icon: typeof Bell; tone:
  */
 export function NotificationRow({
   notice,
+  markingRead = false,
   onMarkRead,
 }: {
   notice: NotificationsRow;
+  markingRead?: boolean;
   onMarkRead: (id: string) => void;
 }) {
   const n = notice;
@@ -73,9 +76,11 @@ export function NotificationRow({
             <button
               type="button"
               onClick={() => void onMarkRead(n.id)}
-              className="inline-flex h-8 items-center rounded px-3 text-[13px] font-bold text-primary-600 transition hover:bg-blue-50 hover:underline"
+              disabled={markingRead}
+              className="inline-flex h-8 items-center gap-1.5 rounded px-3 text-[13px] font-bold text-primary-600 transition hover:bg-blue-50 hover:underline disabled:opacity-50"
             >
-              Mark read
+              {markingRead && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+              {markingRead ? "Marking…" : "Mark read"}
             </button>
           )}
         </p>

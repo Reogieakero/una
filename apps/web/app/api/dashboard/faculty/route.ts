@@ -14,6 +14,12 @@ function dayLabel(d: Date): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+export type FacultyBreakdownItem = {
+  key: string;
+  name: string;
+  value: number;
+};
+
 export type FacultyDashboardPayload = {
   kpis: {
     totalReferrals: number | null;
@@ -42,8 +48,54 @@ export type FacultyDashboardPayload = {
   }[];
   announcements: { id: string; title: string; publishedAt: string | null }[];
   trend: { day: string; referrals: number }[];
+  /** All-time splits for the dashboard charts (RLS-scoped to this faculty). */
+  byStatus: FacultyBreakdownItem[];
+  byPriority: FacultyBreakdownItem[];
+  byClassification: FacultyBreakdownItem[];
   fetchedAt: string;
 };
+
+const STATUS_NAME: Record<string, string> = {
+  pending: "Pending",
+  assigned: "Assigned",
+  acknowledged: "Acknowledged",
+  in_progress: "In progress",
+  confirmed: "Confirmed",
+  resolved: "Resolved",
+  escalated: "Escalated",
+  rejected: "Rejected",
+};
+
+const STATUS_ORDER = [
+  "pending",
+  "assigned",
+  "acknowledged",
+  "in_progress",
+  "confirmed",
+  "resolved",
+  "escalated",
+  "rejected",
+] as const;
+
+const PRIORITY_NAME: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  urgent: "Urgent",
+};
+
+const PRIORITY_ORDER = ["urgent", "high", "medium", "low"] as const;
+
+const CLASSIFICATION_ORDER = [
+  "Behavioral",
+  "Relational",
+  "Financial",
+  "Absenteeism",
+  "Social Adjustment",
+  "Academic-related",
+  "Health",
+  "Others",
+] as const;
 
 /**
  * GET /api/dashboard/faculty — one round-trip for the faculty dashboard.
@@ -92,6 +144,9 @@ export async function GET() {
         attention: [],
         announcements: [],
         trend: [],
+        byStatus: [],
+        byPriority: [],
+        byClassification: [],
         unlinked: true,
         fetchedAt: new Date().toISOString(),
       } satisfies FacultyDashboardPayload & { unlinked: boolean },
@@ -104,7 +159,7 @@ export async function GET() {
   const today = startOfTodayUTC();
   const fortnightAgo = new Date(today.getTime() - 13 * 24 * 60 * 60 * 1000);
 
-  const [totalRes, pendingRes, progressRes, resolvedRes, unreadRes, recentRows, attentionRows, announcements, trendRows] =
+  const [totalRes, pendingRes, progressRes, resolvedRes, unreadRes, recentRows, attentionRows, announcements, trendRows, breakdownRows] =
     await Promise.all([
       supabase
         .from("referrals")
@@ -155,6 +210,11 @@ export async function GET() {
         .eq("referring_faculty_id", facultyId)
         .gte("created_at", fortnightAgo.toISOString())
         .limit(500),
+      supabase
+        .from("referrals")
+        .select("status, priority, case_classification")
+        .eq("referring_faculty_id", facultyId)
+        .limit(1000),
     ]);
 
   type RefRow = {
@@ -200,6 +260,34 @@ export async function GET() {
   }
   const trend = trendRows.error ? [] : trendBuckets.map(({ day, referrals }) => ({ day, referrals }));
 
+  // Chart splits. Classification is multi-select on the paper form, so one
+  // referral can legitimately land in more than one bar.
+  type BreakdownRow = {
+    status: string;
+    priority: string;
+    case_classification: string[] | null;
+  };
+  const breakdown = breakdownRows.error ? [] : ((breakdownRows.data ?? []) as BreakdownRow[]);
+  const statusCounts = new Map<string, number>();
+  const priorityCounts = new Map<string, number>();
+  const classificationCounts = new Map<string, number>();
+  for (const row of breakdown) {
+    statusCounts.set(row.status, (statusCounts.get(row.status) ?? 0) + 1);
+    priorityCounts.set(row.priority, (priorityCounts.get(row.priority) ?? 0) + 1);
+    for (const c of row.case_classification ?? []) {
+      classificationCounts.set(c, (classificationCounts.get(c) ?? 0) + 1);
+    }
+  }
+  const byStatus: FacultyBreakdownItem[] = STATUS_ORDER.filter((key) => (statusCounts.get(key) ?? 0) > 0).map(
+    (key) => ({ key, name: STATUS_NAME[key] ?? key, value: statusCounts.get(key) ?? 0 })
+  );
+  const byPriority: FacultyBreakdownItem[] = PRIORITY_ORDER.filter(
+    (key) => (priorityCounts.get(key) ?? 0) > 0
+  ).map((key) => ({ key, name: PRIORITY_NAME[key] ?? key, value: priorityCounts.get(key) ?? 0 }));
+  const byClassification: FacultyBreakdownItem[] = CLASSIFICATION_ORDER.filter(
+    (key) => (classificationCounts.get(key) ?? 0) > 0
+  ).map((key) => ({ key, name: key, value: classificationCounts.get(key) ?? 0 }));
+
   const payload: FacultyDashboardPayload = {
     kpis: {
       totalReferrals: totalRes.error ? null : (totalRes.count ?? 0),
@@ -218,6 +306,9 @@ export async function GET() {
           publishedAt: a.published_at,
         }))),
     trend,
+    byStatus,
+    byPriority,
+    byClassification,
     fetchedAt: new Date().toISOString(),
   };
 

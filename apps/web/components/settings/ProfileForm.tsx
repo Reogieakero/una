@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, Trash2 } from "lucide-react";
+import { Camera, Loader2, Trash2 } from "lucide-react";
 import { Badge, Button, Input } from "@/components/ui/primitives";
 import { initials } from "@/lib/format";
 
@@ -100,13 +100,23 @@ export function ProfileForm({
                   disabled={avatarBusy}
                   className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-ink-muted transition hover:text-red-700 disabled:opacity-50"
                 >
-                  <Trash2 aria-hidden className="h-3 w-3" />
+                  {avatarBusy ? (
+                    <Loader2 aria-hidden className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Trash2 aria-hidden className="h-3 w-3" />
+                  )}
                   {avatarBusy ? "Removing…" : "Remove photo"}
                 </button>
               )}
             </div>
           </div>
-          <Button size="sm" variant={editing ? "ghost" : "outline"} onClick={onEditToggle} disabled={saving === "profile" || avatarBusy}>
+          <Button
+            size="sm"
+            variant={editing ? "ghost" : "outline"}
+            onClick={onEditToggle}
+            loading={saving === "profile"}
+            disabled={avatarBusy}
+          >
             {saving === "profile" ? "Saving…" : editing ? "Done" : "Edit profile"}
           </Button>
         </div>

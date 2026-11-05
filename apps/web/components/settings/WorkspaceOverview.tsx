@@ -48,7 +48,7 @@ export function WorkspaceForm({
         </div>
       </div>
       <div className="mt-3 flex justify-end">
-        <Button size="sm" disabled={saving === "office"} onClick={onSave}>
+        <Button size="sm" loading={saving === "office"} onClick={onSave}>
           {saving === "office" ? "Saving…" : "Save workspace"}
         </Button>
       </div>

@@ -73,7 +73,7 @@ export function AppointmentPss10WaiverDialog({
           <Button size="sm" variant="outline" disabled={busy} onClick={onClose} autoFocus>
             Ask student to check in
           </Button>
-          <Button size="sm" variant="primary" disabled={busy || chars < 10} onClick={onSubmit}>
+          <Button size="sm" variant="primary" disabled={chars < 10} loading={busy} onClick={onSubmit}>
             {busy ? "Completing…" : "Record waiver & complete"}
           </Button>
         </div>

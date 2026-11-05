@@ -215,7 +215,7 @@ The Prisma dictionary comment may imply note encryption; no encryption code exis
 - `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are client-visible by design.
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only; any handler using it must re-check the caller.
 - `CRON_SECRET` protects `/api/admin/backups/cron` and `/api/reports/digest/cron`.
-- Google `GOOGLE_CLIENT_SECRET` and `GOOGLE_REFRESH_TOKEN` are server-only; `GOOGLE_MEET_ENABLED` gates the route.
+- Google Meet links are pasted manually; no Google OAuth secrets are stored.
 - There is no documented key-rotation schedule or secrets manager integration; rotation is manual.
 
 ### 5.5 Retention and deletion
@@ -279,9 +279,9 @@ The table lists the threat, the control, the residual risk, and the evidence.
 ### 6.5 Meet link guessing or leakage
 
 - **Threat:** an unauthorized person obtains a Meet URL and joins a counseling session.
-- **Control:** Google Meet codes are high-entropy; the link is only shown on the appointment to participants; the calendar event has a generic title, no attendees, and no student identity; there is a unit test that fails if identity fields enter the event.
+- **Control:** Meet links are pasted manually by staff and only stored on the appointment; the UI shows the link to participants; there is no calendar event or third-party copy carrying student identity.
 - **Residual:** a Meet link is a bearer credential; anyone with the URL can attempt to join; the link is stored in plain text; there is no per-session waiting room or PIN in the application.
-- **Evidence:** `/api/appointments/meet`, `meeting.ts`, `meeting.test.ts`, `00072`, `docs/operations/google-meet-integration.md`.
+- **Evidence:** `MeetLinkField` paste flow, `clearAppointmentMeetingLink`, `meeting.ts` (`isMeetUrl`), migration `00072`.
 
 ### 6.6 Analytics re-identification
 

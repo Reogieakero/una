@@ -71,7 +71,7 @@ export const STAFF_NAV_GROUPS: StaffNavGroup[] = [
   {
     label: "Manage",
     links: [
-      { href: "/refer-student", label: "Refer Student", desc: "Flag a student for counseling", roles: ["faculty"] },
+      { href: "/refer-student", label: "Refer a student", desc: "Flag a student for counseling", roles: ["faculty"] },
       { href: "/emergency", label: "Emergency access", desc: "Reveal identity in a crisis", roles: ["counselor", "guidance_head"] },
       { href: "/users/new", label: "Add staff", desc: "Create counselor or faculty accounts", roles: ["guidance_head"] },
       { href: "/announcements", label: "Announcements", desc: "News and updates", roles: ["counselor", "guidance_head", "faculty"] },

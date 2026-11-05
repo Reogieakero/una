@@ -222,10 +222,11 @@ export function CounselorDashboardView({ name }: { name: string | null }) {
               <button
                 type="button"
                 onClick={() => refetch()}
-                className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full bg-red-400 px-4 text-[12px] font-bold text-[#1E3A5F] transition hover:bg-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+                disabled={isFetching}
+                className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full bg-red-400 px-4 text-[12px] font-bold text-[#1E3A5F] transition hover:bg-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200 disabled:opacity-60"
               >
-                <RefreshCw aria-hidden className="h-3.5 w-3.5" />
-                Try again
+                <RefreshCw aria-hidden className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+                {isFetching ? "Retrying…" : "Try again"}
               </button>
             </div>
           ) : loading ? (

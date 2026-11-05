@@ -4,8 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { CalendarDays, ClipboardCheck, FileText, MapPin, UserRound, Video, X } from "lucide-react";
 import { toast } from "sonner";
-import { meetingRemoveAllowed, preSessionPss10State } from "@dorsu/shared-services";
-import { requestMeetCleanup, MEET_CREATE_FALLBACK } from "@/lib/google/meet-client";
+import { createClient } from "@/lib/supabase/client";
+import {
+  clearAppointmentMeetingLink,
+  meetingRemoveAllowed,
+  PSS10_BANDS,
+  preSessionPss10State,
+} from "@dorsu/shared-services";
 import { Badge, Button } from "@/components/ui/primitives";
 import { formatLong, formatScheduleRange, formatWhen, hasSetSchedule, statusLabel, statusTone } from "./status";
 import type { Appt } from "./status";
@@ -61,16 +66,21 @@ export function AppointmentDetailModal({
     if (!canManageMeet || removing || !detail.meeting_url) return;
     setRemoving(true);
     try {
-      await requestMeetCleanup(detail.id);
+      await clearAppointmentMeetingLink(createClient(), detail.id);
       toast.success("Meet link removed", { position: "top-right" });
       onRemoved?.();
       onClose();
     } catch (e) {
-      toast.error((e as Error)?.message ?? MEET_CREATE_FALLBACK, { position: "top-right" });
+      toast.error((e as Error)?.message ?? "Couldn't remove the Meet link — please try again.", {
+        position: "top-right",
+      });
     } finally {
       setRemoving(false);
     }
   };
+
+  const bandLabel = (band: string | null | undefined) =>
+    band ? (PSS10_BANDS[band as keyof typeof PSS10_BANDS]?.label ?? band) : "—";
 
   return (
     <div
@@ -178,9 +188,7 @@ export function AppointmentDetailModal({
             <span className="font-bold text-ink">{detail.mode === "online" ? "Online" : "In person"}</span>
             {detail.mode === "online" && detail.meeting_url && (
               <span className="ml-2 whitespace-nowrap">
-                <Badge tone={detail.meeting_provider === "google_meet" ? "info" : "muted"}>
-                  {detail.meeting_provider === "google_meet" ? "Managed by Chekie" : "Pasted link"}
-                </Badge>
+                <Badge tone="info">Meet link</Badge>
               </span>
             )}
             {detail.mode === "online" && detail.meeting_url && (
@@ -201,6 +209,40 @@ export function AppointmentDetailModal({
             <div className="mt-3 flex items-center gap-2 rounded-lg border border-ink/10 bg-cream px-4 py-3 text-sm">
               <ClipboardCheck className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
               <span className="font-bold text-ink">{checkinCopy}</span>
+            </div>
+          )}
+
+          {/* PSS-10 context for the assigned counselor — score + band only. */}
+          {(detail.pss10_booking_score != null || detail.pss10_checkin_score != null) && (
+            <div className="mt-3 rounded-lg border border-ink/10 p-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">PSS-10 screening</p>
+              <div className="mt-1.5 space-y-1.5 text-sm">
+                {detail.pss10_booking_score != null && (
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                    <span className="text-ink-muted">
+                      At booking
+                      {detail.pss10_booking_at ? ` · ${formatWhen(detail.pss10_booking_at)}` : ""}
+                    </span>
+                    <span className="font-bold text-ink">
+                      {detail.pss10_booking_score}/40 · {bandLabel(detail.pss10_booking_band)}
+                    </span>
+                  </div>
+                )}
+                {detail.pss10_checkin_score != null && (
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                    <span className="text-ink-muted">
+                      Pre-session check-in
+                      {detail.pss10_checkin_at ? ` · ${formatWhen(detail.pss10_checkin_at)}` : ""}
+                    </span>
+                    <span className="font-bold text-ink">
+                      {detail.pss10_checkin_score}/40 · {bandLabel(detail.pss10_checkin_band)}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="mt-2 text-[11px] font-medium leading-relaxed text-ink-faint">
+                Score and band only — item answers stay private. Visible to the assigned counselor and the guidance head.
+              </p>
             </div>
           )}
 

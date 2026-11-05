@@ -1,5 +1,9 @@
 # Google Meet integration
 
+> **Historical note:** Chekie no longer creates Google Calendar events or calls
+> any Google API. Meet links are pasted manually and the `/api/appointments/meet`
+> route has been removed. This document describes the retired Route A design.
+
 Chekie can create and manage Google Meet links for online counseling sessions
 through the Google Calendar API, with manual paste as an always-on fallback.
 This is **Objective 8 — Route A** (server-side Google Calendar/Meet API).

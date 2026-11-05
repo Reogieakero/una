@@ -18,14 +18,6 @@ import { patchBoard } from "@/lib/patch-board";
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { Button, Card, Input } from "@/components/ui/primitives";
 import { NotificationRow, TYPE_META } from "@/components/notifications/NotificationRow";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 type Notice = NotificationsRow;
 
@@ -41,6 +33,7 @@ export default function NotificationsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [busyAll, setBusyAll] = useState(false);
+  const [markingRead, setMarkingRead] = useState<string | null>(null);
 
   // Stats live in a floating panel — same hover/click behavior as the
   // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
@@ -122,6 +115,8 @@ export default function NotificationsPage() {
   };
 
   const markRead = async (id: string) => {
+    if (markingRead) return;
+    setMarkingRead(id);
     const prev = snapshot();
     patchBoard<NotificationsBoardData>(qc, [...NOTIFICATIONS_BOARD_KEY], (prev) => ({ ...prev, rows: prev.rows.map((n) => (n.id === id ? { ...n, is_read: true } : n)) }));
     try {
@@ -129,6 +124,8 @@ export default function NotificationsPage() {
     } catch {
       restore(prev);
       toast.error("Couldn't mark that read — please try again.");
+    } finally {
+      setMarkingRead(null);
     }
   };
 
@@ -174,18 +171,6 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Notifications</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold">Notifications</h1>
@@ -249,7 +234,7 @@ export default function NotificationsPage() {
               </div>
             )}
           </div>
-          <Button variant="outline" size="sm" disabled={busyAll || !stats.informationalUnread} onClick={markAllRead}>
+          <Button variant="outline" size="sm" loading={busyAll} disabled={busyAll || !stats.informationalUnread} onClick={markAllRead}>
             {busyAll ? "Clearing…" : `Mark all read (${stats.informationalUnread})`}
           </Button>
         </div>
@@ -311,7 +296,12 @@ export default function NotificationsPage() {
         )}
         <ul className="divide-y divide-ink/10">
           {visible.map((n) => (
-            <NotificationRow key={n.id} notice={n} onMarkRead={markRead} />
+            <NotificationRow
+              key={n.id}
+              notice={n}
+              markingRead={markingRead === n.id}
+              onMarkRead={markRead}
+            />
           ))}
         </ul>
         </div>

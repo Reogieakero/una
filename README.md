@@ -244,7 +244,6 @@ The tab bar shows **Home, Book, Chat, Sessions, Profile**. Only Home, Sessions, 
 | Auth | `POST /api/auth/register`, `GET /auth/confirm` |
 | Dashboards | `GET /api/dashboard/{head,counselor,faculty}` |
 | Reports | `GET /api/reports/{head,counselor,faculty}`, `GET /api/reports/digest/cron` |
-| Meet | `POST`, `PATCH`, `DELETE /api/appointments/meet` |
 | Session notes | `GET`, `POST`, `PATCH /api/session-notes`; `POST /api/session-notes/attachments` |
 | Chat contacts | `GET /api/chat/contacts` |
 | Notifications | `POST /api/staff/notify` |
@@ -598,17 +597,9 @@ Both names resolve through `packages/supabase-client`. The mobile app reads the 
 | `CRON_SECRET` | Backup and digest cron routes |
 | `DATABASE_URL`, `DIRECT_URL` | Prisma validation and trusted scripts |
 
-### Google Meet / Calendar
+### Google Meet
 
-| Variable | Used by |
-|---|---|
-| `GOOGLE_MEET_ENABLED` | Meet creation route |
-| `GOOGLE_CLIENT_ID` | Google OAuth |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth |
-| `GOOGLE_REFRESH_TOKEN` | Office-account Calendar access |
-| `GOOGLE_CALENDAR_ID` | Target calendar (`primary` by default) |
-
-Without these, Meet creation returns 503 and the counselor can paste a `meet.google.com` link manually. The feature degrades rather than breaks.
+Google Meet links are entered manually on the appointment and referral forms. Chekie does not call the Google Calendar API, so no OAuth credentials or calendar configuration are required — staff paste a `meet.google.com` link for online sessions.
 
 ### Test and performance harnesses
 

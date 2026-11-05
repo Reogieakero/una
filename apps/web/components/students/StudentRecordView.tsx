@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, CalendarDays, ClipboardList, ExternalLink, FileText, Inbox, ShieldCheck } from "lucide-react";
-import { Card } from "@/components/ui/primitives";
+import { Button, Card } from "@/components/ui/primitives";
 import { EmptyState, PanelShell } from "@/components/shared/panel-shell";
 import { useStudentRecord, type StudentTimelineRow } from "@/lib/hooks/use-student-record";
 import { SessionNotesModal } from "@/components/appointments/SessionNotesModal";
@@ -156,13 +156,14 @@ export function StudentRecordView({ studentId }: { studentId: string }) {
           <p className="mt-1 text-[13px] text-ink-muted">
             {(error as Error)?.message ?? "It may be outside your caseload."}
           </p>
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={() => refetch()}
-            className="mt-3 inline-flex h-8 items-center rounded bg-primary-600 px-4 text-[13px] font-bold text-white transition hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            className="mt-3"
           >
             Try again
-          </button>
+          </Button>
         </Card>
       </div>
     );

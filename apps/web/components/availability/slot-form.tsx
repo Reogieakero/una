@@ -273,7 +273,7 @@ export function SlotForm({
               <Button
                 size="sm"
                 variant="primary"
-                disabled={addBusy}
+                loading={addBusy}
                 onClick={() => {
                   const p = pendingSlots;
                   const cid = managed.id;
@@ -313,7 +313,7 @@ export function SlotForm({
               <Button
                 size="sm"
                 variant="danger"
-                disabled={removing}
+                loading={removing}
                 onClick={() => {
                   const id = removeTarget.id;
                   void (async () => {

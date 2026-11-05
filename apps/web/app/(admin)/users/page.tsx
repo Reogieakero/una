@@ -114,7 +114,6 @@ function AdminUsersPageInner() {
   const runConfirming = async () => {
     if (!confirming || busyId) return;
     const { user, toActive } = confirming;
-    setConfirming(null);
     setBusyId(user.id);
     try {
       const res = await fetch("/api/staff/users/status", {
@@ -130,6 +129,7 @@ function AdminUsersPageInner() {
       toast.error(e instanceof Error ? e.message : "Couldn't update that account.");
     } finally {
       setBusyId(null);
+      setConfirming(null);
     }
   };
 
@@ -328,7 +328,7 @@ function AdminUsersPageInner() {
           aria-labelledby="user-status-title"
           aria-describedby="user-status-desc"
         >
-          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => setConfirming(null)} />
+          <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={busyId ? undefined : () => setConfirming(null)} />
           <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-card">
             <h2 id="user-status-title" className="font-display text-lg font-bold text-ink">
               {confirming.toActive ? "Activate" : "Deactivate"} {confirming.user.full_name ?? confirming.user.email}?
@@ -339,12 +339,13 @@ function AdminUsersPageInner() {
                 : "They'll be signed out and blocked at login until reactivated. Their records stay intact."}
             </p>
             <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={() => setConfirming(null)} autoFocus>
+              <Button size="sm" variant="outline" onClick={() => setConfirming(null)} disabled={busyId === confirming.user.id} autoFocus>
                 Back
               </Button>
               <Button
                 size="sm"
                 variant={confirming.toActive ? "primary" : "danger"}
+                loading={busyId === confirming.user.id}
                 onClick={runConfirming}
               >
                 {confirming.toActive ? "Activate account" : "Deactivate account"}

@@ -333,26 +333,24 @@ This is **announcement management, not event management.** There is no event cal
 
 #### Where to see it
 
-The counselor creates or pastes a link in the confirm dialog on `/appointments` and in referral confirmation. Join and remove actions appear on the appointment row and session detail. The student receives the link in the confirmation notification and on the session card.
+The counselor pastes a link in the confirm dialog on `/appointments` and in referral confirmation. Join and remove actions appear on the appointment row and session detail. The student receives the link in the confirmation notification and on the session card.
 
 #### How it works
 
-`POST /api/appointments/meet` calls Google Calendar/Meet server-side when credentials are configured. The confirm dialog also accepts a pasted `meet.google.com` link. `packages/shared-services/src/appointments/meeting.ts` validates the URL and provider, and the link is stored on the appointment alongside `meeting_provider`, `meeting_event_id`, and `meeting_created_at` (migration `00072`). Reschedule moves the calendar event; rejection cleans it up.
+Chekie does not call the Google Calendar API. The confirm dialog accepts a pasted `meet.google.com` link, `packages/shared-services/src/appointments/meeting.ts` validates it (`isMeetUrl`), and the link is stored on the appointment (`meeting_url`, migration `00034`). Staff can remove it later through `clearAppointmentMeetingLink`.
 
-The fallback is the important design choice. If `GOOGLE_MEET_ENABLED` or the OAuth credentials are missing, the create route returns 503 and the counselor can paste a link manually. The feature degrades rather than breaks, which matters on demo day.
+Nothing depends on Google credentials or OAuth, so the feature cannot fail because an integration is unconfigured.
 
 #### What to show a reviewer
 
 1. Confirm an **Online** session as a counselor.
-2. Show the two paths in the dialog: **Create Meet link** and **paste**.
-3. Paste a `meet.google.com` link and show that a non-Meet URL is rejected.
-4. Confirm the session and show the link on the appointment row.
-5. Return to mobile and show the link in the session detail or confirmation notification.
-6. Reschedule the session and explain that a managed calendar event moves with it.
+2. Paste a `meet.google.com` link in the dialog and show that a non-Meet URL is rejected.
+3. Confirm the session and show the link on the appointment row.
+4. Return to mobile and show the link in the session detail or confirmation notification.
 
 #### Honest limit
 
-Automatic creation needs `GOOGLE_MEET_ENABLED`, OAuth credentials, and a refresh token. There is no per-counselor Google login; the office account is used. The URL is stored in plain text, so anyone who can read the appointment row can read the link. Testing-mode OAuth refresh tokens expire after seven days.
+The URL is stored in plain text, so anyone who can read the appointment row can read the link.
 
 ---
 
@@ -508,7 +506,7 @@ Use this when a reviewer asks "where is that?"
 | 5 | Web `/reports` | `getDailySummary`, `getStressOverview`, `suppressCohorts`; head RPCs | `analytics_daily_summary`, `report_digests`, `head_*` RPCs | `suppression.test.ts`; migrations `00061`, `00071`; Excel builders |
 | 6 | Mobile `/chat`; web `/chat` | `messageableCounselors`, `listThreads`, `openThread`, `sendMessage`, `listStaffMessages` | `chat_threads`, `chat_messages`, `staff_messages`, `notifications` | Chat-service tests; realtime provider; RLS |
 | 7 | Web `/announcements`; mobile Home | Announcement page actions; notification service | `announcements`, `notifications`, `announcement-images` bucket | Migration `00025`; scope note |
-| 8 | Web `/appointments`, session detail, referral confirm | `meeting.ts`, `/api/appointments/meet` | `appointments.meeting_url`, `meeting_provider`, `meeting_event_id` | `meeting.test.ts`; migration `00072`; integration note |
+| 8 | Web `/appointments`, session detail, referral confirm | `meeting.ts` (`isMeetUrl`), `clearAppointmentMeetingLink` | `appointments.meeting_url`, `meeting_provider` | `meeting.test.ts`; migration `00034` |
 | 9 | Web `/emergency`, `/security`, `/security/events` | `breakGlassAccess`, `isStudentOnCounselorCaseload`, `reviewBreakGlass` | `break_glass_logs`, `audit_logs` | RLS tests; migrations `00027`, `00069`; break-glass service tests |
 | 10 | Web `/refer-student`, `/referrals`, `/dashboard`, `/reports` | `createReferral`, `triageReferral`, `assignReferral`, `confirmReferralWithSession`, `rejectReferral`, `escalateStaleUrgent` | `referrals`, `referral_actions`, `appointments.source_referral_id` | Referral mutation tests; migrations `00039`, `00040`; Playwright faculty journey |
 | 11 | CI, performance harness, test suites | N/A | N/A | `perf-tests/results/*.json`, 86 Vitest cases, 14 RLS tests, 4 Playwright specs, `ci.yml` |

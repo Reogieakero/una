@@ -1,13 +1,4 @@
 import { DashboardBackdrop } from "../dashboard/dashboard-backdrop";
-import {
-  CrumbSkeleton,
-  DivideListSkeleton,
-  ChartBlockSkeleton,
-  KpiGridSkeleton,
-  PanelShellSkeleton,
-  QuickLinksSkeleton,
-  SkeletonRoot,
-} from "./primitives";
 
 /**
  * Counselor dashboard content (below the hero) — mirrors the head layout:
@@ -312,44 +303,125 @@ export function HeadDashboardSkeleton() {
 }
 
 /**
- * Faculty dashboard — exact layout match:
- * H1 + Flag-a-student pill CTA, 5x p-6 KPIs (sm:2 lg:3 xl:5),
- * full-width 14-day trend (h-[240px]), [1fr_320px] 2+2 panels
- * (Needs office / Recent / News / 7 Quick links).
+ * Faculty dashboard body — same silhouette as the loaded dark-canvas view:
+ * 5 stat cards, trend + status charts, two bar panels, and the queue panels.
+ */
+export function FacultyDashboardBodySkeleton() {
+  return (
+    <div className="animate-pulse space-y-5" aria-hidden>
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="h-3 w-40 rounded-full bg-white/10" />
+          <div className="h-3 w-56 rounded-full bg-white/[0.06]" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <HeadStatCardSkeleton key={i} />
+          ))}
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
+        <HeadPanelSkeleton titleWidth="w-32">
+          <div className="mt-3 h-[190px] rounded-xl bg-white/[0.06]" />
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+            <div className="h-3 w-40 rounded-full bg-white/[0.06]" />
+            <div className="h-3 w-32 rounded-full bg-white/[0.06]" />
+          </div>
+        </HeadPanelSkeleton>
+        <HeadPanelSkeleton titleWidth="w-32">
+          <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="mx-auto h-[164px] w-[164px] shrink-0 rounded-full bg-white/[0.06]" />
+            <div className="min-w-0 flex-1 space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-3 w-full rounded-full bg-white/[0.06]" />
+              ))}
+            </div>
+          </div>
+        </HeadPanelSkeleton>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, panel) => (
+          <HeadPanelSkeleton key={panel} titleWidth="w-28">
+            <div className="mt-3 space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <div className="h-3 w-24 rounded-full bg-white/[0.06]" />
+                    <div className="h-3 w-6 rounded-full bg-white/10" />
+                  </div>
+                  <div className="mt-1.5 h-2.5 w-full rounded-full bg-white/[0.07]" />
+                </div>
+              ))}
+            </div>
+          </HeadPanelSkeleton>
+        ))}
+      </div>
+
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <HeadPanelSkeleton key={i} titleWidth="w-40">
+              <div className="mt-3 space-y-2.5">
+                {Array.from({ length: 3 }).map((_, row) => (
+                  <div key={row} className="h-11 rounded-xl bg-white/[0.06]" />
+                ))}
+              </div>
+            </HeadPanelSkeleton>
+          ))}
+        </div>
+        <div className="min-w-0 space-y-4">
+          <HeadPanelSkeleton titleWidth="w-24">
+            <div className="mt-3 space-y-2.5">
+              {Array.from({ length: 3 }).map((_, row) => (
+                <div key={row} className="h-11 rounded-xl bg-white/[0.06]" />
+              ))}
+            </div>
+          </HeadPanelSkeleton>
+          <HeadPanelSkeleton titleWidth="w-24">
+            <div className="mt-3 space-y-2.5">
+              {Array.from({ length: 6 }).map((_, row) => (
+                <div key={row} className="h-11 rounded-xl bg-white/[0.06]" />
+              ))}
+            </div>
+          </HeadPanelSkeleton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Faculty dashboard — dark canvas with the greeting hero and the same body
+ * silhouette as the loaded view. The backdrop comes from the staff shell
+ * (counselor, head, and faculty share the guidance canvas).
  */
 export function FacultyDashboardSkeleton() {
   return (
-    <SkeletonRoot className="space-y-6">
-      <CrumbSkeleton />
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="h-7 w-56 rounded-lg bg-ink/10" />
-          <div className="mt-2 h-4 w-full max-w-[600px] rounded-full bg-ink/10" />
-        </div>
-        <div className="h-9 w-36 shrink-0 rounded-full bg-ink/10" />
-      </div>
-      <KpiGridSkeleton count={5} columns="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" />
-      <PanelShellSkeleton titleWidth="w-56" withHint withViewAll>
-        <ChartBlockSkeleton height="h-[240px]" />
-      </PanelShellSkeleton>
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-w-0 space-y-4">
-          <PanelShellSkeleton titleWidth="w-36" withHint withViewAll>
-            <DivideListSkeleton rows={3} />
-          </PanelShellSkeleton>
-          <PanelShellSkeleton titleWidth="w-44" withHint withViewAll>
-            <DivideListSkeleton rows={3} />
-          </PanelShellSkeleton>
-        </div>
-        <div className="min-w-0 space-y-4">
-          <PanelShellSkeleton titleWidth="w-24" withHint withViewAll>
-            <DivideListSkeleton rows={3} />
-          </PanelShellSkeleton>
-          <PanelShellSkeleton titleWidth="w-24">
-            <QuickLinksSkeleton rows={7} />
-          </PanelShellSkeleton>
+    <div
+      className="-m-4 min-h-[calc(100vh-3.5rem)]"
+      aria-hidden
+      role="status"
+      aria-label="Loading"
+      data-head-dashboard
+    >
+      <div className="relative overflow-hidden">
+        <div className="relative z-10 space-y-5 px-4 pb-6 pt-4 sm:px-6 sm:pb-8 lg:px-8">
+          <div className="animate-pulse">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="h-[26px] w-56 rounded-full border border-white/10 bg-white/[0.04]" />
+              <div className="h-8 w-40 shrink-0 rounded-full border border-white/10 bg-white/[0.04]" />
+            </div>
+            <div className="mt-4">
+              <div className="h-8 w-[520px] max-w-full rounded-lg bg-white/10 sm:h-9" />
+              <div className="mt-2 h-3 w-[420px] max-w-full rounded-full bg-white/[0.06]" />
+            </div>
+          </div>
+
+          <FacultyDashboardBodySkeleton />
         </div>
       </div>
-    </SkeletonRoot>
+    </div>
   );
 }

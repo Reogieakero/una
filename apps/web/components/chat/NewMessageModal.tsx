@@ -85,7 +85,7 @@ export function NewMessageModal({
           <Button size="sm" variant="outline" onClick={onClose} autoFocus>
             Back
           </Button>
-          <Button size="sm" variant="primary" disabled={busy || !counselor || !body.trim()} onClick={onSend}>
+          <Button size="sm" variant="primary" loading={busy} disabled={busy || !counselor || !body.trim()} onClick={onSend}>
             {busy ? "Sending…" : "Send message"}
           </Button>
         </div>

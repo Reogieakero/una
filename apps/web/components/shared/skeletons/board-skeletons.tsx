@@ -161,7 +161,7 @@ export function AnnouncementsSkeleton() {
 export function NotificationsSkeleton() {
   return (
     <SkeletonRoot>
-      <PageHeaderSkeleton action="buttons" />
+      <PageHeaderSkeleton action="buttons" breadcrumb={false} />
       <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
         <FilterBarSkeleton menus={2} />
         <ul className="mt-3 divide-y divide-ink/10" aria-hidden>

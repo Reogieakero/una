@@ -107,10 +107,10 @@ export function SessionDetail({
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="accent" disabled={busy} onClick={onComplete}>
+              <Button size="sm" variant="accent" loading={busy} disabled={busy} onClick={onComplete}>
                 {busy ? "Saving…" : "Complete"}
               </Button>
-              <Button size="sm" variant="outline" disabled={busy} onClick={onNoShow}>
+              <Button size="sm" variant="outline" loading={busy} disabled={busy} onClick={onNoShow}>
                 {busy ? "Saving…" : "No-show"}
               </Button>
             </div>

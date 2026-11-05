@@ -27,9 +27,6 @@ export function AppointmentConfirmDialogs({
   onMeetingChange,
   meetingError,
   confirmBusy,
-  meetingManaged,
-  createBusy,
-  onCreateMeet,
   onClose,
   onSubmit,
 }: {
@@ -43,9 +40,6 @@ export function AppointmentConfirmDialogs({
   onMeetingChange: (v: string) => void;
   meetingError: string | null;
   confirmBusy: boolean;
-  meetingManaged?: boolean;
-  createBusy?: boolean;
-  onCreateMeet?: () => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
@@ -91,9 +85,6 @@ export function AppointmentConfirmDialogs({
               onChange={onMeetingChange}
               error={meetingError}
               disabled={confirmBusy}
-              managed={meetingManaged}
-              createBusy={createBusy}
-              onCreate={onCreateMeet}
             />
           </div>
         )}
@@ -104,6 +95,7 @@ export function AppointmentConfirmDialogs({
           <Button
             size="sm"
             variant={confirming.kind === "reject" ? "danger" : "primary"}
+            loading={confirmBusy}
             disabled={confirmBusy || ((confirming.kind === "confirm" || confirming.kind === "reschedule") && !sched)}
             onClick={onSubmit}
           >

@@ -805,7 +805,7 @@ export function SessionNotesModal({
               Close
             </Button>
             {editable && (
-              <Button size="sm" variant="accent" onClick={() => void handleSave()} disabled={!canSave}>
+              <Button size="sm" variant="accent" loading={busy} onClick={() => void handleSave()} disabled={!canSave || busy}>
                 {uploading ? "Attaching images…" : existing ? "Save changes" : "Save note"}
               </Button>
             )}

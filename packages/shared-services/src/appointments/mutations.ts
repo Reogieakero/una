@@ -780,6 +780,30 @@ export async function rescheduleAppointment(
   return result.data;
 }
 
+/**
+ * Detach the Meet link from an active session. Links are pasted by staff now
+ * (no Calendar API), so removing one is a plain guarded update — statuses
+ * match `meetingRemoveAllowed` so closed rows keep their record.
+ */
+export async function clearAppointmentMeetingLink(db: DbClient, appointmentId: string) {
+  const { data, error } = await db
+    .from("appointments")
+    .update({
+      meeting_url: null,
+      meeting_provider: "manual",
+      meeting_event_id: null,
+      meeting_created_at: null,
+    })
+    .eq("id", appointmentId)
+    .in("status", ["assigned", "confirmed", "cancelled", "rejected"])
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error("Couldn't remove the Meet link — please reload and try again.");
+  }
+  return data;
+}
+
 /** Submit post-session feedback (one rating per completed appointment). */
 export async function submitFeedback(
   db: DbClient,

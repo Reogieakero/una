@@ -8,6 +8,7 @@ import {
   CalendarDays,
   ClipboardList,
   Inbox,
+  Loader2,
   MessagesSquare,
   ShieldAlert,
   Users,
@@ -731,9 +732,11 @@ export function HeadReportsView({
           <button
             type="button"
             onClick={() => refetch()}
-            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            disabled={isFetching}
+            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-60"
           >
-            Try again
+            {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+            {isFetching ? "Retrying…" : "Try again"}
           </button>
         </div>
       ) : (

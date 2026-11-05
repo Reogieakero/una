@@ -36,9 +36,11 @@ export function StaffShell({
   const resolved: StaffNavGroup[] =
     groups ?? [{ label: "Menu", inline: true, links: links ?? [] }];
   const role = profile?.role ?? null;
-  // Counselor + guidance head share the guidance canvas; faculty/admin keep the
-  // neutral cream shell.
-  const onGuidanceCanvas = role === "counselor" || role === "guidance_head";
+  // Counselor, guidance head, and faculty share the guidance canvas so all
+  // three roles get the same dark/light workspace; admin keeps the neutral
+  // cream shell for its head-only tools.
+  const onGuidanceCanvas =
+    role === "counselor" || role === "guidance_head" || role === "faculty";
 
   // Lock body scroll while the mobile drawer is open.
   useEffect(() => {
@@ -65,10 +67,10 @@ export function StaffShell({
           <StaffNav title={title} profile={profile ?? null} onMenuClick={() => setMenuOpen(true)} />
           <main className="relative w-full flex-1 p-4">
             {/* Guidance canvas — the same ambient background as the head
-                dashboard, applied to every counselor/head route so the whole
-                workspace reads as one surface. Faculty/admin keep the plain
-                cream canvas. Rendered behind the content (never inside a
-                stacking context) so fixed modals still layer above the rail. */}
+                dashboard, applied to every counselor/head/faculty route so
+                the whole workspace reads as one surface. Admin keeps the
+                plain cream canvas. Rendered behind the content (never inside
+                a stacking context) so fixed modals still layer above the rail. */}
             {onGuidanceCanvas && <DashboardBackdrop />}
             <div className="relative">
               <StaffShellBody>

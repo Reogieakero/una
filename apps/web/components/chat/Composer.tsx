@@ -33,7 +33,7 @@ export function Composer({
         aria-label={inputLabel}
         disabled={sending}
       />
-      <Button disabled={sending || !draft.trim()} aria-label={sendLabel} className="shrink-0 px-4">
+      <Button loading={sending} disabled={sending || !draft.trim()} aria-label={sendLabel} className="shrink-0 px-4">
         <Send className="h-4 w-4" aria-hidden />
       </Button>
     </form>

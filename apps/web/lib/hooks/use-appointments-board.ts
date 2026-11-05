@@ -31,8 +31,17 @@ export type BoardAppointment = {
   pss10_waived_at: string | null;
   /** Operational waiver reason (never clinical detail). */
   pss10_waiver_reason: string | null;
+  /** Assessment that gated the original booking (appointments.pss10_id, 00008). */
+  pss10_id?: string | null;
   /** Latest linked check-in submission, derived from pss10_assessments. */
   pss10_checkin_at?: string | null;
+  /** Score/band of that pre-session check-in — the assigned counselor's context. */
+  pss10_checkin_score?: number | null;
+  pss10_checkin_band?: string | null;
+  /** Score/band of the booking screening (the PSS-10 attached at request time). */
+  pss10_booking_at?: string | null;
+  pss10_booking_score?: number | null;
+  pss10_booking_band?: string | null;
   /** Request timestamp — the office board's primary sort. */
   created_at: string;
   /** Last-write timestamp (00062 trigger) — the counselor board's primary sort. */
@@ -141,7 +150,7 @@ export async function fetchAppointmentCard(id: string): Promise<{ row: BoardAppo
   const supabase = createClient();
   const { data, error } = await supabase
     .from("appointments")
-    .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, meeting_provider, meeting_event_id, meeting_created_at, is_follow_up, follow_up_of, created_at, updated_at, pss10_required, pss10_waived_at, pss10_waiver_reason")
+    .select("id, student_id, counselor_id, scheduled_at, ends_at, mode, status, concern, meeting_url, meeting_provider, meeting_event_id, meeting_created_at, is_follow_up, follow_up_of, created_at, updated_at, pss10_id, pss10_required, pss10_waived_at, pss10_waiver_reason")
     .eq("id", id)
     .single();
   if (error || !data) throw new Error("Session not found.");
@@ -155,9 +164,12 @@ export async function fetchAppointmentCard(id: string): Promise<{ row: BoardAppo
 }
 
 /**
- * Attach the newest linked pre-session check-in per appointment. The board
- * never needs answers/scores here — only the timestamp that proves a fresh
- * check-in exists. Batched by visible ids (RLS scopes rows).
+ * Attach the newest linked pre-session check-in per appointment, plus the
+ * booking screening the request was created from (appointments.pss10_id).
+ * The board needs score + band only — never item answers. Both reads are
+ * scoped by the visible appointment ids (RLS scopes the rows themselves).
+ *
+ * Counselors see this for their own queue; the head sees it office-wide.
  */
 async function attachLinkedCheckins(
   supabase: ReturnType<typeof createClient>,
@@ -165,18 +177,56 @@ async function attachLinkedCheckins(
 ): Promise<BoardAppointment[]> {
   const ids = rows.map((r) => r.id).filter(Boolean);
   if (!ids.length) return rows;
-  const { data } = await supabase
-    .from("pss10_assessments")
-    .select("appointment_id, student_id, created_at")
-    .in("appointment_id", ids)
-    .order("created_at", { ascending: false });
-  const latest = new Map<string, string>();
-  for (const row of (data ?? []) as { appointment_id: string | null; created_at: string }[]) {
+  const bookingIds = [...new Set(rows.map((r) => r.pss10_id).filter((id): id is string => !!id))];
+
+  const [checkinRes, bookingRes] = await Promise.all([
+    supabase
+      .from("pss10_assessments")
+      .select("appointment_id, total_score, band, created_at")
+      .in("appointment_id", ids)
+      .order("created_at", { ascending: false }),
+    bookingIds.length
+      ? supabase
+          .from("pss10_assessments")
+          .select("id, total_score, band, created_at")
+          .in("id", bookingIds)
+      : Promise.resolve({ data: [] as { id: string; total_score: number; band: string; created_at: string }[] }),
+  ]);
+
+  const latest = new Map<string, { total_score: number; band: string; created_at: string }>();
+  for (const row of (checkinRes.data ?? []) as {
+    appointment_id: string | null;
+    total_score: number;
+    band: string;
+    created_at: string;
+  }[]) {
     if (row.appointment_id && !latest.has(row.appointment_id)) {
-      latest.set(row.appointment_id, row.created_at);
+      latest.set(row.appointment_id, row);
     }
   }
-  return rows.map((r) => ({ ...r, pss10_checkin_at: latest.get(r.id) ?? null }));
+  const booking = new Map<string, { total_score: number; band: string; created_at: string }>();
+  for (const row of (bookingRes.data ?? []) as {
+    id: string;
+    total_score: number;
+    band: string;
+    created_at: string;
+  }[]) {
+    booking.set(row.id, row);
+  }
+
+  return rows.map((r) => {
+    const checkin = latest.get(r.id);
+    const gate = r.pss10_id ? booking.get(r.pss10_id) : undefined;
+    return {
+      ...r,
+      pss10_checkin_at: checkin?.created_at ?? null,
+      pss10_checkin_score: checkin?.total_score ?? null,
+      pss10_checkin_band: checkin?.band ?? null,
+      pss10_booking_at: gate?.created_at ?? null,
+      pss10_booking_score: gate?.total_score ?? null,
+      pss10_booking_band: gate?.band ?? null,
+    };
+  });
 }
 
 /** Fresh window — inside it, going back to /appointments renders zero-fetch. */

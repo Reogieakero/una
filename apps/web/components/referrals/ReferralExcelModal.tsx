@@ -242,24 +242,20 @@ export function ReferralExcelModal({
 
   const refer = async () => {
     if (busy || !validate()) return;
-    // 00069: exact-match lookup only. Most referred students have no account
-    // yet, so a miss files as a walk-in under the typed name/number. There is
-    // no browse-all list to search or enumerate.
-    const supabase = createClient();
-    const { data: matchRows, error: matchError } = await supabase.rpc("lookup_student_for_referral", {
-      p_student_no: studentNo.trim(),
-    });
-    if (matchError) {
-      toast.error("Couldn't check that student number — please try again.");
-      return;
-    }
-    const match = ((matchRows ?? []) as { id: string; anonymous_alias: string | null }[])[0] ?? null;
-    if (!facultyId) {
-      toast.error("Your faculty record isn't linked yet — ask the guidance head to finish setup.");
-      return;
-    }
     setBusy("refer");
     try {
+      // 00069: exact-match lookup only. Most referred students have no account
+      // yet, so a miss files as a walk-in under the typed name/number. There is
+      // no browse-all list to search or enumerate.
+      const supabase = createClient();
+      const { data: matchRows, error: matchError } = await supabase.rpc("lookup_student_for_referral", {
+        p_student_no: studentNo.trim(),
+      });
+      if (matchError) throw new Error("Couldn't check that student number — please try again.");
+      const match = ((matchRows ?? []) as { id: string; anonymous_alias: string | null }[])[0] ?? null;
+      if (!facultyId) {
+        throw new Error("Your faculty record isn't linked yet — ask the guidance head to finish setup.");
+      }
       const reason = remarks.trim();
       const created = (await createReferral(createClient(), {
         studentId: match?.id,
@@ -570,13 +566,31 @@ export function ReferralExcelModal({
               <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setStep("fill")}>
                 Back
               </Button>
-              <Button size="sm" variant="outline" disabled={!!busy} onClick={downloadPdf}>
+              <Button
+                size="sm"
+                variant="outline"
+                loading={busy === "pdf"}
+                disabled={!!busy}
+                onClick={downloadPdf}
+              >
                 {busy === "pdf" ? "Building PDF…" : "Download PDF"}
               </Button>
-              <Button size="sm" variant="primary" disabled={!!busy} onClick={download}>
+              <Button
+                size="sm"
+                variant="primary"
+                loading={busy === "excel"}
+                disabled={!!busy}
+                onClick={download}
+              >
                 {busy === "excel" ? "Building Excel…" : "Download Excel"}
               </Button>
-              <Button size="sm" variant="accent" disabled={!!busy} onClick={refer}>
+              <Button
+                size="sm"
+                variant="accent"
+                loading={busy === "refer"}
+                disabled={!!busy}
+                onClick={refer}
+              >
                 {busy === "refer" ? "Referring…" : "Refer"}
               </Button>
             </>
