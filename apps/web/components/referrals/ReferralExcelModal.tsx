@@ -307,7 +307,7 @@ export function ReferralExcelModal({
       aria-modal="true"
       aria-labelledby="ref-excel-title"
     >
-      <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={close} />
+      <div aria-hidden className="absolute inset-0 bg-black/40 dark:bg-black/70" onClick={close} />
       <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-6 shadow-card sm:max-w-2xl">
         <div className="flex items-start justify-between gap-2">
           <div>

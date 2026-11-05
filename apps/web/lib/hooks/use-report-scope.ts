@@ -22,7 +22,7 @@ export function readStoredScope(): StoredScope | null {
     const s = JSON.parse(raw) as Partial<StoredScope>;
     return {
       section: typeof s.section === "string" ? s.section : "all",
-      preset: typeof s.preset === "string" ? s.preset : "all",
+      preset: typeof s.preset === "string" ? s.preset : "30d",
       from: typeof s.from === "string" ? s.from : "",
       to: typeof s.to === "string" ? s.to : "",
     };
@@ -60,8 +60,10 @@ export function useRestoreReportScope() {
       to: stored.to,
     });
     const patch: Record<string, string | null> = {
-      section: sec !== "sessions" ? sec : null,
-      range: r.preset !== "all" && r.preset !== "custom" ? r.preset : null,
+      section: sec !== "all" ? sec : null,
+      // Keep "All time" explicit; omit the 30-day default and custom bounds
+      // (custom is re-applied from the from/to params below).
+      range: r.preset === "custom" || r.preset === "30d" ? null : r.preset,
       from: r.preset === "custom" && r.from ? r.from.slice(0, 10) : null,
       to: r.preset === "custom" && r.to ? r.to.slice(0, 10) : null,
     };

@@ -21,14 +21,6 @@ import { clampPage, clampPageSize } from "@/lib/pagination";
 import { useMutationAction } from "@/lib/hooks/use-mutation-action";
 import { Card } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { ACTION_DEFS, formatScheduleRange, formatWhen } from "@/components/appointments/status";
 import { AppointmentPss10WaiverDialog } from "@/components/appointments/AppointmentPss10WaiverDialog";
 import type { ActionKind, Appt, CounselorOpt } from "@/components/appointments/status";
@@ -85,7 +77,8 @@ function AppointmentsPageInner() {
   // stay bookmarkable. Structured filters ride the board query server-side;
   // changing any of them resets to page 1 (cursor chain is filter-keyed).
   const page = clampPage(searchParams.get("page"));
-  const size = clampPageSize(searchParams.get("size"));
+  // Appointments default to 10 rows per page (the URL still overrides it).
+  const size = clampPageSize(searchParams.get("size") ?? 10);
   const gotoPage = useCallback(
     (p: number, s: number = size) => {
       router.replace(`/appointments?page=${p}&size=${s}`, { scroll: false });
@@ -101,7 +94,7 @@ function AppointmentsPageInner() {
   const pickMode = useCallback((m: string) => { setModeFilterState(m); gotoPage(1); }, [gotoPage]);
   const pickCounselor = useCallback((c: string) => { setCounselorFilterState(c); gotoPage(1); }, [gotoPage]);
   const pickKind = useCallback((k: "appointments" | "followups") => { setKindFilterState(k); gotoPage(1); }, [gotoPage]);
-  const { data: board, isLoading, isError, refetch } = useAppointmentsBoard({
+  const { data: board, isLoading, isPlaceholderData, isError, refetch } = useAppointmentsBoard({
     page,
     size,
     status: statusFilter,
@@ -119,6 +112,10 @@ function AppointmentsPageInner() {
   const counselors = board?.counselors ?? EMPTY_COUNSELORS;
   const slots = board?.slots ?? [];
   const loading = isLoading && !board;
+  // Page/filter/size changes keep the previous page in cache (keepPreviousData),
+  // so `isLoading` stays false. Treat those as loading too, otherwise the table
+  // silently shows stale rows with no feedback.
+  const tableLoading = loading || isPlaceholderData;
   // Visiting the section clears its sidebar badge (badges count unread
   // notification rows, not page views).
   // Action-required counts come from sidebar_counts() (00063). Visiting the
@@ -557,14 +554,6 @@ function AppointmentsPageInner() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem><BreadcrumbLink href="/">Home</BreadcrumbLink></BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbPage>Appointments</BreadcrumbPage></BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <AppointmentsHeader role={role} canSeeActions={canSeeActions} loading={loading} stats={stats} onSelectStatus={pickStatus} onSelectCounselor={pickCounselor} />
 
       <Tabs value={kindFilter} onValueChange={(v) => pickKind(v as "appointments" | "followups")}>
@@ -580,7 +569,7 @@ function AppointmentsPageInner() {
 
       <Card className="p-0">
         <AppointmentsBoard
-          visible={visible} loading={loading}
+          visible={visible} loading={tableLoading}
           query={query} setQuery={setQuery}
           statusFilter={statusFilter} setStatusFilter={pickStatus}
           modeFilter={modeFilter} setModeFilter={pickMode}
@@ -591,8 +580,7 @@ function AppointmentsPageInner() {
           onAssign={handleAssign} onDetail={setDetail} onConfirming={setConfirming}
           onNotes={setNotesAppt} kindFilter={kindFilter}
           page={page} size={size} totalApprox={board?.totalApprox ?? 0} hasMore={board?.hasMore ?? false}
-          onPageChange={(p) => gotoPage(p)} onSizeChange={(s) => gotoPage(1, s)}
-          searchActive={query.trim().length > 0}
+          onPageChange={(p) => gotoPage(p)}
         />
       </Card>
 

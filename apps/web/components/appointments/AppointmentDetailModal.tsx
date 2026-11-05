@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CalendarDays, ClipboardCheck, FileText, MapPin, Video, X } from "lucide-react";
+import { CalendarDays, ClipboardCheck, FileText, MapPin, UserRound, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { meetingRemoveAllowed, preSessionPss10State } from "@dorsu/shared-services";
 import { requestMeetCleanup, MEET_CREATE_FALLBACK } from "@/lib/google/meet-client";
@@ -79,10 +79,10 @@ export function AppointmentDetailModal({
       aria-modal="true"
       aria-labelledby="appt-detail-title"
     >
-      <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={onClose} />
-      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white shadow-card sm:max-w-lg">
+      <div aria-hidden className="absolute inset-0 bg-ink/40 dark:bg-black/70" onClick={onClose} />
+      <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-xl border border-ink/10 bg-white shadow-card sm:max-w-lg">
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 border-b border-ink/10 px-6 pb-4 pt-5">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-ink/10 bg-white px-6 pb-4 pt-5">
           <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-wider text-ink-faint">Appointment</p>
             <h2 id="appt-detail-title" className="mt-0.5 font-display text-lg font-bold text-ink">
@@ -104,7 +104,7 @@ export function AppointmentDetailModal({
 
         <div className="px-6 py-5">
           {/* Schedule hero */}
-          <div className="flex items-center gap-3 rounded-lg border border-primary-200 bg-blue-50/60 p-4">
+          <div className="flex items-start gap-3 rounded-lg border border-primary-200 bg-primary-50 p-4 dark:border-primary-400/30">
             <span
               aria-hidden
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary-600 text-white shadow-soft"
@@ -115,10 +115,10 @@ export function AppointmentDetailModal({
               <p className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
                 {hasSetSchedule(detail.status) ? "Session schedule" : "Requested schedule"}
               </p>
-              <p className="mt-0.5 truncate font-display text-[15px] font-bold text-ink">
+              <p className="mt-0.5 font-display text-[15px] font-bold leading-snug text-ink">
                 {formatScheduleRange(detail.scheduled_at, detail.ends_at ?? null)}
               </p>
-              <p className="mt-0.5 text-xs font-medium text-ink-faint">
+              <p className="mt-0.5 text-xs font-medium leading-relaxed text-ink-muted">
                 {hasSetSchedule(detail.status)
                   ? "Final time set by the counselor — the student was notified."
                   : "Student's requested slot — the final time appears here after the counselor confirms."}
@@ -161,14 +161,15 @@ export function AppointmentDetailModal({
           {detail.student_id && (
             <Link
               href={`/students/${detail.student_id}`}
-              className="mt-3 inline-flex h-8 items-center rounded border border-ink/10 bg-white px-3 text-[11px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+              className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border border-ink/10 bg-white px-3 text-xs font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
             >
+              <UserRound className="h-3.5 w-3.5" aria-hidden />
               Open student record
             </Link>
           )}
 
           {/* Mode */}
-          <div className="mt-3 flex items-center gap-2 rounded-lg bg-cream px-4 py-3 text-sm">
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-ink/10 bg-cream px-4 py-3 text-sm">
             {detail.mode === "online" ? (
               <Video className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
             ) : (
@@ -197,7 +198,7 @@ export function AppointmentDetailModal({
 
           {/* Pre-session check-in status — status/timestamp only, never answers. */}
           {checkinCopy && (
-            <div className="mt-3 flex items-center gap-2 rounded-lg bg-cream px-4 py-3 text-sm">
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-ink/10 bg-cream px-4 py-3 text-sm">
               <ClipboardCheck className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
               <span className="font-bold text-ink">{checkinCopy}</span>
             </div>
@@ -210,7 +211,7 @@ export function AppointmentDetailModal({
           </div>
 
           {detail.is_follow_up && (
-            <p className="mt-3 flex items-start gap-2 rounded-lg bg-purple-50 px-4 py-3 text-[13px] leading-relaxed text-purple-900 ring-1 ring-purple-100">
+            <p className="mt-3 flex items-start gap-2 rounded-lg bg-accent-50 px-4 py-3 text-[13px] leading-relaxed text-accent-700 ring-1 ring-accent-100">
               <FileText className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               Follow-up session — scheduled from a previous session&apos;s notes. It runs the normal
               confirm → complete lifecycle like any other session.

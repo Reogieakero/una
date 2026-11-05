@@ -4,8 +4,10 @@ import {
   parseReportRange,
   parseReportSection,
   withRange,
+  type ReportRange,
   type ReportSection,
 } from "@/lib/reports-scope";
+import { previousRange, summarizeKpi, type ReportKpiSummary } from "@/lib/reports/kpi-summary";
 
 export type CounselorReportsAppt = {
   id: string;
@@ -42,6 +44,8 @@ export type CounselorReportsPayload = {
   referrals: CounselorReportsReferral[];
   feedback: CounselorReportsFeedback[];
   screenings: CounselorReportsScreening[];
+  /** Previous equal-length window, or null for All time. Overview deltas only. */
+  comparison: ReportKpiSummary | null;
   fetchedAt: string;
 };
 
@@ -96,6 +100,7 @@ export async function GET(request: Request) {
         referrals: [],
         feedback: [],
         screenings: [],
+        comparison: null,
         unlinked: true,
         fetchedAt: new Date().toISOString(),
       } satisfies CounselorReportsPayload & { unlinked: boolean },
@@ -121,7 +126,7 @@ export async function GET(request: Request) {
     studentIds = [...new Set(((mine ?? []) as { student_id: string }[]).map((r) => r.student_id))];
   }
 
-  const fetchFeedback = async (): Promise<CounselorReportsFeedback[]> => {
+  const fetchFeedback = async (scope: ReportRange): Promise<CounselorReportsFeedback[]> => {
     // P3b: single join-scoped query — every feedback row carries its
     // appointment_id, so !inner restricts to my sessions with no
     // id-prefetch + 200-chunk fan-out.
@@ -133,12 +138,12 @@ export async function GET(request: Request) {
         .order("created_at", { ascending: false })
         .limit(1000),
       "created_at",
-      range
+      scope
     );
     return ((data ?? []) as CounselorReportsFeedback[]);
   };
 
-  const fetchScreenings = async (): Promise<CounselorReportsScreening[]> => {
+  const fetchScreenings = async (scope: ReportRange): Promise<CounselorReportsScreening[]> => {
     if (!studentIds.length) return [];
     const idChunks: string[][] = [];
     for (let i = 0; i < studentIds.length; i += 200) idChunks.push(studentIds.slice(i, i + 200));
@@ -148,14 +153,16 @@ export async function GET(request: Request) {
         withRange(
           supabase.from("pss10_assessments").select("band,total_score,created_at").in("student_id", chunk).limit(1000),
           "created_at",
-          range
+          scope
         )
       )
     );
     return pages.flatMap((p) => ((p.data ?? []) as CounselorReportsScreening[])).slice(0, 1000);
   };
 
-  const [apptsRes, refsRes, feedback, screenings] = await Promise.all([
+  const previous = showAll ? previousRange(range) : null;
+
+  const [apptsRes, refsRes, feedback, screenings, prevApptsRes, prevRefsRes, prevFeedback, prevScreenings] = await Promise.all([
     needAppts
       ? withRange(
           supabase
@@ -178,9 +185,38 @@ export async function GET(request: Request) {
           range
         )
       : Promise.resolve({ data: null, error: null }),
-    needFeedback ? fetchFeedback() : Promise.resolve([]),
-    needScreenings ? fetchScreenings() : Promise.resolve([]),
+    needFeedback ? fetchFeedback(range) : Promise.resolve([]),
+    needScreenings ? fetchScreenings(range) : Promise.resolve([]),
+    previous
+      ? withRange(
+          supabase.from("appointments").select("status").eq("counselor_id", counselorId).limit(2000),
+          "scheduled_at",
+          previous
+        )
+      : Promise.resolve({ data: null, error: null }),
+    previous
+      ? withRange(
+          supabase
+            .from("referrals")
+            .select("status,priority")
+            .eq("assigned_counselor_id", counselorId)
+            .limit(2000),
+          "created_at",
+          previous
+        )
+      : Promise.resolve({ data: null, error: null }),
+    previous ? fetchFeedback(previous) : Promise.resolve([]),
+    previous ? fetchScreenings(previous) : Promise.resolve([]),
   ]);
+
+  const comparison: ReportKpiSummary | null = previous
+    ? summarizeKpi({
+        appointments: (prevApptsRes.data ?? []) as { status: string }[],
+        referrals: (prevRefsRes.data ?? []) as { status: string; priority?: string }[],
+        feedback: prevFeedback as { rating: number }[],
+        screenings: prevScreenings as { band: string }[],
+      })
+    : null;
 
   const payload: CounselorReportsPayload = {
     section,
@@ -190,6 +226,7 @@ export async function GET(request: Request) {
     referrals: ((refsRes.data ?? []) as CounselorReportsReferral[]),
     feedback,
     screenings,
+    comparison,
     fetchedAt: new Date().toISOString(),
   };
 

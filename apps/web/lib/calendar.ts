@@ -21,7 +21,7 @@ export const STATUS_PILL: Record<string, string> = {
   assigned: "bg-accent-100 text-accent-700",
   confirmed: "bg-primary-100 text-primary-800",
   completed: "bg-primary-700 text-white",
-  cancelled: "bg-ink/10 text-ink-muted",
+  cancelled: "bg-red-100 text-red-700",
   rejected: "bg-accent-700 text-white",
   no_show: "bg-accent-700 text-white",
 };

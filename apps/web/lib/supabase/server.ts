@@ -1,11 +1,13 @@
 import { cache } from "react";
 import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { resolveSupabaseEnv, type TypedSupabaseClient } from "@dorsu/supabase-client";
+import { REMEMBER_COOKIE, isRemembered, withRememberLifetime } from "./remember";
 
 /** Server Supabase client (cookie-based, per-request). Wraps shared config. */
 export async function createClient(): Promise<TypedSupabaseClient> {
   const cookieStore = await cookies();
+  const remembered = isRemembered(cookieStore.get(REMEMBER_COOKIE)?.value);
   const { url, anonKey } = resolveSupabaseEnv({
     NEXT_PUBLIC_SUPABASE_URL: process.env["NEXT_PUBLIC_SUPABASE_URL"],
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env["NEXT_PUBLIC_SUPABASE_ANON_KEY"],
@@ -13,10 +15,10 @@ export async function createClient(): Promise<TypedSupabaseClient> {
   return createServerClient(url, anonKey, {
     cookies: {
       getAll: () => cookieStore.getAll(),
-      setAll: (cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) => {
+      setAll: (cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) => {
         try {
           cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options),
+            cookieStore.set(name, value, withRememberLifetime(options ?? {}, remembered)),
           );
         } catch {
           // Called from a Server Component — middleware refreshes the session.
@@ -42,7 +44,7 @@ export const getCurrentProfile = cache(async () => {
   if (!user) return null;
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, role, full_name, avatar_url, is_active")
+    .select("id, email, role, full_name, avatar_url, is_active, approval_status, profile_completed")
     .eq("id", user.id)
     .single();
   return data;

@@ -20,14 +20,6 @@ import { ReportDonut, ReportLines } from "@/components/shared/reports-charts";
 import { AnnouncementCard, statusOf, type Announcement } from "@/components/announcements/AnnouncementCard";
 import { AnnouncementForm, type AudienceValue } from "@/components/announcements/AnnouncementForm";
 import { imageValidationError, uploadAnnouncementImage } from "@/components/announcements/image-upload";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 const EMPTY_ROWS: Announcement[] = [];
 const EMPTY_AUTHORS = new Map<string, string>();
@@ -46,7 +38,7 @@ export default function AnnouncementsPage() {
   const [audience, setAudience] = useState<AudienceValue[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<null | "draft" | "publish">(null);
   const { busyId, run: runMutation } = useMutationAction();
   const [confirmDelete, setConfirmDelete] = useState<Announcement | null>(null);
   const [tab, setTab] = useState("feed");
@@ -202,7 +194,7 @@ export default function AnnouncementsPage() {
         toast.error("You're signed out — please log in again.");
         return;
       }
-      setSaving(true);
+      setSaving(publish ? "publish" : "draft");
       try {
         const image_url = imageFile ? await uploadImage(imageFile) : null;
         const { data: created, error } = await supabase.from("announcements").insert({
@@ -242,7 +234,7 @@ export default function AnnouncementsPage() {
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Couldn't save — please try again.");
       } finally {
-        setSaving(false);
+        setSaving(null);
       }
     });
 
@@ -315,18 +307,6 @@ export default function AnnouncementsPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Announcements</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <Tabs value={tab} onValueChange={setTab}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

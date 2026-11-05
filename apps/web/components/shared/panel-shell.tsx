@@ -35,11 +35,14 @@ export function PanelShell({
   title,
   hint,
   viewAllHref,
+  action,
   children,
 }: {
   title: string;
   hint?: string;
   viewAllHref?: string;
+  /** Optional header content pinned to the top-right (e.g. a live summary). */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -49,10 +52,15 @@ export function PanelShell({
           <h2 className="font-display text-base font-bold text-ink">{title}</h2>
           {hint && <p className="mt-0.5 text-[13px] text-ink-muted">{hint}</p>}
         </div>
-        {viewAllHref && (
-          <Link href={viewAllHref} className="shrink-0 text-[13px] font-bold text-primary-600 hover:underline">
-            View all
-          </Link>
+        {(action || viewAllHref) && (
+          <div className="flex shrink-0 items-center gap-3">
+            {action}
+            {viewAllHref && (
+              <Link href={viewAllHref} className="shrink-0 text-[13px] font-bold text-primary-600 hover:underline">
+                View all
+              </Link>
+            )}
+          </div>
         )}
       </div>
       {children}

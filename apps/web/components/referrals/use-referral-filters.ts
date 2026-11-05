@@ -2,12 +2,11 @@
 
 import { useCallback, useState } from "react";
 
-/** Local board filter state — search, status/priority/assignee, layout, open menu. */
+/** Local board filter state — search, status/priority/assignee, open menu. */
 export function useReferralFilters() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
-  const [view, setView] = useState<"list" | "grid">("list");
   const [query, setQuery] = useState("");
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
 
@@ -25,8 +24,6 @@ export function useReferralFilters() {
     setPriorityFilter,
     assigneeFilter,
     setAssigneeFilter,
-    view,
-    setView,
     query,
     setQuery,
     openMenuKey,

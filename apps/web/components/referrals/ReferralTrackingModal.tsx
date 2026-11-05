@@ -109,7 +109,7 @@ export function ReferralTrackingModal({
         type="button"
         aria-label="Close tracking"
         onClick={onClose}
-        className="absolute inset-0 bg-ink/40"
+        className="absolute inset-0 bg-black/40 dark:bg-black/70"
       />
       <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-6 shadow-card sm:max-w-lg">
         <div className="flex items-start justify-between gap-2">
@@ -169,7 +169,7 @@ export function ReferralTrackingModal({
                   )}
                   <span
                     aria-hidden
-                    className={`mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full ring-2 ring-white ${
+                    className={`mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full ring-2 ring-white dark:ring-[#0b1726] ${
                       e.kind === "rescheduled" ? "bg-accent-500" : "bg-primary-600"
                     }`}
                   />
@@ -209,7 +209,7 @@ export function ReferralTrackingModal({
                 )}
                 <span
                   aria-hidden
-                  className={`mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full ring-2 ring-white ${
+                  className={`mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full ring-2 ring-white dark:ring-[#0b1726] ${
                     i === 0 ? "bg-primary-600" : "bg-ink/25"
                   }`}
                 />

@@ -1,4 +1,4 @@
-import { CrumbSkeleton, PageHeaderSkeleton, PanelShellSkeleton, DivideListSkeleton, SkeletonRoot } from "./primitives";
+import { PageHeaderSkeleton, PanelShellSkeleton, DivideListSkeleton, SkeletonRoot } from "./primitives";
 
 /**
  * Specialized skeletons — asymmetric / single-column layouts where the
@@ -9,10 +9,8 @@ import { CrumbSkeleton, PageHeaderSkeleton, PanelShellSkeleton, DivideListSkelet
 export function ChatSkeleton() {
   return (
     <SkeletonRoot>
-      <CrumbSkeleton />
       <div>
         <div className="h-7 w-48 rounded-lg bg-ink/10" />
-        <div className="mt-2 h-4 w-full max-w-[600px] rounded-full bg-ink/10" />
       </div>
       <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
         <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
@@ -63,63 +61,65 @@ export function ChatSkeleton() {
   );
 }
 
-/** /sessions: toolbar + tabs + 2:1 calendar:schedule (7-col month grid). */
+/** /sessions: header filter + next-session card, then the full-width calendar. */
 export function SessionsSkeleton() {
   return (
     <SkeletonRoot>
-      <CrumbSkeleton />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="h-7 w-48 rounded-lg bg-ink/10" />
-          <div className="mt-2 h-4 w-64 rounded-full bg-ink/10" />
         </div>
-        <div className="flex gap-2">
-          <div className="h-9 w-24 rounded-lg bg-ink/10" />
-          <div className="h-9 w-24 rounded-lg bg-ink/10" />
-          <div className="h-9 w-24 rounded-lg bg-ink/10" />
+        <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+          <div className="h-7 w-28 rounded-full bg-ink/10" />
+          <div className="h-[104px] w-full rounded-xl bg-ink/10 sm:w-[300px]" />
         </div>
       </div>
-      <div className="h-12 rounded-lg bg-ink/10" />
-      <div className="grid items-start gap-4 xl:grid-cols-3">
-        <div className="rounded-lg border border-ink/10 bg-white p-5 shadow-card xl:col-span-2">
-          <div className="flex items-center justify-between">
-            <div className="h-8 w-24 rounded-lg bg-ink/10" />
-            <div className="h-5 w-40 rounded-full bg-ink/10" />
-            <div className="h-4 w-20 rounded-full bg-ink/10" />
+      <section className="overflow-hidden rounded-lg border border-ink/10 bg-white shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-5 py-3">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-16 rounded-lg bg-ink/10" />
+            <div className="h-8 w-20 rounded-lg bg-ink/10" />
+            <div className="h-5 w-36 rounded-full bg-ink/10" />
           </div>
-          <div className="mt-4 grid grid-cols-7 gap-1.5">
+          <div className="h-9 w-40 rounded-lg bg-ink/10" />
+        </div>
+        <div className="p-5">
+          <div className="grid grid-cols-7 gap-1.5">
             {Array.from({ length: 7 }).map((_, i) => (
               <div key={`h-${i}`} className="h-4 rounded-full bg-ink/10" />
             ))}
-            {Array.from({ length: 35 }).map((_, i) => (
-              <div key={`c-${i}`} className="min-h-[88px] rounded-lg bg-ink/10" />
+            {Array.from({ length: 42 }).map((_, i) => (
+              <div key={`c-${i}`} className="min-h-[112px] rounded-lg bg-ink/10" />
             ))}
           </div>
         </div>
-        <div className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
-          <div className="h-4 w-40 rounded-full bg-ink/10" />
-          <div className="mt-4 space-y-3">
-            <div className="h-16 rounded-lg bg-ink/10" />
-            <div className="h-16 rounded-lg bg-ink/10" />
-            <div className="h-24 rounded-lg bg-ink/10" />
-          </div>
+        <div className="flex items-center justify-between border-t border-ink/10 bg-cream/40 px-5 py-2.5">
+          <div className="h-3 w-64 rounded-full bg-ink/10" />
+          <div className="h-3 w-32 rounded-full bg-ink/10" />
         </div>
-      </div>
+      </section>
     </SkeletonRoot>
   );
 }
 
-/** /availability: hidden Stats + 7-col coverage board + table/form. */
+/** /availability: title + 6 visible stat cards + compact 7-col coverage board + form. */
 export function AvailabilitySkeleton() {
   return (
     <SkeletonRoot>
-      <PageHeaderSkeleton action="stats" />
-      <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
+      <div className="h-7 w-64 max-w-full rounded-lg bg-ink/10" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+            <div className="h-3 w-24 max-w-full rounded-full bg-ink/10" />
+            <div className="mt-2 h-8 w-12 rounded bg-ink/10" />
+          </div>
+        ))}
+      </div>
+      <section className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
         <div className="h-4 w-40 rounded-full bg-ink/10" />
-        <div className="mt-1.5 h-3 w-64 rounded-full bg-ink/10" />
-        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
           {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="h-28 rounded-lg bg-ink/10" />
+            <div key={i} className="h-16 rounded-md bg-ink/10" />
           ))}
         </div>
       </section>
@@ -142,7 +142,6 @@ export function AvailabilitySkeleton() {
 export function SettingsSkeleton() {
   return (
     <SkeletonRoot>
-      <CrumbSkeleton />
       <div>
         <div className="h-7 w-40 rounded-lg bg-ink/10" />
         <div className="mt-2 h-4 w-96 max-w-full rounded-full bg-ink/10" />
@@ -228,7 +227,6 @@ export function EmergencySkeleton() {
   return (
     <SkeletonRoot>
       <div className="mx-auto w-full max-w-2xl space-y-4">
-        <CrumbSkeleton />
         <div>
           <div className="h-7 w-56 rounded-lg bg-ink/10" />
           <div className="mt-2 h-4 w-full rounded-full bg-ink/10" />
@@ -248,12 +246,11 @@ export function EmergencySkeleton() {
   );
 }
 
-/** /about: narrow max-w-3xl doc stack (hero + pipeline + accordions). */
+/** /about: wide max-w-5xl doc stack (hero + pipeline + accordions). */
 export function AboutSkeleton() {
   return (
     <SkeletonRoot>
-      <div className="mx-auto w-full max-w-3xl space-y-4">
-        <CrumbSkeleton />
+      <div className="mx-auto w-full max-w-5xl space-y-4">
         <div className="text-center">
           <div className="mx-auto h-7 w-64 rounded-lg bg-ink/10" />
           <div className="mx-auto mt-2 h-4 w-96 max-w-full rounded-full bg-ink/10" />
@@ -275,10 +272,8 @@ export function AboutSkeleton() {
 export function UserFormSkeleton() {
   return (
     <SkeletonRoot>
-      <CrumbSkeleton width="w-56" />
       <div>
         <div className="h-7 w-48 rounded-lg bg-ink/10" />
-        <div className="mt-2 h-4 w-96 max-w-full rounded-full bg-ink/10" />
       </div>
       <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
         <div className="grid gap-4 md:grid-cols-2">

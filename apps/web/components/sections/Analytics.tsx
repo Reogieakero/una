@@ -4,7 +4,6 @@ import { motion } from "framer-motion";
 import { TrendingDown, TrendingUp, FileDown, Sparkles } from "lucide-react";
 import { AnimatedSection, Eyebrow, Stagger, StaggerItem } from "@/components/AnimatedSection";
 import { CountUp } from "@/components/CountUp";
-import { Badge } from "@/components/ui/badge";
 import { concernBars as concerns, stressBars as bars } from "@/lib/content";
 
 export function Analytics() {
@@ -14,14 +13,19 @@ export function Analytics() {
       aria-labelledby="analytics-heading"
       className="relative overflow-hidden py-20 lg:py-28"
     >
-      <div aria-hidden className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,#EFF6FF,#EFF3FA_55%,#EFF6FF)]" />
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <AnimatedSection className="mx-auto max-w-2xl text-center">
-          <Eyebrow>Analytics & impact</Eyebrow>
-          <h2 id="analytics-heading" className="mt-4 text-3xl font-semibold sm:text-[2.6rem]">
-            From quiet check-ins to <span className="text-blue-600">confident decisions.</span>
+          <Eyebrow>Analytics &amp; impact</Eyebrow>
+          <h2
+            id="analytics-heading"
+            className="mt-5 text-balance text-3xl font-semibold tracking-[-0.03em] text-white sm:text-[2.6rem]"
+          >
+            From quiet check-ins to{" "}
+            <span className="font-serif font-normal italic text-yellow-300">
+              confident decisions.
+            </span>
           </h2>
-          <p className="mt-4 text-[17px] text-ink-muted">
+          <p className="mt-4 text-[17px] text-blue-100/55">
             Anonymous PSS-10 scores and booking patterns become early signals —
             so the Guidance Office can add slots before midterms, plan the
             right wellness topics, and prove what&apos;s working.
@@ -30,19 +34,23 @@ export function Analytics() {
 
         {/* Mock dashboard */}
         <AnimatedSection delay={0.1} className="mt-12">
-          <div className="overflow-hidden rounded-[2rem] border border-white/60 bg-white/85 shadow-soft backdrop-blur">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-blue-100 px-6 py-4 sm:px-8">
-              <div className="flex items-center gap-3">
+          <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.04] shadow-[0_28px_80px_-40px_rgba(0,0,0,0.95)] backdrop-blur-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-6 py-4 sm:px-8">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className="flex gap-1.5" aria-hidden>
-                  <span className="h-3 w-3 rounded-full bg-yellow-300" />
-                  <span className="h-3 w-3 rounded-full bg-yellow-400" />
-                  <span className="h-3 w-3 rounded-full bg-blue-400" />
+                  <span className="h-3 w-3 rounded-full bg-yellow-300/80" />
+                  <span className="h-3 w-3 rounded-full bg-yellow-400/80" />
+                  <span className="h-3 w-3 rounded-full bg-blue-400/80" />
                 </span>
-                <p className="text-sm font-bold">Guidance Analytics — sample preview</p>
-                <Badge variant="sky">Live trends</Badge>
+                <p className="text-sm font-bold text-white">
+                  Guidance Analytics — sample preview
+                </p>
+                <span className="rounded-full bg-blue-500/15 px-3 py-1 text-xs font-bold text-blue-200">
+                  Live trends
+                </span>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                <Sparkles className="h-3.5 w-3.5" aria-hidden /> Anonymized & aggregated
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-bold text-blue-100/70">
+                <Sparkles className="h-3.5 w-3.5" aria-hidden /> Anonymized &amp; aggregated
               </span>
             </div>
 
@@ -55,27 +63,34 @@ export function Analytics() {
                     { v: 42, suffix: "%", label: "avg. stress drop*", prefix: "−" },
                     { v: 96, suffix: "%", label: "show-up rate" },
                   ].map((s) => (
-                    <div key={s.label} className="rounded-2xl bg-cream p-4 text-center">
-                      <p className="font-display text-2xl font-semibold text-blue-700 sm:text-3xl">
+                    <div
+                      key={s.label}
+                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-center"
+                    >
+                      <p className="font-display text-2xl font-semibold text-yellow-300 sm:text-3xl">
                         <CountUp to={s.v} suffix={s.suffix} prefix={s.prefix ?? ""} />
                       </p>
-                      <p className="mt-1 text-[12px] font-bold uppercase tracking-wide text-ink-muted">
+                      <p className="mt-1 text-[12px] font-bold uppercase tracking-wide text-blue-100/50">
                         {s.label}
                       </p>
                     </div>
                   ))}
                 </div>
 
-                <div className="mt-6 rounded-2xl border border-blue-100 bg-white p-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-display text-[15px] font-semibold">
+                <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-display text-[15px] font-semibold text-white">
                       Average stress by period
                     </h3>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-yellow-50 px-2.5 py-1 text-xs font-bold text-yellow-600">
-                      <TrendingUp className="h-3.5 w-3.5" aria-hidden /> Peaks: midterms & finals
+                    <span className="inline-flex items-center gap-1 rounded-full bg-yellow-400/10 px-2.5 py-1 text-xs font-bold text-yellow-300">
+                      <TrendingUp className="h-3.5 w-3.5" aria-hidden /> Peaks: midterms &amp; finals
                     </span>
                   </div>
-                  <div className="mt-5 flex h-40 items-end justify-between gap-2" role="img" aria-label="Bar chart showing stress peaking during midterms and finals">
+                  <div
+                    className="mt-5 flex h-40 items-end justify-between gap-2"
+                    role="img"
+                    aria-label="Bar chart showing stress peaking during midterms and finals"
+                  >
                     {bars.map((b, i) => (
                       <div key={b.label} className="flex flex-1 flex-col items-center gap-2">
                         <motion.div
@@ -85,12 +100,14 @@ export function Analytics() {
                           transition={{ duration: 0.7, delay: i * 0.06, ease: [0.22, 1, 0.36, 1] }}
                           className={`w-full rounded-t-xl ${
                             b.label === "Mid" || b.label === "Fin"
-                              ? "bg-gradient-to-t from-yellow-400 to-yellow-300"
-                              : "bg-gradient-to-t from-blue-500 to-blue-300"
+                              ? "bg-gradient-to-t from-yellow-500 to-yellow-300"
+                              : "bg-gradient-to-t from-blue-600 to-blue-400"
                           }`}
                           style={{ minHeight: 8 }}
                         />
-                        <span className="text-[11px] font-bold text-ink-muted">{b.label}</span>
+                        <span className="text-[11px] font-bold text-blue-100/45">
+                          {b.label}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -99,16 +116,18 @@ export function Analytics() {
 
               {/* right: concerns + insight */}
               <div className="flex flex-col gap-4">
-                <div className="rounded-2xl border border-blue-100 bg-white p-5">
-                  <h3 className="font-display text-[15px] font-semibold">Most common concerns</h3>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                  <h3 className="font-display text-[15px] font-semibold text-white">
+                    Most common concerns
+                  </h3>
                   <div className="mt-4 space-y-3.5">
                     {concerns.map((c, i) => (
                       <div key={c.label}>
-                        <div className="flex justify-between text-[13px] font-bold">
+                        <div className="flex justify-between text-[13px] font-bold text-white">
                           <span>{c.label}</span>
-                          <span className="text-ink-muted">{c.pct}%</span>
+                          <span className="text-blue-100/45">{c.pct}%</span>
                         </div>
-                        <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-cream-deeper/60">
+                        <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-white/10">
                           <motion.div
                             initial={{ width: 0 }}
                             whileInView={{ width: `${c.pct}%` }}
@@ -121,25 +140,25 @@ export function Analytics() {
                     ))}
                   </div>
                 </div>
-                <div className="flex-1 rounded-2xl bg-blue-600 p-5 text-white">
+                <div className="flex-1 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 p-5 text-white">
                   <p className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-bold">
                     <TrendingDown className="h-3.5 w-3.5" aria-hidden /> Early intervention win
                   </p>
                   <p className="mt-3 font-display text-lg font-semibold leading-snug">
-                    "We added 6 evening slots before finals week — waitlists
-                    cleared in 4 days."
+                    &ldquo;We added 6 evening slots before finals week — waitlists
+                    cleared in 4 days.&rdquo;
                   </p>
                   <p className="mt-2 text-sm text-white/80">
                     Sample insight the Guidance Head could act on. Real reports
                     export in one click for planning and accreditation.
                   </p>
-                  <p className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-bold text-blue-700">
+                  <p className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-yellow-400 px-4 py-2 text-[13px] font-bold text-ink">
                     <FileDown className="h-4 w-4" aria-hidden /> One-click reports (PDF/CSV)
                   </p>
                 </div>
               </div>
             </div>
-            <p className="border-t border-blue-100 px-6 py-3 text-center text-xs text-ink-muted sm:px-8">
+            <p className="border-t border-white/10 px-6 py-3 text-center text-xs text-blue-100/40 sm:px-8">
               *Sample figures for design preview. Real data stays anonymized and aggregated. Avg. stress drop measured after 3 sessions in pilot scenario.
             </p>
           </div>
@@ -152,9 +171,9 @@ export function Analytics() {
             { t: "Prove the impact", d: "Track PSS-10 change over time for reports and continuous care." },
           ].map((c) => (
             <StaggerItem key={c.t}>
-              <div className="h-full rounded-3xl border border-white/60 bg-white/80 p-5 text-center shadow-sm">
-                <h3 className="font-display text-[16px] font-semibold">{c.t}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">{c.d}</p>
+              <div className="h-full rounded-3xl border border-white/10 bg-white/[0.04] p-5 text-center shadow-sm backdrop-blur transition-colors hover:border-blue-400/30">
+                <h3 className="font-display text-[16px] font-semibold text-white">{c.t}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-blue-100/55">{c.d}</p>
               </div>
             </StaggerItem>
           ))}

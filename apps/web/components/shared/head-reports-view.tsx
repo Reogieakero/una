@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   BarChart3,
   PieChart as PieChartIcon,
@@ -9,19 +9,12 @@ import {
   ClipboardList,
   Inbox,
   MessagesSquare,
+  ShieldAlert,
   Users,
 } from "lucide-react";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import { ReportBars, ReportDonut, ReportTrendChart } from "@/components/shared/reports-charts";
+import { ReportAreaChart, ReportBars, ReportDonut, ReportTrendChart } from "@/components/shared/reports-charts";
 import { ReportsFilters, ReportsFiltersSkeleton } from "@/components/shared/reports-filters";
-import { Spinner } from "@/components/ui/spinner";
+import { ReportKpiCard, ReportKpiSkeleton, pointDelta, relativeDelta } from "@/components/shared/reports-kpi";
 import { useHeadReports } from "@/lib/hooks/use-head-reports";
 import type { HeadReportsPayload } from "@/lib/hooks/use-head-reports";
 import {
@@ -37,6 +30,7 @@ import { timeAgoLong } from "@/lib/format";
 import { EmptyState, PanelShell, ListSkeleton } from "@/components/shared/panel-shell";
 import {
   APPT_STATUS_META,
+  COHORT_SLICE_COLORS,
   FALLBACK_SLICE,
   MODE_COLORS,
   PRIORITY_META,
@@ -45,8 +39,7 @@ import {
   ratingColor,
 } from "@/lib/report-palette";
 import { MIN_CELL, isSuppressed, suppressCount } from "@/lib/reports/suppression";
-
-const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"] as const;
+import { kpiChange, kpiPointChange, rate, summarizeKpi } from "@/lib/reports/kpi-summary";
 
 function pct(part: number, whole: number): string {
   if (!whole) return "—";
@@ -54,20 +47,6 @@ function pct(part: number, whole: number): string {
 }
 
 /* ── Pure section renderers (same math as the old server components) ── */
-
-function KpiSkeleton() {
-  return (
-    <>
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-          <div className="h-3.5 w-2/3 rounded-full bg-ink/10" />
-          <div className="mt-3 h-8 w-1/3 rounded-lg bg-ink/10" />
-          <div className="mt-2 h-3 w-1/2 rounded-full bg-ink/10" />
-        </div>
-      ))}
-    </>
-  );
-}
 
 function ChartSkeleton() {
   return (
@@ -78,37 +57,103 @@ function ChartSkeleton() {
 }
 
 function KpiGrid({ data }: { data: HeadReportsPayload }) {
-  const total = data.appointments.length;
-  const completed = data.appointments.filter((a) => a.status === "completed").length;
-  const missed = data.appointments.filter((a) => ["cancelled", "rejected", "no_show"].includes(a.status)).length;
-  const ratings = data.feedback.map((f) => f.rating);
-  const avgRating = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : "—";
-  const refTotal = data.referrals.length;
-  const refResolved = data.referrals.filter((r) => r.status === "resolved").length;
-  const refOpen = data.referrals.filter((r) => (OPEN_REFERRALS as readonly string[]).includes(r.status)).length;
-  const highStress = data.screenings.filter((p) => p.band === "high").length;
+  const current = summarizeKpi({
+    appointments: data.appointments,
+    referrals: data.referrals,
+    feedback: data.feedback,
+    screenings: data.screenings,
+  });
+  const prev = data.comparison;
+  const resolution = rate(current.resolvedReferrals, current.referrals);
+  const prevResolution = prev ? rate(prev.resolvedReferrals, prev.referrals) : null;
+  // A suppressed high-stress cell must not become inferable through its delta.
+  const stressHidden =
+    isSuppressed(current.highStress) || (prev ? isSuppressed(prev.highStress) : false);
 
   const cards = [
-    { label: "Total sessions", value: String(total), sub: "All appointments booked" },
-    { label: "Completed", value: String(completed), sub: `${pct(completed, total)} completion rate` },
-    { label: "Missed", value: String(missed), sub: "Cancelled + rejected + no-show" },
-    { label: "Avg. satisfaction", value: ratings.length ? `${avgRating} / 5` : "—", sub: `${ratings.length} feedback responses` },
-    { label: "Open referrals", value: String(refOpen), sub: "Waiting for action" },
-    { label: "Referrals resolved", value: pct(refResolved, refTotal), sub: `${refResolved} of ${refTotal} resolved` },
-    { label: "High-stress screens", value: String(highStress), sub: "PSS-10 band = high" },
-    { label: "Feedback coverage", value: pct(ratings.length, completed), sub: "Responses per completed session" },
+    {
+      label: "Sessions completed",
+      value: String(current.completed),
+      sub: `${pct(current.completed, current.sessions)} completion rate`,
+      delta: relativeDelta(kpiChange(current.completed, prev?.completed)),
+    },
+    {
+      label: "Missed sessions",
+      value: String(current.missed),
+      sub: "Cancelled + rejected + no-show",
+      delta: relativeDelta(kpiChange(current.missed, prev?.missed)),
+    },
+    {
+      label: "Open referrals",
+      value: String(current.openReferrals),
+      sub: "Waiting for action",
+      delta: relativeDelta(kpiChange(current.openReferrals, prev?.openReferrals)),
+    },
+    {
+      label: "Referral resolution",
+      value: resolution == null ? "—" : `${resolution}%`,
+      sub: `${current.resolvedReferrals} of ${current.referrals} resolved`,
+      delta: pointDelta(kpiPointChange(resolution, prevResolution)),
+    },
+    {
+      label: "Avg. satisfaction",
+      value: current.avgRating == null ? "—" : `${current.avgRating.toFixed(1)} / 5`,
+      sub: `${current.feedback} feedback response${current.feedback === 1 ? "" : "s"}`,
+      delta: pointDelta(kpiPointChange(current.avgRating, prev?.avgRating ?? null)),
+    },
+    {
+      label: "High-stress screenings",
+      value: stressHidden ? `<${MIN_CELL}` : String(current.highStress),
+      sub: `${current.screenings} screening${current.screenings === 1 ? "" : "s"} in range`,
+      delta: stressHidden ? null : relativeDelta(kpiChange(current.highStress, prev?.highStress)),
+    },
   ];
 
   return (
     <>
       {cards.map((c) => (
-        <div key={c.label} className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-          <p className="text-[13px] font-medium text-ink-muted">{c.label}</p>
-          <p className="mt-1 font-display text-3xl font-bold text-ink">{c.value}</p>
-          <p className="mt-1 text-xs font-medium text-ink-faint">{c.sub}</p>
-        </div>
+        <ReportKpiCard key={c.label} label={c.label} value={c.value} sub={c.sub} delta={c.delta} />
       ))}
     </>
+  );
+}
+
+/** Overview-only attention strip that links into the relevant section. */
+function AttentionStrip({
+  href,
+  title,
+  detail,
+  tone = "amber",
+}: {
+  href: string;
+  title: string;
+  detail: string;
+  tone?: "amber" | "blue";
+}) {
+  return (
+    <Link
+      href={href}
+      className={
+        tone === "amber"
+          ? "flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 transition hover:border-amber-300 hover:bg-amber-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 dark:border-amber-400/25 dark:bg-amber-400/[0.08] dark:hover:border-amber-400/40 dark:hover:bg-amber-400/[0.14]"
+          : "flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 transition hover:border-blue-300 hover:bg-blue-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 dark:border-blue-400/25 dark:hover:border-blue-400/40 dark:hover:bg-blue-400/[0.14]"
+      }
+    >
+      <span
+        className={
+          tone === "amber"
+            ? "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+            : "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-primary-700"
+        }
+      >
+        <ShieldAlert className="h-4 w-4" aria-hidden />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-bold text-ink">{title}</span>
+        <span className="mt-0.5 block text-[13px] leading-relaxed text-ink-muted">{detail}</span>
+      </span>
+      <span className="ml-auto shrink-0 self-center text-[13px] font-bold text-primary-700">Open →</span>
+    </Link>
   );
 }
 
@@ -140,7 +185,7 @@ function SessionsTrend({ data, range }: { data: HeadReportsPayload; range: Repor
         Peak: <span className="font-bold text-ink">{peak.label}</span> with{" "}
         <span className="font-bold text-ink">{peak.sessions}</span> session{peak.sessions === 1 ? "" : "s"}.
       </p>
-      <ReportTrendChart data={buckets.map((b) => ({ day: b.label, sessions: b.sessions }))} />
+      <ReportAreaChart data={buckets.map((b) => ({ day: b.label, sessions: b.sessions }))} />
     </>
   );
 }
@@ -301,7 +346,7 @@ function ScreeningSummary({ data }: { data: HeadReportsPayload }) {
       {summary.map((r) => (
         <li key={r.label} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-3">
           <span className="text-sm font-semibold text-ink-soft">{r.label}</span>
-          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[13px] font-bold ${r.tone}`}>{r.value}</span>
+          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${r.tone}`}>{r.value}</span>
         </li>
       ))}
       <li className="pt-1 text-[13px] text-ink-muted">
@@ -323,7 +368,7 @@ function ReferralPipeline({ data }: { data: HeadReportsPayload }) {
       {rows.map((r) => (
         <li key={r.label} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-3">
           <span className="text-sm font-semibold text-ink-soft">{r.label}</span>
-          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[13px] font-bold ${r.tone}`}>{r.value}</span>
+          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${r.tone}`}>{r.value}</span>
         </li>
       ))}
       <li className="pt-1 text-[13px] text-ink-muted">
@@ -433,6 +478,22 @@ function RecentFeedback({ data }: { data: HeadReportsPayload }) {
   );
 }
 
+/** Top-right summary for the wellbeing trend panel header. */
+function WellbeingSummary({ data }: { data: HeadReportsPayload }) {
+  const rows = data.trends;
+  if (!rows.length) return null;
+  const total = rows.reduce((a, r) => a + r.screenings, 0);
+  const scored = rows.filter((r) => r.avg_score != null);
+  const avg = scored.length ? (scored.reduce((a, r) => a + (r.avg_score ?? 0), 0) / scored.length).toFixed(1) : "—";
+  return (
+    <p className="max-w-[300px] text-right text-[13px] leading-relaxed text-ink-muted">
+      <span className="font-bold text-ink">{total}</span> screenings across{" "}
+      <span className="font-bold text-ink">{rows.length}</span> day{rows.length === 1 ? "" : "s"} · average{" "}
+      <span className="font-bold text-ink">{avg} / 40</span>.
+    </p>
+  );
+}
+
 function WellbeingTrend({ data }: { data: HeadReportsPayload }) {
   const rows = data.trends;
   if (!rows.length) {
@@ -444,16 +505,8 @@ function WellbeingTrend({ data }: { data: HeadReportsPayload }) {
       />
     );
   }
-  const total = rows.reduce((a, r) => a + r.screenings, 0);
-  const scored = rows.filter((r) => r.avg_score != null);
-  const avg = scored.length ? (scored.reduce((a, r) => a + (r.avg_score ?? 0), 0) / scored.length).toFixed(1) : "—";
   return (
     <>
-      <p className="mt-2 text-[13px] text-ink-muted">
-        <span className="font-bold text-ink">{total}</span> screenings across{" "}
-        <span className="font-bold text-ink">{rows.length}</span> day{rows.length === 1 ? "" : "s"} · average{" "}
-        <span className="font-bold text-ink">{avg} / 40</span>.
-      </p>
       <ReportTrendChart data={rows.map((r) => ({ day: r.day.slice(5), sessions: r.screenings }))} />
       <p className="mt-2 text-[11px] font-medium text-ink-faint">
         Band counts below {MIN_CELL} are withheld to protect small groups; daily totals remain visible.
@@ -462,66 +515,58 @@ function WellbeingTrend({ data }: { data: HeadReportsPayload }) {
   );
 }
 
-function CohortStress({
-  data,
-  group,
-  onGroupChange,
-}: {
-  data: HeadReportsPayload;
-  group: CohortGroup;
-  onGroupChange: (next: CohortGroup) => void;
-}) {
-  const rows = data.cohort;
-  const selector = (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Group cohorts by">
-      {COHORT_GROUPS.map((g) => (
-        <button
-          key={g.key}
-          type="button"
-          aria-pressed={group === g.key}
-          onClick={() => onGroupChange(g.key)}
-          className="rounded-full border border-ink/10 bg-white px-3 py-1 text-[11px] font-bold text-ink-muted transition hover:border-primary-300 hover:text-primary-700 aria-pressed:border-primary-600 aria-pressed:bg-primary-600 aria-pressed:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-        >
-          {g.label}
-        </button>
-      ))}
-    </div>
-  );
-  const body = !rows.length ? (
-    <EmptyState
-      icon={Users}
-      title="Not enough cohort data"
-      hint={`Cohorts with fewer than ${MIN_CELL} screenings are withheld so no individual can be inferred.`}
-    />
-  ) : (
+/** Turns a cohort list into donut slices, keeping the top 5 and grouping the rest. */
+function cohortSlices(rows: { cohort: string; screenings: number }[]) {
+  const sorted = [...rows].sort((a, b) => b.screenings - a.screenings);
+  const slices = sorted.slice(0, 5).map((r, i) => ({
+    name: r.cohort,
+    value: r.screenings,
+    color: COHORT_SLICE_COLORS[i % COHORT_SLICE_COLORS.length],
+  }));
+  const rest = sorted.slice(5);
+  if (rest.length) {
+    slices.push({
+      name: "Other cohorts",
+      value: rest.reduce((a, r) => a + r.screenings, 0),
+      color: COHORT_SLICE_COLORS[COHORT_SLICE_COLORS.length - 1],
+    });
+  }
+  return slices;
+}
+
+function CohortStress({ data }: { data: HeadReportsPayload }) {
+  const groups = COHORT_GROUPS.map((g) => ({ ...g, rows: data.cohorts[g.key] ?? [] }));
+  if (!groups.some((g) => g.rows.length)) {
+    return (
+      <EmptyState
+        icon={Users}
+        title="Not enough cohort data"
+        hint={`Cohorts with fewer than ${MIN_CELL} screenings are withheld so no individual can be inferred.`}
+      />
+    );
+  }
+  return (
     <>
       <p className="mt-2 text-[13px] text-ink-muted">
         Cohorts with at least <span className="font-bold text-ink">{MIN_CELL}</span> screenings in this range.
       </p>
-      <ReportBars
-        data={rows.slice(0, 8).map((r) => ({
-          label: r.cohort,
-          value: r.screenings,
-          color: STRESS_META.high.color,
-        }))}
-      />
-      <ul className="mt-3 space-y-2">
-        {rows.slice(0, 6).map((r) => (
-          <li key={r.cohort} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-4 py-2.5 text-sm">
-            <span className="min-w-0 truncate font-semibold text-ink-soft">{r.cohort}</span>
-            <span className="shrink-0 text-[13px] font-bold text-ink">
-              {r.high == null ? `<${MIN_CELL}` : `${r.high} high`}
-              <span className="ml-2 font-medium text-ink-muted">avg {r.avg_score ?? "—"}/40</span>
-            </span>
-          </li>
+      <div className="mt-4 grid gap-4 md:grid-cols-3">
+        {groups.map((g) => (
+          <div key={g.key} className="rounded-lg border border-ink/10 bg-cream/40 p-3 dark:bg-transparent">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-ink-faint">{g.label}</p>
+            {g.rows.length ? (
+              <ReportDonut data={cohortSlices(g.rows)} />
+            ) : (
+              <p className="flex min-h-[200px] items-center justify-center px-4 text-center text-[13px] text-ink-muted">
+                Not enough {g.label.toLowerCase()} data in this range.
+              </p>
+            )}
+          </div>
         ))}
-      </ul>
-    </>
-  );
-  return (
-    <>
-      <div className="mt-3">{selector}</div>
-      {body}
+      </div>
+      <p className="mt-2 text-[11px] font-medium text-ink-faint">
+        Cohorts with fewer than {MIN_CELL} screenings are withheld so no individual can be inferred.
+      </p>
     </>
   );
 }
@@ -606,49 +651,6 @@ function DigestPanel({ data }: { data: HeadReportsPayload }) {
   );
 }
 
-function HeadGuide() {
-  return (
-    <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-      <h2 className="font-display text-base font-bold text-ink">How to read these reports</h2>
-      <ul className="mt-3 list-disc space-y-2 pl-5 text-[13px] leading-relaxed text-ink-muted">
-        <li>
-          <span className="font-bold text-ink">Completion rate</span> = completed ÷ total booked. A falling
-          rate with rising misses (cancelled + rejected + no-show) usually means reminders or slots need work.
-        </li>
-        <li>
-          <span className="font-bold text-ink">Pipeline</span> = pending (awaiting assignment) → assigned (admin set a counselor)
-          → confirmed (counselor accepted) → completed. Rejected ends the request at the admin step.
-        </li>
-        <li>
-          <span className="font-bold text-ink">Referral resolution</span> = resolved ÷ total referrals.
-          Keep unassigned at zero and escalated moving toward confirmed within the day.
-        </li>
-        <li>
-          <span className="font-bold text-ink">Satisfaction</span> only covers students who left feedback —
-          compare the average against feedback coverage before acting on a dip.
-        </li>
-        <li>
-          <span className="font-bold text-ink">PSS-10 bands</span> come from pre-booking screenings, not
-          diagnoses. A rising high-stress share is a signal to add capacity, not to label students.
-        </li>
-        <li>
-          <span className="font-bold text-ink">Trend vs. prediction</span>: the wellbeing trend shows what
-          already happened in the selected range. It does not forecast or score individual students.
-        </li>
-        <li>
-          <span className="font-bold text-ink">Small-cell suppression</span>: any band or cohort cell with
-          1–{MIN_CELL - 1} screenings is shown as &ldquo;&lt;{MIN_CELL}&rdquo;, and a percentage is withheld
-          when fewer than {MIN_CELL} records back it. The same rule applies to Excel exports.
-        </li>
-      </ul>
-      <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
-        Privacy: this page shows aggregates only. Individual student records stay behind their own
-        pages and role guards; use Export Excel for meetings and Print for sign-off copies.
-      </p>
-    </section>
-  );
-}
-
 /**
  * Guidance-head (admin) reports — cached client view.
  * First visit fetches /api/reports/head once per filter; going back (or
@@ -661,12 +663,13 @@ export function HeadReportsView({
   section,
   range,
   group,
+  sections,
 }: {
   section: ReportSection;
   range: ReportRange;
   group: CohortGroup;
+  sections: { key: ReportSection; label: string }[];
 }) {
-  const router = useRouter();
   const scope = {
     section,
     preset: range.preset,
@@ -682,40 +685,33 @@ export function HeadReportsView({
   // states. Treat uncovered cached data as loading so panels show skeletons
   // until the new section's payload arrives.
   const coversSection = !!data && (data.section === "all" || data.section === section);
-  const loading = isPending || (isFetching && !coversSection);
+  const loading = isPending || isFetching || !coversSection;
   const showAll = section === "all";
   const scoped = range.from !== null && range.to !== null;
 
+  /** Deep link into another tab while keeping the current range (and cohort). */
+  const hrefFor = (target: ReportSection) => {
+    const p = new URLSearchParams();
+    p.set("section", target);
+    if (range.preset === "custom") {
+      if (range.from) p.set("from", rangeDay(range.from));
+      if (range.to) p.set("to", rangeDay(range.to));
+    } else if (range.preset !== "30d") {
+      p.set("range", range.preset);
+    }
+    if (target === "wellbeing") p.set("group", group);
+    return `/reports?${p.toString()}`;
+  };
+
   return (
     <div className="space-y-6" aria-busy={isFetching}>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Reports</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold">Reports</h1>
-          <p className="mt-1 max-w-[560px] text-sm leading-relaxed text-ink-muted">
-            Office-level outcomes — sessions, referrals, satisfaction, and wellbeing. Aggregated and
-            privacy-safe: counts and averages only, no student names.
-          </p>
-          {data && !loading && isFetching && (
-            <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-ink-faint" aria-live="polite">
-              <Spinner size="xs" label="Updating reports…" />
-              Updating…
-            </p>
-          )}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 max-w-[560px]">
+        <h1 className="font-display text-2xl font-bold">Reports</h1>
         </div>
         <Suspense fallback={<ReportsFiltersSkeleton />}>
           <ReportsFilters
+            sections={sections}
             section={section}
             preset={range.preset}
             fromDay={rangeDay(range.from)}
@@ -743,14 +739,37 @@ export function HeadReportsView({
       ) : (
         <>
           {showAll && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {loading || !data ? <KpiSkeleton /> : <KpiGrid data={data} />}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {loading || !data ? <ReportKpiSkeleton count={6} /> : <KpiGrid data={data} />}
             </div>
           )}
 
+          {showAll && data && !loading && (
+            <>
+              {(data.pipeline.unassigned > 0 || data.pipeline.escalated > 0) && (
+                <AttentionStrip
+                  href={hrefFor("referrals")}
+                  title="Referral pipeline needs attention"
+                  detail={`${data.pipeline.unassigned} waiting without a counselor · ${data.pipeline.escalated} escalated.`}
+                />
+              )}
+              {data.quality &&
+                (data.quality.completed_without_note > 0 ||
+                  data.quality.screenings_unlinked > 0 ||
+                  data.quality.referrals_unassigned > 0) && (
+                  <AttentionStrip
+                    href={hrefFor("quality")}
+                    title="Some records weaken these reports"
+                    detail={`${data.quality.completed_without_note} completed sessions without a note · ${data.quality.screenings_unlinked} unlinked screenings · ${data.quality.referrals_unassigned} referrals without a counselor.`}
+                    tone="blue"
+                  />
+                )}
+            </>
+          )}
+
           {(showAll || section === "sessions") && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2">
+            <div className={`grid gap-4 sm:grid-cols-2 ${showAll ? "xl:grid-cols-3" : ""}`}>
+              <div className={showAll ? "sm:col-span-2 xl:col-span-3" : "sm:col-span-2"}>
                 <PanelShell
                   title={scoped ? `Sessions — ${range.label}` : "Sessions — last 14 days"}
                   hint={scoped ? `Daily bookings by scheduled date · ${range.label}.` : "Bookings by scheduled date, including upcoming sessions."}
@@ -764,22 +783,27 @@ export function HeadReportsView({
               <PanelShell title="Session format" hint="In-person load vs online capacity.">
                 {loading || !data ? <ListSkeleton /> : <SessionMode data={data} />}
               </PanelShell>
+              {showAll && (
+                <PanelShell title="Referrals by status" hint="Pipeline health at a glance." viewAllHref="/referrals">
+                  {loading || !data ? <ChartSkeleton /> : <ReferralStatus data={data} />}
+                </PanelShell>
+              )}
             </div>
           )}
 
           {(showAll || section === "referrals") && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <PanelShell title="Referrals by status" hint="Pipeline health at a glance." viewAllHref="/referrals">
-                {loading || !data ? <ChartSkeleton /> : <ReferralStatus data={data} />}
-              </PanelShell>
+              {!showAll && (
+                <PanelShell title="Referrals by status" hint="Pipeline health at a glance." viewAllHref="/referrals">
+                  {loading || !data ? <ChartSkeleton /> : <ReferralStatus data={data} />}
+                </PanelShell>
+              )}
               <PanelShell title="Referrals by priority" hint="Urgency mix — urgent + high need triage first." viewAllHref="/referrals">
                 {loading || !data ? <ChartSkeleton /> : <ReferralPriority data={data} />}
               </PanelShell>
-              <div className="sm:col-span-2">
-                <PanelShell title="Referral pipeline watch" hint="What needs attention right now." viewAllHref="/referrals">
-                  {loading || !data ? <ListSkeleton /> : <ReferralPipeline data={data} />}
-                </PanelShell>
-              </div>
+              <PanelShell title="Referral pipeline watch" hint="What needs attention right now." viewAllHref="/referrals">
+                {loading || !data ? <ListSkeleton /> : <ReferralPipeline data={data} />}
+              </PanelShell>
             </div>
           )}
 
@@ -797,7 +821,11 @@ export function HeadReportsView({
           {(showAll || section === "wellbeing") && (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
-                <PanelShell title="Wellbeing trend" hint="Daily PSS-10 screening volume and average score.">
+                <PanelShell
+                  title="Wellbeing trend"
+                  hint="Daily PSS-10 screening volume and average score."
+                  action={loading || !data ? null : <WellbeingSummary data={data} />}
+                >
                   {loading || !data ? <ChartSkeleton /> : <WellbeingTrend data={data} />}
                 </PanelShell>
               </div>
@@ -808,24 +836,8 @@ export function HeadReportsView({
                 {loading || !data ? <ListSkeleton /> : <ScreeningSummary data={data} />}
               </PanelShell>
               <div className="sm:col-span-2">
-                <PanelShell title="Cohort stress" hint="Program cohorts in this range — small cohorts are withheld.">
-                  {loading || !data ? (
-                    <ChartSkeleton />
-                  ) : (
-                    <CohortStress
-                      data={data}
-                      group={group}
-                      onGroupChange={(next) => {
-                        const p = new URLSearchParams();
-                        p.set("section", section);
-                        if (range.preset !== "all" && range.preset !== "custom") p.set("range", range.preset);
-                        if (range.from) p.set("from", rangeDay(range.from));
-                        if (range.to) p.set("to", rangeDay(range.to));
-                        p.set("group", next);
-                        router.replace(`/reports?${p.toString()}`);
-                      }}
-                    />
-                  )}
+                <PanelShell title="Cohort stress" hint="Program, year level, and college cohorts — small cohorts are withheld.">
+                  {loading || !data ? <ChartSkeleton /> : <CohortStress data={data} />}
                 </PanelShell>
               </div>
             </div>
@@ -852,8 +864,6 @@ export function HeadReportsView({
               </PanelShell>
             </div>
           )}
-
-          {showAll && <HeadGuide />}
         </>
       )}
     </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/primitives";
 import { timeAgo } from "@/lib/format";
 
@@ -51,9 +52,10 @@ export function EventRow({
             type="button"
             disabled={busy}
             onClick={() => void onMarkReviewed(log)}
-            className="ml-auto text-[13px] font-bold text-primary-600 hover:underline disabled:opacity-50"
+            className="ml-auto inline-flex items-center gap-1.5 text-[13px] font-bold text-primary-600 hover:underline disabled:opacity-50"
           >
-            Mark reviewed
+            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+            {busy ? "Marking…" : "Mark reviewed"}
           </button>
         )}
       </div>

@@ -181,6 +181,10 @@ model Profile {
   // 00066: student opt-in for counselor-visible profile photos.
   shareAvatarWithCounselor Boolean @default(false) @map("share_avatar_with_counselor")
   isActive            Boolean  @default(true) @map("is_active")
+  // 00075: self-service faculty signups start 'pending' until a head approves.
+  approvalStatus      String   @default("approved") @map("approval_status") @db.Text
+  approvedBy          String?  @map("approved_by") @db.Uuid
+  approvedAt          DateTime? @map("approved_at") @db.Timestamptz(6)
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

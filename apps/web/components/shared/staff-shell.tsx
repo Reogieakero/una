@@ -7,6 +7,9 @@ import { ChekieMark } from "@/components/Logo";
 import { StaffNav, type StaffNavGroup } from "./staff-nav";
 import { SidebarNavGroups, StaffSidebar, StaffSidebarSkeleton, type SidebarProfile } from "./staff-sidebar";
 import { StaffShellBody } from "./staff-shell-body";
+import { ShellRoleProvider } from "./shell-role";
+import { PendingRouteSkeleton } from "./pending-route-skeleton";
+import { DashboardBackdrop } from "./dashboard/dashboard-backdrop";
 
 /**
  * Staff shell — left navigation rail (shadcn blocks style, 240px) +
@@ -33,6 +36,9 @@ export function StaffShell({
   const resolved: StaffNavGroup[] =
     groups ?? [{ label: "Menu", inline: true, links: links ?? [] }];
   const role = profile?.role ?? null;
+  // Counselor + guidance head share the guidance canvas; faculty/admin keep the
+  // neutral cream shell.
+  const onGuidanceCanvas = role === "counselor" || role === "guidance_head";
 
   // Lock body scroll while the mobile drawer is open.
   useEffect(() => {
@@ -57,8 +63,20 @@ export function StaffShell({
         </Suspense>
         <div className="flex min-w-0 flex-1 flex-col">
           <StaffNav title={title} profile={profile ?? null} onMenuClick={() => setMenuOpen(true)} />
-          <main className="w-full flex-1 p-4">
-            <StaffShellBody>{children}</StaffShellBody>
+          <main className="relative w-full flex-1 p-4">
+            {/* Guidance canvas — the same ambient background as the head
+                dashboard, applied to every counselor/head route so the whole
+                workspace reads as one surface. Faculty/admin keep the plain
+                cream canvas. Rendered behind the content (never inside a
+                stacking context) so fixed modals still layer above the rail. */}
+            {onGuidanceCanvas && <DashboardBackdrop />}
+            <div className="relative">
+              <StaffShellBody>
+                <ShellRoleProvider role={role}>
+                  <PendingRouteSkeleton role={role}>{children}</PendingRouteSkeleton>
+                </ShellRoleProvider>
+              </StaffShellBody>
+            </div>
           </main>
         </div>
       </div>
@@ -70,10 +88,10 @@ export function StaffShell({
             type="button"
             aria-label="Close navigation menu"
             onClick={() => setMenuOpen(false)}
-            className="absolute inset-0 bg-ink/40"
+            className="absolute inset-0 bg-black/60"
           />
-          <div className="absolute inset-y-0 left-0 flex w-60 max-w-[85vw] flex-col bg-white shadow-card">
-            <div className="flex h-14 shrink-0 items-center gap-2 border-b border-ink/10 px-4">
+          <div data-shell-chrome className="absolute inset-y-0 left-0 flex w-60 max-w-[85vw] flex-col bg-[#050C16] shadow-2xl">
+            <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/10 px-4">
               <Link
                 href="/"
                 onClick={() => setMenuOpen(false)}
@@ -82,8 +100,8 @@ export function StaffShell({
               >
                 <ChekieMark size={32} label="Chekie panda mascot" />
                 <span className="leading-tight">
-                  <span className="block font-display text-[15px] font-semibold">Chekie</span>
-                  <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-ink-muted">
+                  <span className="block font-display text-[15px] font-semibold text-white">Chekie</span>
+                  <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-blue-100/40">
                     {title}
                   </span>
                 </span>
@@ -92,7 +110,7 @@ export function StaffShell({
                 type="button"
                 onClick={() => setMenuOpen(false)}
                 aria-label="Close navigation menu"
-                className="flex h-8 w-8 items-center justify-center rounded text-ink-soft transition hover:bg-cream-dark hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+                className="flex h-8 w-8 items-center justify-center rounded text-blue-100/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300/60"
               >
                 <X className="h-5 w-5" aria-hidden />
               </button>

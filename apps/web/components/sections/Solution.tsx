@@ -4,7 +4,6 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { Check, Smartphone, LayoutDashboard } from "lucide-react";
 import { AnimatedSection, Eyebrow } from "@/components/AnimatedSection";
-import { Badge } from "@/components/ui/badge";
 
 const bullets = [
   "One calm place to book, reschedule, or cancel — no Facebook threads",
@@ -23,11 +22,16 @@ export function Solution() {
         <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
           <AnimatedSection>
             <Eyebrow>Our solution</Eyebrow>
-            <h2 id="solution-heading" className="mt-4 text-3xl font-semibold sm:text-[2.6rem]">
+            <h2
+              id="solution-heading"
+              className="mt-5 text-balance text-3xl font-semibold tracking-[-0.03em] text-white sm:text-[2.6rem]"
+            >
               A gentle bridge between students{" "}
-              <span className="text-blue-600">and the Guidance Office.</span>
+              <span className="font-serif font-normal italic text-yellow-300">
+                and the Guidance Office.
+              </span>
             </h2>
-            <p className="mt-4 max-w-lg text-[17px] leading-relaxed text-ink-muted">
+            <p className="mt-4 max-w-lg text-[17px] leading-relaxed text-blue-100/55">
               A cross-platform system: a friendly mobile app for students, and a
               powerful web dashboard for counselors and the Guidance Head. Book
               online or join via Google Meet, chat in real time, and let
@@ -35,8 +39,11 @@ export function Solution() {
             </p>
             <ul className="mt-6 space-y-3">
               {bullets.map((b) => (
-                <li key={b} className="flex items-start gap-3 text-[15.5px] font-medium text-ink-soft">
-                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+                <li
+                  key={b}
+                  className="flex items-start gap-3 text-[15.5px] font-medium text-blue-100/75"
+                >
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-yellow-400 text-ink">
                     <Check className="h-3.5 w-3.5" aria-hidden />
                   </span>
                   {b}
@@ -44,36 +51,43 @@ export function Solution() {
               ))}
             </ul>
             <div className="mt-6 flex flex-wrap gap-2">
-              <Badge>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-1.5 text-xs font-bold text-blue-100/75">
                 <Smartphone className="h-3.5 w-3.5" aria-hidden /> Student mobile app
-              </Badge>
-              <Badge variant="lavender">
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-3.5 py-1.5 text-xs font-bold text-blue-100/75">
                 <LayoutDashboard className="h-3.5 w-3.5" aria-hidden /> Counselor web dashboard
-              </Badge>
+              </span>
             </div>
           </AnimatedSection>
 
           <AnimatedSection delay={0.12}>
             <div className="relative">
-              <div aria-hidden className="absolute -inset-5 -z-10 rounded-[2.5rem] bg-gradient-to-br from-blue-100 via-blue-50 to-yellow-100 blur-2xl opacity-70" />
+              <div
+                aria-hidden
+                className="absolute -inset-5 -z-10 rounded-[2.5rem] bg-gradient-to-br from-blue-500/20 via-blue-400/10 to-yellow-400/10 blur-2xl"
+              />
               <motion.div
                 whileHover={{ y: -6 }}
                 transition={{ duration: 0.35, ease: "easeOut" }}
-                className="overflow-hidden rounded-[2rem] border-4 border-white bg-white shadow-soft"
+                className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.04] p-2 shadow-[0_28px_80px_-24px_rgba(0,0,0,0.85)] backdrop-blur-xl"
               >
-                <Image
-                  src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1200&q=80"
-                  alt="DOrSU students studying together outdoors on campus, supporting one another"
-                  width={1000}
-                  height={700}
-                  loading="lazy"
-                  className="aspect-[4/3] w-full object-cover"
-                />
+                <div className="overflow-hidden rounded-[1.6rem]">
+                  <Image
+                    src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1200&q=80"
+                    alt="DOrSU students studying together outdoors on campus, supporting one another"
+                    width={1000}
+                    height={700}
+                    loading="lazy"
+                    className="aspect-[4/3] w-full object-cover"
+                  />
+                </div>
                 {/* mock booking card */}
                 <div className="p-5">
                   <div className="flex items-center justify-between">
-                    <p className="font-display text-base font-semibold">Book a session</p>
-                    <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
+                    <p className="font-display text-base font-semibold text-white">
+                      Book a session
+                    </p>
+                    <span className="rounded-full bg-blue-500/15 px-3 py-1 text-xs font-bold text-blue-200">
                       3 slots open this week
                     </span>
                   </div>
@@ -87,17 +101,19 @@ export function Solution() {
                         key={s.d + s.t}
                         className={`rounded-2xl border px-2 py-3 font-semibold ${
                           s.active
-                             ? "border-blue-600 bg-blue-600 text-white shadow-soft"
-                             : "border-blue-200 bg-cream text-ink-soft"
+                            ? "border-yellow-400 bg-yellow-400 text-ink shadow-soft"
+                            : "border-white/10 bg-white/[0.04] text-blue-100/70"
                         }`}
                       >
-                        <span className="block text-xs font-bold uppercase tracking-wide opacity-80">{s.d}</span>
+                        <span className="block text-xs font-bold uppercase tracking-wide opacity-80">
+                          {s.d}
+                        </span>
                         {s.t}
                       </div>
                     ))}
                   </div>
-                  <div className="mt-3 flex items-center gap-2 rounded-2xl bg-blue-50 p-3 text-[13px] font-medium text-ink-soft">
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-blue-400" aria-hidden />
+                  <div className="mt-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-[13px] font-medium text-blue-100/60">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-yellow-400" aria-hidden />
                     Online via Google Meet link — or in-person at the Guidance Office
                   </div>
                 </div>

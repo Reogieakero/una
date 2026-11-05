@@ -51,6 +51,7 @@ export default function ResetPasswordPage() {
       ) : (
         <form
           className="space-y-4"
+          method="post"
           onSubmit={handleSubmit(async (v) => {
             setError(null);
             // The link lands on /auth/confirm, which swaps the code for a

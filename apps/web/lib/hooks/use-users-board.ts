@@ -9,6 +9,7 @@ export type UsersProfile = {
   role: string;
   full_name: string | null;
   is_active: boolean;
+  approval_status: "pending" | "approved" | "rejected";
   created_at: string;
 };
 
@@ -34,7 +35,7 @@ export async function fetchUsersBoard(): Promise<UsersBoardData> {
   if (!user) throw new Error("Sign in required.");
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, email, role, full_name, is_active, created_at")
+    .select("id, email, role, full_name, is_active, approval_status, created_at")
     .order("created_at", { ascending: false })
     .limit(200);
   if (error) throw error;

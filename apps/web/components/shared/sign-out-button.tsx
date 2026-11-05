@@ -18,7 +18,7 @@ export function SignOutButton() {
         router.push("/login");
         router.refresh();
       }}
-      className="inline-flex h-8 w-full items-center justify-center gap-2 rounded border-2 border-ink/10 bg-white px-4 text-[13px] font-bold text-ink-soft transition hover:border-ink/20 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-60"
+      className="inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.05] px-4 text-[13px] font-bold text-blue-100/80 transition hover:border-white/30 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300/60 disabled:opacity-60"
     >
       {busy ? "Signing out…" : "Sign out"}
     </button>

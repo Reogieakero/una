@@ -10,6 +10,7 @@ const RANGE_PRESETS = [
   { key: "7d", label: "Last 7 days" },
   { key: "30d", label: "Last 30 days" },
   { key: "90d", label: "Last 90 days" },
+  { key: "month", label: "This month" },
   { key: "all", label: "All time" },
 ] as const;
 

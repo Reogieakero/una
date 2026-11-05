@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
-  parseCohortGroup,
+  COHORT_GROUPS,
   parseReportRange,
   parseReportSection,
   withRange,
+  type CohortGroup,
   type ReportSection,
 } from "@/lib/reports-scope";
 import { suppressCohorts, suppressCount } from "@/lib/reports/suppression";
+import { previousRange, summarizeKpi, type ReportKpiSummary } from "@/lib/reports/kpi-summary";
 
 const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"] as const;
 
@@ -64,6 +66,9 @@ export type HeadReportsCohort = {
   avg_score: number | null;
 };
 
+/** Cohort rows for every grouping dimension (the wellbeing card renders 3 donuts). */
+export type HeadReportsCohorts = Record<CohortGroup, HeadReportsCohort[]>;
+
 export type HeadReportsQuality = {
   completed_sessions: number;
   completed_without_note: number;
@@ -91,11 +96,13 @@ export type HeadReportsPayload = {
   feedback: HeadReportsFeedback[];
   screenings: HeadReportsScreening[];
   trends: HeadReportsTrend[];
-  cohort: HeadReportsCohort[];
+  cohorts: HeadReportsCohorts;
   quality: HeadReportsQuality | null;
   digest: HeadReportsDigest | null;
   pipeline: { unassigned: number; escalated: number; oldestOpenAt: string | null };
   workload: { ranked: HeadReportsWorkloadEntry[]; unassignedSessions: number };
+  /** Previous equal-length window, or null for All time. Overview deltas only. */
+  comparison: ReportKpiSummary | null;
   fetchedAt: string;
 };
 
@@ -133,7 +140,6 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const section = parseReportSection(url.searchParams.get("section"));
-  const group = parseCohortGroup(url.searchParams.get("group"));
   const range = parseReportRange({
     range: url.searchParams.get("range"),
     from: url.searchParams.get("from"),
@@ -149,10 +155,13 @@ export async function GET(request: Request) {
   const needTrends = showAll || section === "wellbeing";
   const needQuality = showAll || section === "quality";
   const needDigest = showAll || section === "quality";
+  // Overview cards compare against the preceding equal-length window. All-time
+  // ranges have no baseline, so they skip the extra reads entirely.
+  const previous = showAll ? previousRange(range) : null;
 
   // Every independent query fires together — one parallel batch instead of
   // the old per-section Suspense waterfall.
-  const [apptsRes, refsRes, feedbackRes, pssRes, unassignedRes, escalatedRes, oldestRes, counselorsRes, trendsRes, cohortRes, qualityRes, digestRes] =
+  const [apptsRes, refsRes, feedbackRes, pssRes, unassignedRes, escalatedRes, oldestRes, counselorsRes, trendsRes, cohortRes, qualityRes, digestRes, prevApptsRes, prevRefsRes, prevFeedbackRes, prevScreeningsRes] =
     await Promise.all([
       needAppts
         ? withRange(
@@ -223,12 +232,16 @@ export async function GET(request: Request) {
         ? supabase.rpc("head_wellbeing_trends", { from_ts: range.from, to_ts: range.to })
         : Promise.resolve({ data: null, error: null }),
       needTrends
-        ? supabase.rpc("head_cohort_stress", {
-            from_ts: range.from,
-            to_ts: range.to,
-            group_by: group,
-          })
-        : Promise.resolve({ data: null, error: null }),
+        ? Promise.all(
+            COHORT_GROUPS.map((g) =>
+              supabase.rpc("head_cohort_stress", {
+                from_ts: range.from,
+                to_ts: range.to,
+                group_by: g.key,
+              })
+            )
+          )
+        : Promise.resolve([]),
       needQuality
         ? supabase.rpc("head_data_quality")
         : Promise.resolve({ data: null, error: null }),
@@ -239,6 +252,34 @@ export async function GET(request: Request) {
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      previous
+        ? withRange(
+            supabase.from("appointments").select("status").limit(2000),
+            "scheduled_at",
+            previous
+          )
+        : Promise.resolve({ data: null, error: null }),
+      previous
+        ? withRange(
+            supabase.from("referrals").select("status,priority").limit(2000),
+            "created_at",
+            previous
+          )
+        : Promise.resolve({ data: null, error: null }),
+      previous
+        ? withRange(
+            supabase.from("feedback").select("rating").limit(1000),
+            "created_at",
+            previous
+          )
+        : Promise.resolve({ data: null, error: null }),
+      previous
+        ? withRange(
+            supabase.from("pss10_assessments").select("band").limit(1000),
+            "created_at",
+            previous
+          )
         : Promise.resolve({ data: null, error: null }),
     ]);
 
@@ -267,27 +308,41 @@ export async function GET(request: Request) {
         avg_score: r.avg_score,
       }));
 
-  const cohort: HeadReportsCohort[] = !needTrends
-    ? []
-    : suppressCohorts(
-        ((cohortRes.data ?? []) as {
-          cohort: string;
-          screenings: number;
-          high: number;
-          avg_score: number | null;
-        }[])
-      ).map((r) => ({
-        cohort: r.cohort,
-        screenings: r.screenings,
-        high: suppressCount(r.high),
-        avg_score: r.avg_score,
-      }));
+  const cohorts: HeadReportsCohorts = !needTrends
+    ? { program: [], year_level: [], college: [] }
+    : (Object.fromEntries(
+        COHORT_GROUPS.map((g, i) => {
+          const res = cohortRes[i] as {
+            data:
+              | { cohort: string; screenings: number; high: number; avg_score: number | null }[]
+              | null;
+          };
+          return [
+            g.key,
+            suppressCohorts(res?.data ?? []).map((r) => ({
+              cohort: r.cohort,
+              screenings: r.screenings,
+              high: suppressCount(r.high),
+              avg_score: r.avg_score,
+            })),
+          ];
+        })
+      ) as HeadReportsCohorts);
 
   const quality = needQuality
     ? (((qualityRes.data ?? []) as HeadReportsQuality[])[0] ?? null)
     : null;
 
   const digest = needDigest ? ((digestRes.data as HeadReportsDigest | null) ?? null) : null;
+
+  const comparison: ReportKpiSummary | null = previous
+    ? summarizeKpi({
+        appointments: (prevApptsRes.data ?? []) as { status: string }[],
+        referrals: (prevRefsRes.data ?? []) as { status: string; priority?: string }[],
+        feedback: (prevFeedbackRes.data ?? []) as { rating: number }[],
+        screenings: (prevScreeningsRes.data ?? []) as { band: string }[],
+      })
+    : null;
 
   const pipeline = !needPipeline
     ? EMPTY_PIPELINE
@@ -350,11 +405,12 @@ export async function GET(request: Request) {
     feedback,
     screenings,
     trends,
-    cohort,
+    cohorts,
     quality,
     digest,
     pipeline,
     workload,
+    comparison,
     fetchedAt: new Date().toISOString(),
   };
 

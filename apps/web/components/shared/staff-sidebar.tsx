@@ -1,34 +1,21 @@
 "use client";
 
+import { useCallback, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  BarChart3,
-  BookOpen,
-  CalendarCheck,
-  CalendarDays,
-  Clock,
-  GraduationCap,
-  Inbox,
-  LayoutDashboard,
-  Megaphone,
-  Settings,
-  ShieldCheck,
-  Send,
-  Siren,
-  Star,
-  UserPlus,
-  Users,
-  MessagesSquare,
-  type LucideIcon,
-} from "lucide-react";
+import { BookOpen } from "lucide-react";
 import { ChekieMark } from "@/components/Logo";
-import { Spinner } from "@/components/ui/spinner";
 import { useQueryClient } from "@tanstack/react-query";
-import { HEAD_DASHBOARD_KEY, HEAD_DASHBOARD_STALE_MS, fetchHeadDashboard } from "@/lib/hooks/use-head-dashboard";
 import {
-  COUNSELOR_DASHBOARD_KEY,
+  HEAD_DASHBOARD_DEFAULT_RANGE,
+  HEAD_DASHBOARD_STALE_MS,
+  fetchHeadDashboard,
+  headDashboardKey,
+} from "@/lib/hooks/use-head-dashboard";
+import {
+  COUNSELOR_DASHBOARD_DEFAULT_RANGE,
   COUNSELOR_DASHBOARD_STALE_MS,
+  counselorDashboardKey,
   fetchCounselorDashboard,
 } from "@/lib/hooks/use-counselor-dashboard";
 import {
@@ -62,43 +49,11 @@ import {
 } from "@/lib/hooks/use-appointments-board";
 import { filterNavGroups, useNavCounts, type NavProfile, type StaffNavGroup } from "./staff-nav";
 import { useSidebarCounts, type SidebarCounts } from "@/lib/hooks/use-sidebar-counts";
+import { BranchedMenu, type BranchedMenuItem } from "./branched-menu";
+import { LINK_ICONS } from "./nav-icons";
 import { useRoutePending } from "./route-pending";
-import { cn } from "@/lib/utils";
 
 export type SidebarProfile = NavProfile;
-
-const LINK_ICONS: Record<string, LucideIcon> = {
-  "/dashboard": LayoutDashboard,
-  "/reports": BarChart3,
-  "/about": BookOpen,
-  "/sessions": CalendarDays,
-  "/appointments": CalendarCheck,
-  "/availability": Clock,
-  "/chat": MessagesSquare,
-  "/users": Users,
-  "/users/new": UserPlus,
-  "/students": GraduationCap,
-  "/refer-student": Send,
-  "/referrals": Inbox,
-  "/emergency": Siren,
-  "/announcements": Megaphone,
-  "/feedback": Star,
-  "/security": ShieldCheck,
-  "/settings": Settings,
-};
-
-/** Small unread pill — same red language as the notification bell. */
-function CountBadge({ count }: { count: number }) {
-  if (!count) return null;
-  return (
-    <span
-      aria-hidden
-      className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white"
-    >
-      {count > 99 ? "99+" : count}
-    </span>
-  );
-}
 
 /** Spoken label for the count so it names the queue, not just "3 new". */
 const BADGE_LABEL: Record<string, string> = {
@@ -151,10 +106,16 @@ export function SidebarNavGroups({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const { isPending, startNavigation } = useRoutePending();
   const counts = useNavCounts();
   const { data: derivedCounts } = useSidebarCounts();
-  const visible = filterNavGroups(groups, role);
+  // For the Guidance Head, "Manage" lives in the profile dropdown (StaffNav)
+  // instead of the rail, keeping the sidebar focused on daily queues.
+  const visible = useMemo(() => {
+    const filtered = filterNavGroups(groups, role);
+    return role === "guidance_head"
+      ? filtered.filter((g) => g.label !== "Manage")
+      : filtered;
+  }, [groups, role]);
   const qc = useQueryClient();
 
   // Warm the cached dashboards so opening /dashboard feels instant —
@@ -162,16 +123,16 @@ export function SidebarNavGroups({
   const prefetchDashboard = () => {
     if (role === "guidance_head") {
       qc.prefetchQuery({
-        queryKey: [...HEAD_DASHBOARD_KEY],
-        queryFn: fetchHeadDashboard,
+        queryKey: headDashboardKey(HEAD_DASHBOARD_DEFAULT_RANGE),
+        queryFn: () => fetchHeadDashboard(HEAD_DASHBOARD_DEFAULT_RANGE),
         staleTime: HEAD_DASHBOARD_STALE_MS,
       }).catch(() => {});
       return;
     }
     if (role === "counselor") {
       qc.prefetchQuery({
-        queryKey: [...COUNSELOR_DASHBOARD_KEY],
-        queryFn: fetchCounselorDashboard,
+        queryKey: counselorDashboardKey(COUNSELOR_DASHBOARD_DEFAULT_RANGE),
+        queryFn: () => fetchCounselorDashboard(COUNSELOR_DASHBOARD_DEFAULT_RANGE),
         staleTime: COUNSELOR_DASHBOARD_STALE_MS,
       }).catch(() => {});
     }
@@ -302,89 +263,122 @@ export function SidebarNavGroups({
   const prefetchAppointments = () => {
     if (role !== "counselor" && role !== "guidance_head") return;
     qc.prefetchQuery({
-      queryKey: [...APPOINTMENTS_BOARD_KEY, 1, 25, "all", "all", "all", "appointments"],
-      queryFn: () => fetchAppointmentsBoard({ page: 1, size: 25, status: "all", mode: "all", counselor: "all", kind: "appointments" }),
+      queryKey: [...APPOINTMENTS_BOARD_KEY, 1, 10, "all", "all", "all", "appointments"],
+      queryFn: () => fetchAppointmentsBoard({ page: 1, size: 10, status: "all", mode: "all", counselor: "all", kind: "appointments" }),
       staleTime: APPOINTMENTS_BOARD_STALE_MS,
     }).catch(() => {});
   };
 
+  // Warm the destination's cached data when the pointer lands on a link.
+  // BranchedMenu discards onHover's return value, so this must actually run
+  // the prefetch here (returning the function would silently do nothing and
+  // leave every navigation on a cold cache).
   const prefetchFor = (href: string) => {
-    if (href === "/dashboard") return prefetchDashboard;
-    if (href === "/availability") return prefetchAvailability;
-    if (href === "/chat") return prefetchChat;
-    if (href === "/users") return prefetchUsers;
-    if (href === "/students") return prefetchStudents;
-    if (href === "/referrals") return prefetchReferrals;
-    if (href === "/emergency") return prefetchEmergency;
-    if (href === "/announcements") return prefetchAnnouncements;
-    if (href === "/feedback") return prefetchFeedback;
-    if (href === "/security") return prefetchSecurity;
-    if (href === "/settings") return prefetchSettings;
-    if (href === "/notifications") return prefetchNotifications;
-    if (href === "/sessions") return prefetchSessions;
-    if (href === "/appointments") return prefetchAppointments;
-    return undefined;
+    switch (href) {
+      case "/dashboard":
+        return prefetchDashboard();
+      case "/availability":
+        return prefetchAvailability();
+      case "/chat":
+        return prefetchChat();
+      case "/users":
+        return prefetchUsers();
+      case "/students":
+        return prefetchStudents();
+      case "/referrals":
+        return prefetchReferrals();
+      case "/emergency":
+        return prefetchEmergency();
+      case "/announcements":
+        return prefetchAnnouncements();
+      case "/feedback":
+        return prefetchFeedback();
+      case "/security":
+        return prefetchSecurity();
+      case "/settings":
+        return prefetchSettings();
+      case "/notifications":
+        return prefetchNotifications();
+      case "/sessions":
+        return prefetchSessions();
+      case "/appointments":
+        return prefetchAppointments();
+      default:
+        return undefined;
+    }
   };
 
+  // Exact match wins; otherwise the longest parent route (/students/[id] →
+  // /students) is highlighted.
+  const activeHref = useMemo(() => {
+    const hrefs = visible.flatMap((g) => g.links.map((l) => l.href));
+    if (hrefs.includes(pathname)) return pathname;
+    return (
+      hrefs
+        .filter((href) => pathname.startsWith(`${href}/`))
+        .sort((a, b) => b.length - a.length)[0] ?? ""
+    );
+  }, [pathname, visible]);
+
+  const items = useMemo<BranchedMenuItem[]>(
+    () =>
+      visible.map((group) => ({
+        label: group.label,
+        children: group.links.map((l) => {
+          const Icon = LINK_ICONS[l.href] ?? BookOpen;
+          const count = pickCount(l.href, derivedCounts, counts);
+          const countLabel = BADGE_LABEL[l.href];
+          return {
+            value: l.href,
+            label: l.label,
+            icon: <Icon className="h-4 w-4" aria-hidden />,
+            badge: count,
+            title: l.desc ?? l.label,
+            ariaLabel:
+              count && countLabel
+                ? `${l.label}, ${count} ${countLabel}${count === 1 ? "" : "s"}`
+                : undefined,
+          };
+        }),
+      })),
+    [visible, derivedCounts, counts]
+  );
+
+  const defaultOpen = useMemo(() => visible.map((_, i) => i), [visible]);
+
+  // Navigation itself is handled by the <Link> rendered in BranchedMenu, so
+  // the route can be prefetched and the click never waits on a router.push.
+  // Report the destination so the top-edge progress bar can confirm the
+  // click immediately while the target route loads.
+  const { startNavigation } = useRoutePending();
+  const handleSelect = useCallback(
+    (href: string) => {
+      startNavigation(href);
+      onNavigate?.();
+    },
+    [startNavigation, onNavigate]
+  );
+
   return (
-    <nav aria-label="Workspace" className="space-y-4">
-      {visible.map((g) => (
-        <div key={g.label}>
-          <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
-            {g.label}
-          </p>
-          <ul className="mt-1.5 space-y-0.5">
-            {g.links.map((l) => {
-              const active = pathname === l.href;
-              const pending = isPending(l.href);
-              const count = pickCount(l.href, derivedCounts, counts);
-              const countLabel = BADGE_LABEL[l.href];
-              const Icon = LINK_ICONS[l.href] ?? BookOpen;
-              return (
-                <li key={l.href}>
-                  <Link
-                    href={l.href}
-                    aria-current={active ? "page" : undefined}
-                    aria-label={
-                      count && countLabel
-                        ? `${l.label}, ${count} ${countLabel}${count === 1 ? "" : "s"}`
-                        : undefined
-                    }
-                    onClick={() => {
-                      startNavigation(l.href);
-                      onNavigate?.();
-                    }}
-                    onMouseEnter={prefetchFor(l.href)}
-                    onFocus={prefetchFor(l.href)}
-                    title={l.desc ?? l.label}
-                    className={cn(
-                      "group flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
-                      active
-                        ? "bg-primary-50 text-primary-700"
-                        : "text-ink-soft hover:bg-cream hover:text-ink",
-                      pending && "opacity-70"
-                    )}
-                  >
-                    <Icon
-                      aria-hidden
-                      className={cn(
-                        "h-4 w-4 shrink-0",
-                        active ? "text-primary-600" : "text-ink-faint group-hover:text-ink-soft"
-                      )}
-                    />
-                    <span className="min-w-0 flex-1 truncate">{l.label}</span>
-                    <span aria-hidden className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                      {pending && <Spinner size="xs" />}
-                    </span>
-                    <CountBadge count={count} />
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
-    </nav>
+    <BranchedMenu
+      className="branched-menu--brand"
+      ariaLabel="Workspace"
+      items={items}
+      activeValue={activeHref}
+      defaultOpen={defaultOpen}
+      width={216}
+      rowHeight={34}
+      indent={34}
+      trunk={12}
+      radius={9}
+      lineWidth={1.5}
+      fontSize={13}
+      color="#DBEAFE"
+      accentColor="#FCD34D"
+      lineColor="rgba(147,197,253,0.22)"
+      onSelect={handleSelect}
+      onHover={prefetchFor}
+    />
   );
 }
 
@@ -404,14 +398,15 @@ export function StaffSidebar({
   return (
     <aside
       aria-label="Workspace navigation"
-      className="hidden w-60 shrink-0 flex-col border-r border-ink/10 bg-white md:sticky md:top-0 md:flex md:h-screen"
+      data-shell-chrome
+      className="hidden w-60 shrink-0 flex-col border-r border-white/10 bg-[#050C16] md:sticky md:top-0 md:flex md:h-screen"
     >
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-ink/10 px-4">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/10 px-4">
         <Link href="/" className="flex min-w-0 items-center gap-2" aria-label="Chekie — back to home">
           <ChekieMark size={32} label="Chekie panda mascot" />
           <span className="leading-tight">
-            <span className="block font-display text-[15px] font-semibold">Chekie</span>
-            <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-ink-muted">
+            <span className="block font-display text-[15px] font-semibold text-white">Chekie</span>
+            <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-blue-100/40">
               Guidance
             </span>
           </span>
@@ -427,18 +422,18 @@ export function StaffSidebar({
 /** Narrow skeleton matching the 240px rail — shown while it streams in. */
 export function StaffSidebarSkeleton() {
   return (
-    <aside aria-hidden className="hidden w-60 shrink-0 flex-col border-r border-ink/10 bg-white md:flex">
-      <div className="h-14 shrink-0 border-b border-ink/10 px-4 py-3">
-        <div className="h-8 w-32 animate-pulse rounded-md bg-ink/10" />
+    <aside aria-hidden data-shell-chrome className="hidden w-60 shrink-0 flex-col border-r border-white/10 bg-[#050C16] md:flex">
+      <div className="h-14 shrink-0 border-b border-white/10 px-4 py-3">
+        <div className="h-8 w-32 animate-pulse rounded-md bg-white/10" />
       </div>
       <div className="flex-1 space-y-4 px-3 py-4">
         {[0, 1, 2].map((g) => (
           <div key={g} className="animate-pulse">
-            <div className="h-3 w-20 rounded-full bg-ink/10" />
+            <div className="h-3 w-20 rounded-full bg-white/10" />
             <div className="mt-2 space-y-1.5">
-              <div className="h-8 rounded-md bg-ink/10" />
-              <div className="h-8 rounded-md bg-ink/10" />
-              <div className="h-8 rounded-md bg-ink/10" />
+              <div className="h-8 rounded-md bg-white/10" />
+              <div className="h-8 rounded-md bg-white/10" />
+              <div className="h-8 rounded-md bg-white/10" />
             </div>
           </div>
         ))}

@@ -88,17 +88,35 @@ export function AnnouncementCard({
       {isHead && (
       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-ink/10 pt-3">
         {st !== "published" && (
-          <Button size="sm" variant="accent" disabled={busyId === `pub-${a.id}`} onClick={() => onPublish(a)}>
-            Publish
+          <Button
+            size="sm"
+            variant="accent"
+            loading={busyId === `pub-${a.id}`}
+            onClick={() => onPublish(a)}
+            className="gap-2"
+          >
+            {busyId === `pub-${a.id}` ? "Publishing…" : "Publish"}
           </Button>
         )}
         {st === "published" && (
-          <Button size="sm" variant="outline" disabled={busyId === `unpub-${a.id}`} onClick={() => onUnpublish(a)}>
-            Unpublish
+          <Button
+            size="sm"
+            variant="outline"
+            loading={busyId === `unpub-${a.id}`}
+            onClick={() => onUnpublish(a)}
+            className="gap-2"
+          >
+            {busyId === `unpub-${a.id}` ? "Unpublishing…" : "Unpublish"}
           </Button>
         )}
-        <Button size="sm" variant="outline" disabled={busyId === a.id} onClick={() => onDelete(a)}>
-          Delete
+        <Button
+          size="sm"
+          variant="outline"
+          loading={busyId === a.id}
+          onClick={() => onDelete(a)}
+          className="gap-2"
+        >
+          {busyId === a.id ? "Deleting…" : "Delete"}
         </Button>
       </div>
       )}

@@ -1,14 +1,18 @@
-import { getCurrentProfile } from "@/lib/supabase/server";
+"use client";
+
 import {
   CounselorReportsSkeleton,
   FacultyReportsSkeleton,
   HeadReportsSkeleton,
 } from "@/components/shared/skeletons";
+import { useShellRole } from "@/components/shared/shell-role";
 
-/** Role-aware reports skeleton — 8 KPIs (counselor/head) vs 4 (faculty). */
-export default async function Loading() {
-  const profile = await getCurrentProfile().catch(() => null);
-  const role = (profile as { role?: string } | null)?.role;
+/**
+ * Role-aware reports skeleton — rendered synchronously from the shell's
+ * already-resolved role so it appears immediately on navigation.
+ */
+export default function Loading() {
+  const role = useShellRole();
   if (role === "faculty") return <FacultyReportsSkeleton />;
   if (role === "guidance_head") return <HeadReportsSkeleton />;
   return <CounselorReportsSkeleton />;

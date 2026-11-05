@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   HTMLAttributes,
@@ -67,6 +68,40 @@ export function FieldError({ message }: { message?: string }) {
   if (!message) return null;
   return <p className="mt-1 text-xs font-semibold text-red-600">{message}</p>;
 }
+
+/**
+ * Custom checkbox: a native input (keyboard + form semantics) with the
+ * browser's default control hidden, plus a lucide check drawn on top.
+ */
+export const Checkbox = forwardRef<
+  HTMLInputElement,
+  InputHTMLAttributes<HTMLInputElement> & { label?: React.ReactNode }
+>(({ className, label, ...props }, ref) => (
+  <label className="inline-flex cursor-pointer select-none items-center gap-2">
+    <span className="relative inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center">
+      <input
+        ref={ref}
+        type="checkbox"
+        className={cn(
+          "peer h-[18px] w-[18px] cursor-pointer appearance-none rounded-[5px] border border-ink/25 bg-white transition",
+          "checked:border-yellow-500 checked:bg-yellow-400",
+          "hover:border-yellow-500/70",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/50 focus-visible:ring-offset-2",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          className,
+        )}
+        {...props}
+      />
+      <Check
+        className="pointer-events-none absolute h-3 w-3 text-ink opacity-0 transition-opacity peer-checked:opacity-100"
+        strokeWidth={3.5}
+        aria-hidden
+      />
+    </span>
+    {label ? <span className="text-[13px] font-medium text-ink-soft">{label}</span> : null}
+  </label>
+));
+Checkbox.displayName = "Checkbox";
 
 export function Badge({
   tone = "info",

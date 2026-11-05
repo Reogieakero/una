@@ -13,14 +13,6 @@ import { ProfileAbout, ProfileForm } from "@/components/settings/ProfileForm";
 import { PasswordForm } from "@/components/settings/PasswordForm";
 import { WorkspaceForm, WorkspaceOverview } from "@/components/settings/WorkspaceOverview";
 import { ActivitySection, TeamSection } from "@/components/settings/TeamList";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 type Counselor = { id: string; name: string; spec: string | null; available: boolean; sessions: number };
 type FeedItem = { id: string; at: string; text: string; tone: "info" | "success" | "warning" | "danger" };
@@ -271,18 +263,6 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Settings</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <div className={isHead ? "grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]" : "grid items-start gap-4"}>
         {/* Left — profile + tabs */}
         <div className="min-w-0 space-y-4">

@@ -4,55 +4,37 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2 } from "lucide-react";
-import { registerStudentSchema, type RegisterStudentInput } from "@dorsu/shared-schemas";
+import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
+import { selfSignupSchema, type SelfSignupInput } from "@dorsu/shared-schemas";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/primitives";
+import { Button, FieldError, Input } from "@/components/ui/primitives";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { AuthDivider, GoogleButton } from "@/components/auth/GoogleButton";
-import { STEPS, Stepper } from "@/components/auth/stepper";
-import { StepName } from "@/components/auth/steps/step-name";
-import { StepSchool } from "@/components/auth/steps/step-school";
-import { StepPassword } from "@/components/auth/steps/step-password";
 
 /**
- * Student self-registration (3-step). Staff accounts are provisioned by guidance
- * head/admin — never via an open role picker. Profiles/role rows are written
- * server-side because RLS allows no direct client insert into `profiles`.
+ * Generic public signup. Email + password only; the role (Student, Faculty, or
+ * Guidance Counselor) is chosen on /register/role right after the account is
+ * created. Staff accounts then wait for guidance-head approval and fill in
+ * their real details on /complete-profile before entering the workspace.
  */
 export default function RegisterPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [confirm, setConfirm] = useState("");
-  const { register, handleSubmit, trigger, formState, getValues, setValue, watch } =
-    useForm<RegisterStudentInput>({
-      resolver: zodResolver(registerStudentSchema),
-      mode: "onTouched",
-    });
-  const yearLevel = watch("yearLevel");
+  const { register, handleSubmit, formState } = useForm<SelfSignupInput>({
+    resolver: zodResolver(selfSignupSchema),
+    mode: "onTouched",
+  });
 
-  const next = async () => {
+  const onSubmit = handleSubmit(async (v) => {
     setError(null);
-    const fields = [...STEPS[step].fields];
-    // Local confirm-password check lives on the last step.
-    if (step === STEPS.length - 1 && confirm !== getValues("password")) {
+    if (confirm !== v.password) {
       setError("Those passwords don't match. Please try again.");
       return;
     }
-    const ok = await trigger(fields as never, { shouldFocus: true });
-    if (ok) setStep((s) => Math.min(s + 1, STEPS.length - 1));
-  };
-  const back = () => {
-    setError(null);
-    setStep((s) => Math.max(s - 1, 0));
-  };
 
-  const onSubmit = handleSubmit(async (v) => {
-    if (confirm !== v.password) return setError("Those passwords don't match. Please try again.");
-    setError(null);
     const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -60,6 +42,7 @@ export default function RegisterPage() {
     });
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     if (!res.ok) return setError(body?.error ?? "Registration failed. Please try again.");
+
     const supabase = createClient();
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: v.email,
@@ -69,103 +52,127 @@ export default function RegisterPage() {
       router.push("/login");
       return;
     }
-    router.push("/");
+    router.push("/register/role");
   });
 
   return (
     <AuthShell
       variant="register"
-      title="Create your student account"
+      title="Create your account"
       subtitle={
         <>
-          Book a counseling session and do a quick stress check-in. Already have an
-          account?{" "}
+          Start with your email, then choose how you&apos;ll use Chekie. Already have
+          an account?{" "}
           <Link href="/login" className="font-bold text-primary-600 hover:underline">
-            Log in
+            Sign in
           </Link>
           .
         </>
       }
       footer={
         <p className="rounded-2xl bg-blue-50 px-4 py-3 text-center text-[13px] leading-relaxed text-blue-900 ring-1 ring-blue-100">
-          Teachers and staff can&apos;t sign up here — please ask the Guidance office for
-          your account. This page is for students only.
+          Students get the mobile app. Faculty and guidance counselors can self-register
+          with Google or email — a guidance head approves the account before first use.
         </p>
       }
     >
       <GoogleButton mode="signup" />
       <AuthDivider label="or sign up with email" />
 
-      <Stepper step={step} />
+      <form className="space-y-4" method="post" onSubmit={onSubmit}>
+        <div>
+          <label htmlFor="email" className="mb-1.5 block text-[13px] font-semibold text-ink-soft">
+            Email
+          </label>
+          <div className="relative group">
+            <Mail
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint transition-colors group-focus-within:text-yellow-600"
+              aria-hidden
+            />
+            <Input
+              id="email"
+              type="email"
+              placeholder="you@dorsu.edu.ph"
+              autoComplete="email"
+              className="h-10 rounded-lg border-ink/10 bg-white pl-10 text-sm focus:border-yellow-500 focus:ring-yellow-400/25"
+              {...register("email")}
+            />
+          </div>
+          <FieldError message={formState.errors.email?.message} />
+        </div>
 
-      <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-        {/* ── Step 1: name ── */}
-        {step === 0 && (
-          <StepName register={register} error={formState.errors.fullName?.message} onNext={() => void next()} />
-        )}
+        <div>
+          <label htmlFor="password" className="mb-1.5 block text-[13px] font-semibold text-ink-soft">
+            Password
+          </label>
+          <div className="relative group">
+            <Lock
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint transition-colors group-focus-within:text-yellow-600"
+              aria-hidden
+            />
+            <Input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              placeholder="••••••••"
+              autoComplete="new-password"
+              className="h-10 rounded-lg border-ink/10 bg-white pl-10 pr-10 text-sm focus:border-yellow-500 focus:ring-yellow-400/25"
+              {...register("password")}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-ink-muted transition hover:bg-yellow-50 hover:text-ink group-focus-within:ring-2 group-focus-within:ring-yellow-400/40"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <FieldError message={formState.errors.password?.message} />
+        </div>
 
-        {/* ── Step 2: university ── */}
-        {step === 1 && (
-          <StepSchool
-            register={register}
-            errors={formState.errors}
-            yearLevel={yearLevel ?? ""}
-            onYearChange={(v) =>
-              setValue("yearLevel", v, {
-                shouldValidate: true,
-                shouldDirty: true,
-                shouldTouch: true,
-              })
-            }
+        <div>
+          <label
+            htmlFor="confirm-password"
+            className="mb-1.5 block text-[13px] font-semibold text-ink-soft"
+          >
+            Confirm password
+          </label>
+          <Input
+            id="confirm-password"
+            type={showPassword ? "text" : "password"}
+            placeholder="••••••••"
+            autoComplete="new-password"
+            className="h-10 rounded-lg border-ink/10 bg-white text-sm focus:border-yellow-500 focus:ring-yellow-400/25"
+            value={confirm}
+            onChange={(event) => setConfirm(event.target.value)}
           />
-        )}
-
-        {/* ── Step 3: password ── */}
-        {step === 2 && (
-          <StepPassword
-            register={register}
-            getValues={getValues}
-            passwordError={formState.errors.password?.message}
-            confirm={confirm}
-            onConfirmChange={setConfirm}
-            showPassword={showPassword}
-            onTogglePassword={() => setShowPassword((v) => !v)}
-          />
-        )}
+        </div>
 
         {error && (
           <p
             role="alert"
-            className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] font-semibold leading-snug text-red-700"
+            className="rounded-xl border border-red-200 bg-red-50/60 px-4 py-3 text-[12px] font-semibold leading-snug text-red-800"
           >
             {error}
           </p>
         )}
 
-        {/* nav buttons */}
-        <div className="flex items-center gap-3 pt-1">
-          {step > 0 && (
-            <Button type="button" variant="outline" size="lg" onClick={back} className="shrink-0">
-              Back
-            </Button>
-          )}
-          {step < STEPS.length - 1 ? (
-            <Button type="button" size="lg" onClick={next} className="w-full">
-              Continue
-            </Button>
+        <Button
+          type="submit"
+          variant="accent"
+          className="h-11 w-full rounded-lg bg-yellow-400 text-[15px] font-bold text-ink shadow-[0_14px_30px_-14px_rgba(245,158,11,0.85)] hover:bg-yellow-300 focus-visible:ring-yellow-400"
+          size="lg"
+          disabled={formState.isSubmitting}
+        >
+          {formState.isSubmitting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Creating account…
+            </>
           ) : (
-            <Button type="submit" size="lg" disabled={formState.isSubmitting} className="w-full">
-              {formState.isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  Creating account…
-                </>
-              ) : (
-                "Create account"
-              )}
-            </Button>
+            "Continue"
           )}
-        </div>
+        </Button>
 
         <p className="text-center text-sm text-ink-muted">
           Already have an account?{" "}

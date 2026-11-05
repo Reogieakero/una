@@ -151,6 +151,583 @@
 @page {
   margin: 12mm;
 }
+/* ── Dark appearance ───────────────────────────────────────────────────────
+   The brand tokens are static Tailwind colours, so dark mode remaps the few
+   surface/ink utilities used across the staff + public pages. Accent hues
+   (blue/yellow/red/green) stay semantic; only their light tint backgrounds
+   are softened for a dark canvas. Pages that are intentionally dark already
+   (dashboard canvas, nav rail, modals) use fixed `bg-[#…]`/`bg-white/[0.0x]`
+   classes and are deliberately left untouched. */
+html.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background-color: #050c16;
+  color: #eff6ff;
+}
+
+/* Content surfaces */
+.dark .bg-white {
+  background-color: #0b1726;
+}
+.dark .bg-white\/60 {
+  background-color: rgba(11, 23, 38, 0.6);
+}
+.dark .bg-white\/80 {
+  background-color: rgba(11, 23, 38, 0.8);
+}
+.dark .bg-white\/85 {
+  background-color: rgba(11, 23, 38, 0.85);
+}
+.dark .bg-white\/90 {
+  background-color: rgba(11, 23, 38, 0.9);
+}
+.dark .bg-cream {
+  background-color: #050c16;
+}
+.dark .bg-cream-dark {
+  background-color: #07101d;
+}
+.dark .bg-cream-deeper {
+  background-color: #0b1726;
+}
+
+/* Soft status/selection tints */
+.dark .bg-blue-50,
+.dark .bg-primary-50 {
+  background-color: rgba(37, 99, 235, 0.12);
+}
+.dark .bg-blue-100,
+.dark .bg-primary-100 {
+  background-color: rgba(37, 99, 235, 0.2);
+}
+.dark .bg-yellow-50,
+.dark .bg-accent-50 {
+  background-color: rgba(245, 158, 11, 0.12);
+}
+.dark .bg-accent-50\/50 {
+  background-color: rgba(245, 158, 11, 0.08);
+}
+.dark .bg-yellow-100,
+.dark .bg-accent-100 {
+  background-color: rgba(245, 158, 11, 0.2);
+}
+.dark .border-accent-200 {
+  border-color: rgba(245, 158, 11, 0.3);
+}
+.dark .divide-accent-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(245, 158, 11, 0.18);
+}
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.12);
+}
+.dark .bg-amber-100 {
+  background-color: rgba(245, 158, 11, 0.2);
+}
+.dark .bg-green-50 {
+  background-color: rgba(22, 163, 74, 0.12);
+}
+.dark .bg-green-100 {
+  background-color: rgba(22, 163, 74, 0.2);
+}
+.dark .bg-red-50 {
+  background-color: rgba(220, 38, 38, 0.12);
+}
+.dark .bg-red-100 {
+  background-color: rgba(220, 38, 38, 0.2);
+}
+
+/* Text */
+.dark .text-ink {
+  color: #eff6ff;
+}
+.dark .text-ink-soft {
+  color: #bfdbfe;
+}
+.dark .text-ink-muted {
+  color: #93c5fd;
+}
+.dark .text-ink-faint {
+  color: #60a5fa;
+}
+.dark .text-ink\/20 {
+  color: rgba(239, 246, 255, 0.3);
+}
+.dark .text-blue-700,
+.dark .text-blue-800,
+.dark .text-primary-700,
+.dark .text-primary-800 {
+  color: #bfdbfe;
+}
+.dark .text-yellow-700,
+.dark .text-accent-700 {
+  color: #fde68a;
+}
+.dark .text-green-700,
+.dark .text-green-800 {
+  color: #bbf7d0;
+}
+.dark .text-amber-700,
+.dark .text-amber-800 {
+  color: #fde68a;
+}
+.dark .text-red-600 {
+  color: #fca5a5;
+}
+.dark .text-red-700,
+.dark .text-red-800 {
+  color: #fecaca;
+}
+.dark .border-amber-200 {
+  border-color: rgba(245, 158, 11, 0.28);
+}
+/* Amber accent surfaces need dark ink in both themes — `text-ink` flips to
+   near-white in dark mode, which loses contrast on the sun chip. */
+.dark .bg-accent-400 {
+  color: #050c16;
+}
+
+/* Borders, dividers, rings */
+.dark [class*="border-ink/"] {
+  border-color: rgba(147, 197, 253, 0.16);
+}
+.dark [class*="divide-ink/"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(147, 197, 253, 0.12);
+}
+.dark [class*="bg-ink/"] {
+  background-color: rgba(147, 197, 253, 0.1);
+}
+.dark [class*="ring-ink/"] {
+  --tw-ring-color: rgba(147, 197, 253, 0.2);
+}
+
+/* Hover states that assumed a light canvas */
+.dark .hover\:bg-cream:hover,
+.dark .hover\:bg-cream\/60:hover,
+.dark .hover\:bg-cream-dark:hover,
+.dark .hover\:bg-white:hover,
+.dark .hover\:bg-blue-50:hover,
+.dark .hover\:bg-primary-50:hover,
+.dark .hover\:bg-accent-50:hover,
+.dark .hover\:bg-yellow-50:hover,
+.dark .hover\:bg-yellow-50\/60:hover {
+  background-color: rgba(147, 197, 253, 0.1);
+}
+.dark .hover\:bg-blue-100:hover,
+.dark .hover\:bg-blue-200:hover {
+  background-color: rgba(37, 99, 235, 0.24);
+}
+.dark .hover\:bg-accent-300:hover,
+.dark .hover\:bg-yellow-300:hover,
+.dark .hover\:bg-yellow-400:hover {
+  background-color: rgba(245, 158, 11, 0.28);
+}
+
+.dark .shadow-card {
+  box-shadow: 0 8px 30px -8px rgba(0, 0, 0, 0.6);
+}
+.dark .shadow-soft {
+  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.55);
+}
+
+/* Form controls */
+.dark input,
+.dark textarea,
+.dark select {
+  color: #eff6ff;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: rgba(147, 197, 253, 0.45);
+}
+
+/* Toasts */
+.dark [data-sonner-toast] {
+  background: #0b1726;
+  color: #eff6ff;
+  border-color: rgba(147, 197, 253, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.dark [data-sonner-toast] [data-close-button] {
+  background: #0b1726 !important;
+  border-color: rgba(147, 197, 253, 0.2) !important;
+  color: #eff6ff !important;
+}
+
+/* Scrollbars */
+.dark {
+  scrollbar-color: rgba(147, 197, 253, 0.3) transparent;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(147, 197, 253, 0.26);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(147, 197, 253, 0.42);
+}
+
+/* ── Auth card light island ───────────────────────────────────────────────
+   The sign-in/register card is deliberately painted on a fixed light surface
+   (`bg-[#F6F9FF]`). Because its text and controls use theme tokens, dark mode
+   would otherwise remap them to their light-on-dark values and leave white
+   labels on a light card. `data-auth-card` restores the light-mode tokens for
+   everything inside the card, in both themes. */
+html.dark [data-auth-card] {
+  color-scheme: light;
+}
+
+/* Text */
+html.dark [data-auth-card] .text-ink {
+  color: #1e3a5f;
+}
+html.dark [data-auth-card] .text-ink-soft {
+  color: #2d5a8e;
+}
+html.dark [data-auth-card] .text-ink-muted {
+  color: #5a7fa0;
+}
+html.dark [data-auth-card] .text-ink-faint {
+  color: #8ba4c4;
+}
+html.dark [data-auth-card] .text-ink\/20 {
+  color: rgba(30, 58, 95, 0.2);
+}
+html.dark [data-auth-card] .text-blue-700,
+html.dark [data-auth-card] .text-blue-800,
+html.dark [data-auth-card] .text-primary-700,
+html.dark [data-auth-card] .text-primary-800 {
+  color: #1d4ed8;
+}
+html.dark [data-auth-card] .text-yellow-700,
+html.dark [data-auth-card] .text-accent-700 {
+  color: #b45309;
+}
+html.dark [data-auth-card] .text-green-700,
+html.dark [data-auth-card] .text-green-800 {
+  color: #15803d;
+}
+html.dark [data-auth-card] .text-amber-700,
+html.dark [data-auth-card] .text-amber-800 {
+  color: #b45309;
+}
+html.dark [data-auth-card] .text-red-600 {
+  color: #dc2626;
+}
+html.dark [data-auth-card] .text-red-700,
+html.dark [data-auth-card] .text-red-800 {
+  color: #991b1b;
+}
+
+/* Surfaces */
+html.dark [data-auth-card] .bg-white {
+  background-color: #ffffff;
+}
+html.dark [data-auth-card] .bg-white\/60 {
+  background-color: rgba(255, 255, 255, 0.6);
+}
+html.dark [data-auth-card] .bg-white\/80 {
+  background-color: rgba(255, 255, 255, 0.8);
+}
+html.dark [data-auth-card] .bg-white\/85 {
+  background-color: rgba(255, 255, 255, 0.85);
+}
+html.dark [data-auth-card] .bg-white\/90 {
+  background-color: rgba(255, 255, 255, 0.9);
+}
+html.dark [data-auth-card] .bg-cream {
+  background-color: #eff6ff;
+}
+html.dark [data-auth-card] .bg-cream-dark {
+  background-color: #dbeafe;
+}
+html.dark [data-auth-card] .bg-cream-deeper {
+  background-color: #bfdbfe;
+}
+html.dark [data-auth-card] .bg-blue-50,
+html.dark [data-auth-card] .bg-primary-50 {
+  background-color: #eff6ff;
+}
+html.dark [data-auth-card] .bg-blue-100,
+html.dark [data-auth-card] .bg-primary-100 {
+  background-color: #dbeafe;
+}
+html.dark [data-auth-card] .bg-yellow-50,
+html.dark [data-auth-card] .bg-accent-50,
+html.dark [data-auth-card] .bg-amber-50 {
+  background-color: #fffbeb;
+}
+html.dark [data-auth-card] .bg-yellow-100,
+html.dark [data-auth-card] .bg-accent-100,
+html.dark [data-auth-card] .bg-amber-100 {
+  background-color: #fef3c7;
+}
+html.dark [data-auth-card] .bg-green-50 {
+  background-color: #f0fdf4;
+}
+html.dark [data-auth-card] .bg-green-100 {
+  background-color: #dcfce7;
+}
+html.dark [data-auth-card] .bg-red-50 {
+  background-color: #fef2f2;
+}
+html.dark [data-auth-card] .bg-red-100 {
+  background-color: #fee2e2;
+}
+html.dark [data-auth-card] .bg-accent-400 {
+  color: #050c16;
+}
+
+/* Borders, dividers, rings and ink-tinted surfaces */
+html.dark [data-auth-card] .border-accent-200 {
+  border-color: #fde68a;
+}
+html.dark [data-auth-card] .divide-accent-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #fef3c7;
+}
+html.dark [data-auth-card] [class*="border-ink/10"] {
+  border-color: rgba(30, 58, 95, 0.1);
+}
+html.dark [data-auth-card] [class*="border-ink/15"] {
+  border-color: rgba(30, 58, 95, 0.15);
+}
+html.dark [data-auth-card] [class*="border-ink/20"] {
+  border-color: rgba(30, 58, 95, 0.2);
+}
+html.dark [data-auth-card] [class*="border-ink/25"] {
+  border-color: rgba(30, 58, 95, 0.25);
+}
+html.dark [data-auth-card] [class*="divide-ink/"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(30, 58, 95, 0.1);
+}
+html.dark [data-auth-card] [class*="bg-ink/5"] {
+  background-color: rgba(30, 58, 95, 0.05);
+}
+html.dark [data-auth-card] [class*="bg-ink/10"] {
+  background-color: rgba(30, 58, 95, 0.1);
+}
+html.dark [data-auth-card] [class*="ring-ink/"] {
+  --tw-ring-color: rgba(30, 58, 95, 0.2);
+}
+
+/* Hover states that assume a light canvas */
+html.dark [data-auth-card] .hover\:bg-cream:hover,
+html.dark [data-auth-card] .hover\:bg-cream-dark:hover,
+html.dark [data-auth-card] .hover\:bg-white:hover {
+  background-color: #f8fbff;
+}
+html.dark [data-auth-card] .hover\:bg-yellow-50:hover,
+html.dark [data-auth-card] .hover\:bg-accent-50:hover {
+  background-color: #fffbeb;
+}
+html.dark [data-auth-card] .hover\:bg-yellow-300:hover,
+html.dark [data-auth-card] .hover\:bg-yellow-400:hover {
+  background-color: #fcd34d;
+}
+
+/* Shadows */
+html.dark [data-auth-card] .shadow-card {
+  box-shadow: 0 8px 30px -8px rgba(30, 58, 95, 0.12);
+}
+html.dark [data-auth-card] .shadow-soft {
+  box-shadow: 0 12px 40px -12px rgba(37, 99, 235, 0.18);
+}
+
+/* Form controls */
+html.dark [data-auth-card] input,
+html.dark [data-auth-card] textarea,
+html.dark [data-auth-card] select {
+  color: #1e3a5f;
+}
+html.dark [data-auth-card] input::placeholder,
+html.dark [data-auth-card] textarea::placeholder {
+  color: #8ba4c4;
+}
+
+/* ── Light shell + dashboard ──────────────────────────────────────────────
+   The staff chrome and the head dashboard were originally painted for a dark
+   canvas. When the resolved theme is light (`html` has no `.dark`), remap
+   their fixed navy surfaces and white text back to the cream/ink language.
+   Dark mode keeps the original look untouched. */
+html:not(.dark) [data-shell-chrome] {
+  background-color: #ffffff !important;
+  border-color: rgba(30, 58, 95, 0.1) !important;
+  color: #1e3a5f;
+}
+html:not(.dark) [data-shell-chrome] .branched-menu {
+  --bm-ink: #1e3a5f !important;
+  --bm-accent: #1d4ed8 !important;
+  --bm-line: rgba(30, 58, 95, 0.16) !important;
+}
+/* The branded sidebar styles hard-code light text for a navy rail. */
+html:not(.dark) [data-shell-chrome] .branched-menu--brand .branched-menu__head {
+  color: #5a7fa0 !important;
+}
+html:not(.dark) [data-shell-chrome] .branched-menu--brand .branched-menu__section[data-open] .branched-menu__head,
+html:not(.dark) [data-shell-chrome] .branched-menu--brand .branched-menu__head:hover {
+  color: #1e3a5f !important;
+}
+html:not(.dark) [data-shell-chrome] .branched-menu--brand .branched-menu__item {
+  color: #2d5a8e !important;
+}
+html:not(.dark) [data-shell-chrome] .branched-menu--brand .branched-menu__item:hover,
+html:not(.dark) [data-shell-chrome] .branched-menu--brand .branched-menu__item[data-active] {
+  color: #1d4ed8 !important;
+}
+html:not(.dark) [data-shell-chrome] .branched-menu--brand .branched-menu__marker {
+  background: #1d4ed8 !important;
+}
+html:not(.dark) [data-shell-chrome] .branched-menu--brand .branched-menu__base {
+  stroke: rgba(30, 58, 95, 0.18) !important;
+}
+html:not(.dark) [data-shell-chrome] .branched-menu--brand .branched-menu__reach {
+  stroke: #2563eb !important;
+}
+html:not(.dark) [data-shell-chrome] .text-white,
+html:not(.dark) [data-shell-popover] .text-white {
+  color: #1e3a5f;
+}
+html:not(.dark) [data-shell-chrome] .text-blue-100,
+html:not(.dark) [data-shell-popover] .text-blue-100 {
+  color: #1e3a5f;
+}
+html:not(.dark) [data-shell-chrome] [class*="text-blue-100/"],
+html:not(.dark) [data-shell-popover] [class*="text-blue-100/"] {
+  color: #5a7fa0;
+}
+html:not(.dark) [data-shell-chrome] [class*="text-blue-200/"],
+html:not(.dark) [data-shell-popover] [class*="text-blue-200/"] {
+  color: #2563eb;
+}
+html:not(.dark) [data-shell-chrome] [class*="border-white/"],
+html:not(.dark) [data-shell-popover] [class*="border-white/"] {
+  border-color: rgba(30, 58, 95, 0.12);
+}
+html:not(.dark) [data-shell-chrome] [class*=" bg-white/["],
+html:not(.dark) [data-shell-chrome] [class^="bg-white/["],
+html:not(.dark) [data-shell-popover] [class*=" bg-white/["],
+html:not(.dark) [data-shell-popover] [class^="bg-white/["] {
+  background-color: rgba(30, 58, 95, 0.04);
+}
+html:not(.dark) [data-shell-chrome] .hover\:bg-white\/10:hover {
+  background-color: rgba(30, 58, 95, 0.06);
+}
+html:not(.dark) [data-shell-popover] {
+  background-color: rgba(255, 255, 255, 0.98) !important;
+  box-shadow: 0 24px 60px -20px rgba(30, 58, 95, 0.28);
+}
+
+/* Head dashboard light canvas */
+html:not(.dark) [data-dashboard-backdrop] {
+  background-color: #eff6ff !important;
+}
+html:not(.dark) [data-dashboard-backdrop] > div:first-child {
+  background: radial-gradient(
+    110% 80% at 80% 10%,
+    rgba(37, 99, 235, 0.1),
+    transparent 55%
+  ) !important;
+}
+html:not(.dark) [data-dashboard-backdrop] > div:nth-child(2) {
+  background-image: radial-gradient(rgba(30, 58, 95, 0.12) 1px, transparent 1px) !important;
+}
+html:not(.dark) [data-dashboard-backdrop] .bg-blue-500\/15 {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+}
+html:not(.dark) [data-dashboard-backdrop] .bg-yellow-400\/\[0\.07\] {
+  background-color: rgba(251, 191, 36, 0.1) !important;
+}
+html:not(.dark) [data-head-dashboard] .text-white {
+  color: #1e3a5f;
+}
+html:not(.dark) [data-head-dashboard] [class*="text-blue-100/"] {
+  color: #5a7fa0;
+}
+html:not(.dark) [data-head-dashboard] [class*="text-blue-200/"] {
+  color: #2563eb;
+}
+html:not(.dark) [data-head-dashboard] .text-blue-200 {
+  color: #2563eb;
+}
+html:not(.dark) [data-head-dashboard] .text-blue-300 {
+  color: #3b82f6;
+}
+html:not(.dark) [data-head-dashboard] [class*="text-yellow-"] {
+  color: #b45309;
+}
+html:not(.dark) [data-head-dashboard] [class*="border-white/"] {
+  border-color: rgba(30, 58, 95, 0.12);
+}
+html:not(.dark) [data-head-dashboard] [class*="bg-white/["] {
+  background-color: rgba(255, 255, 255, 0.78);
+}
+html:not(.dark) [data-head-dashboard] [class*="hover:bg-white/"]:hover {
+  background-color: rgba(255, 255, 255, 0.96);
+}
+html:not(.dark) [data-head-dashboard] [class*="bg-[#07101D]"] {
+  background-color: #ffffff !important;
+}
+/* Recharts tooltips stay dark-on-dark in light mode. */
+html:not(.dark) [data-head-dashboard] [class*="bg-[#071625]"] {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+html:not(.dark) [data-head-dashboard] [class*="bg-[#071625]"] .text-white {
+  color: #ffffff;
+}
+html:not(.dark) [data-head-dashboard] [class*="bg-[#071625]"] [class*="text-blue-100/"] {
+  color: rgba(219, 234, 254, 0.6);
+}
+
+/* Recharts axes: the library's default #666 tick is too dim on both the
+   cream and navy canvases, so pin the brand-readable ink step per theme. */
+[data-chart] .recharts-cartesian-axis-tick-value {
+  fill: #5a7fa0;
+}
+.dark [data-chart] .recharts-cartesian-axis-tick-value {
+  fill: #93c5fd;
+}
+.dark [data-chart] .recharts-cartesian-grid line {
+  stroke: rgba(147, 197, 253, 0.14);
+}
+
+/* The Counseling Referral Form is a paper record, so its dialog keeps the
+   light-mode palette even when the rest of the app is dark. Scoped here so
+   the dark remaps above never touch the printed document. */
+html.dark .referral-form-light {
+  background-color: #ffffff;
+  color: #1e3a5f;
+}
+html.dark .referral-form-light .bg-white {
+  background-color: #ffffff;
+}
+html.dark .referral-form-light .bg-cream {
+  background-color: #eff6ff;
+}
+html.dark .referral-form-light .bg-ink\/10 {
+  background-color: rgba(30, 58, 95, 0.1);
+}
+html.dark .referral-form-light .text-ink {
+  color: #1e3a5f;
+}
+html.dark .referral-form-light .text-ink-soft {
+  color: #2d5a8e;
+}
+html.dark .referral-form-light .text-ink-muted {
+  color: #5a7fa0;
+}
+html.dark .referral-form-light .text-ink-faint {
+  color: #8ba4c4;
+}
+html.dark .referral-form-light [class*="border-ink/"] {
+  border-color: rgba(30, 58, 95, 0.15);
+}
+html.dark .referral-form-light .hover\:bg-cream-dark:hover,
+html.dark .referral-form-light .hover\:bg-white:hover {
+  background-color: #dbeafe;
+}
+html.dark .referral-form-light .shadow-card {
+  box-shadow: 0 8px 30px -8px rgba(30, 58, 95, 0.12);
+}
+
 @media print {
   body {
     background: #fff;
@@ -171,4 +748,9 @@
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  /* On-screen zoom must never leak into the printed sheet. */
+  .referral-sheet-zoom {
+    zoom: 1 !important;
+  }
 }
+

@@ -1,18 +1,27 @@
 import { cn } from "@/lib/utils";
 import { ButtonHTMLAttributes, forwardRef } from "react";
+import { Loader2 } from "lucide-react";
 
 /** shadcn-style button primitive, styled via ui-tokens palette. */
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "accent" | "outline" | "ghost" | "danger";
   size?: "sm" | "md" | "lg";
+  /**
+   * In-flight state for async actions. Renders an inline spinner, disables the
+   * button, sets `aria-busy`, and keeps the label in the layout so the button
+   * never changes width mid-click. Pair with `useMutationAction().busyId`.
+   */
+  loading?: boolean;
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "primary", size = "md", ...props }, ref) => (
+  ({ className, variant = "primary", size = "md", loading = false, disabled, children, ...props }, ref) => (
     <button
       ref={ref}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={cn(
-        "inline-flex h-8 items-center justify-center whitespace-nowrap rounded px-4 font-display text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50 disabled:pointer-events-none",
+        "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded px-4 font-display text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 disabled:opacity-50 disabled:pointer-events-none",
         // Single 32px height spec — sm/md/lg aliases kept for API compat.
         size === "sm" && "h-8 px-4 text-sm",
         size === "md" && "h-8 px-4 text-sm",
@@ -26,7 +35,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         className,
       )}
       {...props}
-    />
+    >
+      {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />}
+      {children}
+    </button>
   ),
 );
 Button.displayName = "Button";

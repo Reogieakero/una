@@ -4,7 +4,6 @@ import {
   DivideListSkeleton,
   DonutBlockSkeleton,
   KpiGridSkeleton,
-  PageHeaderSkeleton,
   PanelShellSkeleton,
   ProgressBarsSkeleton,
   SkeletonRoot,
@@ -12,13 +11,26 @@ import {
 
 /**
  * Reports skeletons — exact layout match per role.
- * All share: Breadcrumb + H1 + max-w-[560px] desc + ReportsFilters row
- * (Section dropdown h-8 w-32 + range button h-8 w-40), KPI p-6 3-line cards,
- * sections in `grid sm:2` with full-width trend (`sm:col-span-2`).
+ * All share: H1 + max-w-[560px] desc + right-aligned section tabs and range
+ * pill, KPI cards, and sections in `grid sm:2` with a full-width trend.
  */
 
 function ReportsHeaderSkeleton() {
-  return <PageHeaderSkeleton descWidth="max-w-[560px]" action="filters" />;
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0 max-w-[560px]">
+        <div className="h-7 w-56 max-w-full rounded-lg bg-ink/10" />
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex gap-1">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-7 w-16 rounded-full bg-ink/10" />
+          ))}
+        </div>
+        <div className="h-7 w-32 rounded-full bg-ink/10" />
+      </div>
+    </div>
+  );
 }
 
 function SessionsSectionSkeleton() {
@@ -57,12 +69,12 @@ function ReferralsSectionSkeleton({ pipeline = true }: { pipeline?: boolean }) {
   );
 }
 
-/** Counselor: 8 KPIs + sessions/referrals/satisfaction/wellbeing/operations + guide. */
+/** Counselor: 6 KPIs + sessions/referrals/satisfaction/wellbeing/operations + guide. */
 export function CounselorReportsSkeleton() {
   return (
     <SkeletonRoot>
       <ReportsHeaderSkeleton />
-      <KpiGridSkeleton count={8} columns="grid-cols-1 sm:grid-cols-2 xl:grid-cols-4" />
+      <KpiGridSkeleton count={6} columns="grid-cols-1 sm:grid-cols-2 xl:grid-cols-3" />
       <div className="grid gap-4 sm:grid-cols-2">
         <SessionsSectionSkeleton />
         <ReferralsSectionSkeleton />
@@ -94,12 +106,12 @@ export function CounselorReportsSkeleton() {
   );
 }
 
-/** Head: 8 KPIs + same sections, workload ranked list uses divide rows. */
+/** Head: 6 KPIs + same sections, workload ranked list uses divide rows. */
 export function HeadReportsSkeleton() {
   return (
     <SkeletonRoot>
       <ReportsHeaderSkeleton />
-      <KpiGridSkeleton count={8} columns="grid-cols-1 sm:grid-cols-2 xl:grid-cols-4" />
+      <KpiGridSkeleton count={6} columns="grid-cols-1 sm:grid-cols-2 xl:grid-cols-3" />
       <div className="grid gap-4 sm:grid-cols-2">
         <SessionsSectionSkeleton />
         <ReferralsSectionSkeleton />

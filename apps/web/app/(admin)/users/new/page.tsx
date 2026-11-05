@@ -4,18 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, Eye, EyeOff, X } from "lucide-react";
+import { Check, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { registerStaffSchema, type RegisterStaffInput } from "@dorsu/shared-schemas";
 import { Button, Card, FieldError, Input } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 const ROLE_OPTIONS = [
   { value: "counselor", label: "Counselor" },
@@ -64,28 +56,8 @@ export default function AddStaffPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/users">Users</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Add staff</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <div>
         <h1 className="font-display text-2xl font-bold">Add staff</h1>
-        <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-          Create a counselor, faculty, or head account. They can sign in immediately with
-          the password you set — ask them to change it after first login.
-        </p>
       </div>
 
       {created && (
@@ -225,7 +197,8 @@ export default function AddStaffPage() {
             </p>
           )}
           <div className="flex justify-end md:col-span-2">
-            <Button disabled={formState.isSubmitting}>
+            <Button disabled={formState.isSubmitting} className="gap-2">
+              {formState.isSubmitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
               {formState.isSubmitting ? "Creating…" : "Create account"}
             </Button>
           </div>

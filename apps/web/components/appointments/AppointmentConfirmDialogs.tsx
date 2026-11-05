@@ -58,7 +58,7 @@ export function AppointmentConfirmDialogs({
       aria-labelledby="appt-confirm-title"
       aria-describedby="appt-confirm-desc"
     >
-      <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={onClose} />
+      <div aria-hidden className="absolute inset-0 bg-black/40 dark:bg-black/70" onClick={onClose} />
       <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-6 shadow-card sm:max-w-md">
         <h2 id="appt-confirm-title" className="font-display text-lg font-bold text-ink">
           {CONFIRM_COPY[confirming.kind].title}

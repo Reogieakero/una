@@ -34,19 +34,12 @@ import {
 } from "@/components/appointments/SlotSchedulePicker";
 import { Card } from "@/components/ui/primitives";
 import { notifyStaff } from "@/lib/notify";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { NO_SESSION_MSG, classificationSummary, referralStudentName, statusLabel, type RefAction, type Referral, type TriageKind } from "@/components/referrals/status";
 import { formatWhen, isSessionUpcoming, latestSessionSchedule, parseScheduleNote, parseSessionMode } from "@/components/referrals/format-helpers";
-import { ReferralActionsLegend, ReferralStatsMenu } from "@/components/referrals/ReferralStats";
+import { ReferralsHeader } from "@/components/referrals/ReferralsHeader";
 import { ReferralsBoard } from "@/components/referrals/ReferralsBoard";
 import { ReferralFormModal } from "@/components/referrals/ReferralFormModal";
+import { ReferralDetailModal } from "@/components/referrals/ReferralDetailModal";
 import { ReferralTrackingModal } from "@/components/referrals/ReferralTrackingModal";
 import { SessionNotesModal } from "@/components/appointments/SessionNotesModal";
 import { FacultyReferralSection, TriageConfirmDialog } from "@/components/referrals/TriageDialogs";
@@ -97,7 +90,8 @@ function ReferralsPageInner() {
   // stay bookmarkable. Structured filters ride the board query server-side;
   // changing any of them resets to page 1 (cursor chain is filter-keyed).
   const page = clampPage(searchParams.get("page"));
-  const size = clampPageSize(searchParams.get("size"));
+  // Referrals default to 10 rows per page (the URL still overrides it).
+  const size = clampPageSize(searchParams.get("size") ?? 10);
   const gotoPage = useCallback(
     (p: number, s: number = size) => {
       router.replace(`/referrals?page=${p}&size=${s}`, { scroll: false });
@@ -105,7 +99,7 @@ function ReferralsPageInner() {
     [router, size]
   );
   const filters = useReferralFilters();
-  const { data: board, isLoading, isError, refetch } = useReferralsBoard({
+  const { data: board, isLoading, isPlaceholderData, isError, refetch } = useReferralsBoard({
     page,
     size,
     status: filters.statusFilter,
@@ -329,6 +323,7 @@ function ReferralsPageInner() {
   }, [boardFacultyNames, extraFacultyNames]);
   const [confirming, setConfirming] = useState<{ ref: Referral; to: TriageKind } | null>(null);
   const [formRef, setFormRef] = useState<Referral | null>(null);
+  const [detailRef, setDetailRef] = useState<Referral | null>(null);
   const [trackRef, setTrackRef] = useState<Referral | null>(null);
   // Counselor reschedule of the referral's upcoming linked session — same
   // confirm dialog + slot scoping as /appointments.
@@ -774,61 +769,17 @@ function ReferralsPageInner() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Referrals</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          {loading ? (
-            <div aria-hidden>
-              <div className="h-8 w-48 animate-pulse rounded-lg bg-ink/10" />
-              <div className="mt-2 h-4 w-full max-w-[600px] animate-pulse rounded bg-ink/10" />
-              <div className="mt-1.5 h-4 w-2/3 max-w-[400px] animate-pulse rounded bg-ink/10" />
-            </div>
-          ) : (
-            <>
-              <h1 className="font-display text-2xl font-bold">{isCounselor ? "My referrals" : "Referrals"}</h1>
-              <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-                {role === "faculty"
-                  ? "Flag a student for counseling follow-up — pick the kind of concern (academic, behavioral, relational), describe what you observed, set urgency, and the office triages from here."
-                  : isCounselor
-                    ? "Your assigned queue — confirm assigned referrals: setting the schedule creates the session itself (student notified), then resolve once the session time passes. Reschedule its session from Appointments when plans move; cancels come from the student."
-                    : "Office-wide referral board — assign a counselor (pending → assigned) or reject pending referrals (unassign assigned ones first). Confirm / resolve / escalate belong to the counselor."}
-              </p>
-            </>
-          )}
-        </div>
-        {(canTriage || loading) && (
-          <div className="flex shrink-0 items-start gap-2">
-            {loading ? (
-              <>
-                <div className="h-10 w-24 animate-pulse rounded-full bg-ink/10" aria-hidden />
-                <div className="h-10 w-40 animate-pulse rounded-full bg-ink/10" aria-hidden />
-              </>
-            ) : (
-              <>
-                <ReferralStatsMenu
-                  stats={stats}
-                  isCounselor={isCounselor}
-                  onPickStatus={pickStatus}
-                  onPickUnassigned={() => pickAssignee("unassigned")}
-                  onReset={resetAll}
-                />
-                {canSeeActions && <ReferralActionsLegend role={role} />}
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      {(canTriage || loading) && (
+        <ReferralsHeader
+          role={role}
+          canSeeActions={canSeeActions}
+          loading={loading}
+          stats={stats}
+          onPickStatus={pickStatus}
+          onPickUnassigned={() => pickAssignee("unassigned")}
+          onReset={resetAll}
+        />
+      )}
 
       {isCounselor && !counselorId && !loading && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-card">
@@ -842,36 +793,20 @@ function ReferralsPageInner() {
       {(canTriage || loading) && (
         <ReferralsBoard
           loading={loading}
+          fetching={isPlaceholderData}
           role={role}
-          isCounselor={isCounselor}
-          canAssign={canAssign}
-          canReject={canReject}
-          canSeeActions={canSeeActions}
           visible={visible}
           totalApprox={board?.totalApprox ?? 0}
           page={page}
           size={size}
           hasMore={board?.hasMore ?? false}
           onPageChange={(p) => gotoPage(p)}
-          onSizeChange={(s) => gotoPage(1, s)}
           searchActive={query.trim().length > 0}
-          trail={trail}
           aliases={aliases}
-          actorNames={actorNames}
-          facultyNames={facultyNames}
-          counselors={counselors}
-          sessionSchedule={sessionSchedule}
           escalatedAt={escalatedAt}
-          busyId={busyId}
+          counselors={counselors}
           filters={viewFilters}
-          canResolve={canResolve}
-          counselorName={counselorName}
-          referrerLabel={referrerLabel}
-          onAssign={(ref, id) => void assign(ref, id)}
-          onAskConfirm={askConfirm}
-          onReschedule={(ref) => void askReschedule(ref)}
-          // Every view opens the official Counseling Referral Form directly.
-          onViewReason={openForm}
+          onDetails={setDetailRef}
           onTrack={setTrackRef}
         />
       )}
@@ -890,6 +825,37 @@ function ReferralsPageInner() {
           }}
         />
       )}
+
+      {/* Full referral details + triage actions (cards stay overview-only).
+          Rendered before the confirm dialogs so those open on top of it. */}
+      <ReferralDetailModal
+        referral={detailRef}
+        aliases={aliases}
+        trail={trail}
+        sessionSchedule={sessionSchedule}
+        counselorName={counselorName}
+        referrerLabel={referrerLabel}
+        canAssign={canAssign}
+        canReject={canReject}
+        isCounselor={isCounselor}
+        busyId={busyId}
+        counselors={counselors}
+        openMenuKey={filters.openMenuKey}
+        setOpenMenuKey={filters.setOpenMenuKey}
+        onAssign={(ref, id) => void assign(ref, id)}
+        onAskConfirm={askConfirm}
+        onReschedule={(ref) => void askReschedule(ref)}
+        canResolve={canResolve}
+        onViewForm={(r) => {
+          setDetailRef(null);
+          openForm(r);
+        }}
+        onRecord={(r) => {
+          setDetailRef(null);
+          setTrackRef(r);
+        }}
+        onClose={() => setDetailRef(null)}
+      />
 
       {/* Triage confirm */}
       <TriageConfirmDialog

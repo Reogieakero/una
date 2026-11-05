@@ -72,6 +72,7 @@ export default function UpdatePasswordPage() {
     >
       <form
         className="space-y-4"
+        method="post"
         onSubmit={handleSubmit(async (v) => {
           setError(null);
           const supabase = createClient();

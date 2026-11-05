@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useFeedbackBoard } from "@/lib/hooks/use-feedback-board";
 import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
 import { Card } from "@/components/ui/primitives";
@@ -13,14 +11,6 @@ import { colors } from "@dorsu/ui-tokens";
 import { sentimentOf } from "@/lib/sentiment";
 import { FeedbackList, FollowUpList, type Feedback } from "@/components/feedback/FeedbackList";
 import { WordCloud } from "@/components/feedback/WordCloud";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 const EMPTY_ROWS: Feedback[] = [];
 const EMPTY_MAP = new Map<string, string>();
@@ -41,42 +31,6 @@ export default function FeedbackAdminPage() {
   useClearSectionBadge("/feedback", !loading && !!board);
   const [sentimentFilter, setSentimentFilter] = useState("all");
   const [query, setQuery] = useState("");
-
-  // Stats live in a floating panel — same hover/click behavior as the
-  // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
-  const [statsOpen, setStatsOpen] = useState(false);
-  const statsRef = useRef<HTMLDivElement>(null);
-  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openStats = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setStatsOpen(true);
-  };
-  const scheduleStatsClose = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
-  };
-  const toggleStats = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setStatsOpen((v) => !v);
-  };
-
-  useEffect(() => {
-    if (!statsOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setStatsOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    };
-  }, [statsOpen]);
 
   useEffect(() => {
     if (isError) toast.error("Couldn't load feedback right now.");
@@ -186,88 +140,51 @@ export default function FeedbackAdminPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Feedback</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <div>
+        <h1 className="font-display text-2xl font-bold">{isCounselor ? "My feedback" : "Feedback"}</h1>
+        <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
+          {isCounselor
+            ? "What your students think after your sessions — your ratings, trends, and who needs a follow-up."
+            : "What students think after sessions — ratings, trends, themes, and who needs a follow-up."}
+        </p>
+      </div>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold">{isCounselor ? "My feedback" : "Feedback"}</h1>
-          <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-            {isCounselor
-              ? "What your students think after your sessions — your ratings, trends, and who needs a follow-up."
-              : "What students think after sessions — ratings, trends, themes, and who needs a follow-up."}
-          </p>
-        </div>
-        <div ref={statsRef} className="relative shrink-0" onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
-          <button
-            type="button"
-            onClick={toggleStats}
-            onFocus={openStats}
-            onBlur={scheduleStatsClose}
-            aria-haspopup="dialog"
-            aria-expanded={statsOpen}
-            className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-          >
-            Stats
-            <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
-          </button>
-          {statsOpen && (
-            <div
-              role="dialog"
-              aria-label="Feedback stats"
-              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
-            >
+      {/* Visible stats cards — click a filterable card to narrow the list. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {statCards.map((s) => {
+          const body = (
+            <>
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-ink-muted">
+                {s.label}
+              </span>
               {loading ? (
-                <div className="animate-pulse px-4 py-3" aria-hidden>
-                  <div className="h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                </div>
+                <span className="mt-2 block h-8 w-12 animate-pulse rounded bg-ink/10" aria-hidden />
               ) : (
-                statCards.map((s) =>
-                  s.pick ? (
-                    <button
-                      key={s.label}
-                      type="button"
-                      onClick={() => {
-                        s.pick?.();
-                        setStatsOpen(false);
-                      }}
-                      title={`Filter by ${s.label}`}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream"
-                    >
-                      <span className="text-[13px] font-medium text-ink-muted">
-                        {s.label}
-                        {s.sub && <span className="block text-[11px] font-medium text-ink-faint">{s.sub}</span>}
-                      </span>
-                      <span className="font-display text-xl font-bold text-ink">{s.value}</span>
-                    </button>
-                  ) : (
-                    <div
-                      key={s.label}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
-                    >
-                      <span className="text-[13px] font-medium text-ink-muted">
-                        {s.label}
-                        {s.sub && <span className="block text-[11px] font-medium text-ink-faint">{s.sub}</span>}
-                      </span>
-                      <span className="font-display text-xl font-bold text-ink">{s.value}</span>
-                    </div>
-                  )
-                )
+                <>
+                  <span className="mt-1 block font-display text-2xl font-bold text-ink">{s.value}</span>
+                  {s.sub && (
+                    <span className="mt-0.5 block text-[11px] font-medium text-ink-faint">{s.sub}</span>
+                  )}
+                </>
               )}
+            </>
+          );
+          return s.pick ? (
+            <button
+              key={s.label}
+              type="button"
+              onClick={s.pick}
+              title={`Filter by ${s.label}`}
+              className="rounded-lg border border-ink/10 bg-white p-4 text-left shadow-card transition hover:border-primary-300 hover:bg-cream/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+            >
+              {body}
+            </button>
+          ) : (
+            <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+              {body}
             </div>
-          )}
-        </div>
+          );
+        })}
       </div>
 
       {isCounselor && !counselorId && !loading && (

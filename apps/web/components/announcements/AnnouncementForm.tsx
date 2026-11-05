@@ -44,7 +44,7 @@ export function AnnouncementForm({
   onClearImage: () => void;
   onSubmit: (e?: BaseSyntheticEvent) => Promise<void>;
   onSaveDraft: () => void;
-  saving: boolean;
+  saving: null | "draft" | "publish";
 }) {
   return (
     <Card>
@@ -124,11 +124,19 @@ export function AnnouncementForm({
             Photo
           </Button>
           <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={saving} onClick={onSaveDraft}>
-              Save draft
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              loading={saving === "draft"}
+              disabled={!!saving}
+              onClick={onSaveDraft}
+              className="gap-2"
+            >
+              {saving === "draft" ? "Saving…" : "Save draft"}
             </Button>
-            <Button size="sm" disabled={saving}>
-              {saving ? "Posting…" : "Post now"}
+            <Button size="sm" loading={saving === "publish"} disabled={!!saving} className="gap-2">
+              {saving === "publish" ? "Posting…" : "Post now"}
             </Button>
           </div>
         </div>

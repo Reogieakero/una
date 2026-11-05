@@ -68,6 +68,16 @@ export const MODE_COLORS = {
   online: colors.accent[500],
 } as const;
 
+/** Ordered slices for cohort breakdowns (programs, year levels, colleges). */
+export const COHORT_SLICE_COLORS = [
+  colors.primary[700],
+  colors.primary[500],
+  colors.primary[300],
+  colors.accent[500],
+  colors.accent[700],
+  colors.primary[200],
+] as const;
+
 /** 1–5 star rating bars — amber for low, primary for high. */
 export function ratingColor(rating: number): string {
   if (rating >= 5) return colors.primary[700];

@@ -1,26 +1,27 @@
 import { NextResponse } from "next/server";
-import { registerStaffSchema, registerStudentSchema } from "@dorsu/shared-schemas";
+import { registerStaffSchema, selfSignupSchema } from "@dorsu/shared-schemas";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { clientIp, hitRateLimit } from "@/lib/rate-limit";
 
 /**
- * POST /api/auth/register — server-side writer of profiles/role rows at signup.
- * Browser clients cannot insert into `profiles` (RLS: service-role/trigger
- * only), so registration goes through here with the service key. Mobile
- * instead signs up directly and inserts its own student rows (allowed by
- * RLS 00030 `profiles_insert_own_student` / `students_insert_own`), finishing
- * them at first login when email confirmation leaves signup session-less —
- * see `apps/mobile/lib/supabase/ensureStudent.ts`.
+ * POST /api/auth/register — account creation for the web portal.
  *
- * - Public self-registration is STUDENTS ONLY (`role` forced to `student`).
- *   Staff roles (`counselor`, `faculty`, `guidance_head`) require a signed-in
- *   `guidance_head` caller — an open role picker would be a privilege-escalation hole.
- * - Creates `auth.users` (email pre-confirmed so students can sign in
- *   immediately; switch `email_confirm` to an invite flow if the registrar
- *   later requires verified institutional email), then `profiles`, then the
- *   role row (`students` incl. generated `anonymous_alias`, or the matching
- *   staff table). Any DB failure rolls the auth user back (no orphans).
+ * Two paths:
+ *
+ * 1. **Head-provisioned staff** (`role` is counselor/faculty/guidance_head).
+ *    Only a signed-in guidance head may call it. The auth user, profile, and
+ *    staff row are written here because browser clients cannot insert into
+ *    `profiles` (RLS: service-role only).
+ *
+ * 2. **Public self-signup** (email + password only). This creates the auth
+ *    user and nothing else — the user then signs in and picks Student,
+ *    Faculty, or Guidance Counselor on `/register/role`, where
+ *    `/api/auth/oauth-profile` writes the profile. Staff self-signups start
+ *    `pending` and fill in their real details after head approval (00075/00076).
+ *
+ * Email is pre-confirmed for both paths (institutional email verification is a
+ * separate policy decision; switch to an invite/confirmation flow deliberately).
  */
 const STAFF_ROLES = ["counselor", "faculty", "guidance_head"] as const;
 type StaffRole = (typeof STAFF_ROLES)[number];
@@ -29,18 +30,16 @@ function isStaffRole(role: unknown): role is StaffRole {
   return typeof role === "string" && (STAFF_ROLES as readonly string[]).includes(role);
 }
 
-/** System alias for anonymous mode (dictionary §2), e.g. "Client-4821". */
-async function generateAlias(admin: ReturnType<typeof createAdminClient>): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const alias = `Client-${Math.floor(1000 + Math.random() * 9000)}`;
-    const { data } = await admin
-      .from("students")
-      .select("profile_id")
-      .eq("anonymous_alias", alias)
-      .maybeSingle();
-    if (!data) return alias;
-  }
-  throw new Error("Could not generate a unique anonymous alias — please retry.");
+/** "juan.dela.cruz@dorsu.edu.ph" → "Juan Dela Cruz" (temporary display name). */
+function nameFromEmail(email: string): string {
+  const local = email.split("@")[0] ?? "Staff";
+  return local
+    .replace(/[._-]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || "Staff";
 }
 
 export async function POST(request: Request) {
@@ -55,14 +54,13 @@ export async function POST(request: Request) {
       { status: 429, headers: { "Retry-After": String(gate.retryAfterSec) } },
     );
   }
+
   const admin = createAdminClient();
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
 
-  const role = typeof body["role"] === "string" ? body["role"] : "student";
-  let staff: { employeeNo?: string; department?: string; specialization?: string } | null = null;
-
-  if (isStaffRole(role)) {
+  const requestedRole = body["role"];
+  if (isStaffRole(requestedRole)) {
     // Gated path: only the guidance head may provision staff accounts.
     const supabase = await createClient();
     const {
@@ -77,45 +75,85 @@ export async function POST(request: Request) {
     if (!callerProfile || (callerProfile as { role: string }).role !== "guidance_head") {
       return NextResponse.json({ error: "Only the guidance head can create staff accounts." }, { status: 403 });
     }
+
     const parsed = registerStaffSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input." }, { status: 400 });
     }
-    staff = { employeeNo: parsed.data.employeeNo, department: parsed.data.department, specialization: parsed.data.specialization };
-    Object.assign(body, { ...parsed.data, role });
-  } else if (role !== "student") {
-    return NextResponse.json({ error: "Unknown role." }, { status: 400 });
-  }
+    const staff = parsed.data;
+    const role = staff.role;
 
-  let v: { email: string; password: string; fullName: string };
-  let studentFields: { studentNo: string; program: string; yearLevel: string } | null = null;
-  if (role === "student") {
-    const parsedStudent = registerStudentSchema.safeParse(body);
-    if (!parsedStudent.success) {
+    const rollback = async (userId: string) => {
+      try {
+        await admin.auth.admin.deleteUser(userId);
+      } catch {
+        // Best-effort: surfaces in audit via the failed request log.
+      }
+    };
+
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email: staff.email,
+      password: staff.password,
+      email_confirm: true,
+      user_metadata: { full_name: staff.fullName },
+    });
+    if (createError || !created?.user) {
+      const msg = createError?.message ?? "Could not create account.";
+      const status = /already|exists|registered/i.test(msg) ? 409 : 400;
       return NextResponse.json(
-        { error: parsedStudent.error.issues[0]?.message ?? "Invalid input." },
-        { status: 400 },
+        { error: status === 409 ? "An account with this email already exists." : msg },
+        { status },
       );
     }
-    v = parsedStudent.data;
-    studentFields = parsedStudent.data;
-  } else {
-    v = body as unknown as { email: string; password: string; fullName: string };
+    const userId = created.user.id;
+
+    const { error: profileError } = await admin.from("profiles").insert({
+      id: userId,
+      email: staff.email,
+      role,
+      full_name: staff.fullName,
+    });
+    if (profileError) {
+      await rollback(userId);
+      return NextResponse.json({ error: profileError.message }, { status: 400 });
+    }
+
+    const row = { profile_id: userId, employee_no: staff.employeeNo ?? null };
+    const table =
+      role === "counselor" ? "counselors" : role === "faculty" ? "faculty_members" : "guidance_heads";
+    const extra =
+      role === "faculty"
+        ? { department: staff.department ?? null }
+        : role === "counselor"
+          ? { specialization: staff.specialization ?? null }
+          : {};
+    const { error: staffError } = await admin.from(table).insert({ ...row, ...extra });
+    if (staffError) {
+      await rollback(userId);
+      return NextResponse.json({ error: staffError.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ userId, role }, { status: 201 });
   }
 
-  const rollback = async (userId: string) => {
-    try {
-      await admin.auth.admin.deleteUser(userId);
-    } catch {
-      // Best-effort: surfaces in audit via the failed request log.
-    }
-  };
+  // Public self-signup — credentials only. The profile/role is created after
+  // the user picks one on /register/role.
+  const parsed = selfSignupSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid input." },
+      { status: 400 },
+    );
+  }
 
+  const { email, password } = parsed.data;
   const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email: v.email,
-    password: v.password,
+    email,
+    password,
     email_confirm: true,
-    user_metadata: { full_name: v.fullName },
+    // Temporary name; students keep it unless they change it, staff replace it
+    // on /complete-profile after approval.
+    user_metadata: { full_name: nameFromEmail(email) },
   });
   if (createError || !created?.user) {
     const msg = createError?.message ?? "Could not create account.";
@@ -125,65 +163,6 @@ export async function POST(request: Request) {
       { status },
     );
   }
-  const userId = created.user.id;
 
-  const { error: profileError } = await admin.from("profiles").insert({
-    id: userId,
-    email: v.email,
-    role,
-    full_name: v.fullName,
-  });
-  if (profileError) {
-    await rollback(userId);
-    return NextResponse.json({ error: profileError.message }, { status: 400 });
-  }
-
-  if (role === "student") {
-    if (!studentFields) {
-      await rollback(userId);
-      return NextResponse.json({ error: "Invalid input." }, { status: 400 });
-    }
-    const s = studentFields;
-    let alias: string;
-    try {
-      alias = await generateAlias(admin);
-    } catch (e) {
-      await rollback(userId);
-      return NextResponse.json({ error: (e as Error).message }, { status: 500 });
-    }
-    const { error: studentError } = await admin.from("students").insert({
-      profile_id: userId,
-      student_no: s.studentNo,
-      program: s.program,
-      year_level: s.yearLevel,
-      anonymous_alias: alias,
-    });
-    if (studentError) {
-      await rollback(userId);
-      const msg = /duplicate|unique|23505/i.test(studentError.message)
-        ? "That student number is already registered."
-        : studentError.message;
-      return NextResponse.json({ error: msg }, { status: 409 });
-    }
-  } else {
-    const row = { profile_id: userId, employee_no: staff?.employeeNo ?? null };
-    const table =
-      role === "counselor"
-        ? "counselors"
-        : role === "faculty"
-          ? "faculty_members"
-          : role === "guidance_head"
-            ? "guidance_heads"
-            : null;
-    if (table) {
-      const extra = role === "faculty" ? { department: staff?.department ?? null } : role === "counselor" ? { specialization: staff?.specialization ?? null } : {};
-      const { error: staffError } = await admin.from(table).insert({ ...row, ...extra });
-      if (staffError) {
-        await rollback(userId);
-        return NextResponse.json({ error: staffError.message }, { status: 400 });
-      }
-    }
-  }
-
-  return NextResponse.json({ userId, role }, { status: 201 });
+  return NextResponse.json({ ok: true }, { status: 201 });
 }

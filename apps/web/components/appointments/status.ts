@@ -20,8 +20,7 @@ export const STATUSES = ["pending", "assigned", "confirmed", "completed", "cance
 
 export function statusTone(s: string): "info" | "success" | "warning" | "danger" | "muted" {
   if (s === "completed") return "success";
-  if (s === "cancelled") return "muted";
-  if (s === "rejected" || s === "no_show") return "danger";
+  if (s === "cancelled" || s === "rejected" || s === "no_show") return "danger";
   if (s === "assigned" || s === "confirmed") return "info";
   return "warning";
 }

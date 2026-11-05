@@ -1,5 +1,6 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import { Badge, Button } from "@/components/ui/primitives";
 import { initials } from "@/lib/format";
 import type { UsersProfile } from "@/lib/hooks/use-users-board";
@@ -16,14 +17,18 @@ export function UserRow({
   busy,
   detail,
   onAccessToggle,
+  onApprove,
 }: {
   user: UsersProfile;
   isSelf: boolean;
   busy: boolean;
   detail: string | undefined;
   onAccessToggle: (user: UsersProfile) => void;
+  onApprove: (user: UsersProfile) => void;
 }) {
   const u = user;
+  const pending = u.approval_status === "pending";
+  const rejected = u.approval_status === "rejected";
   return (
     <tr className="border-b border-ink/5 align-top last:border-0">
       <td className="px-4 py-3">
@@ -50,7 +55,9 @@ export function UserRow({
         {detail ?? "—"}
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-center">
-        <Badge tone={u.is_active ? "success" : "danger"}>{u.is_active ? "Active" : "Deactivated"}</Badge>
+        <Badge tone={pending ? "warning" : rejected ? "danger" : u.is_active ? "success" : "danger"}>
+          {pending ? "Pending approval" : rejected ? "Rejected" : u.is_active ? "Active" : "Deactivated"}
+        </Badge>
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-ink-muted">
         {new Date(u.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -60,14 +67,37 @@ export function UserRow({
           <span className="text-xs font-medium text-ink-faint" title="You can't change your own access">
             Locked
           </span>
+        ) : pending ? (
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={busy}
+            onClick={() => onApprove(u)}
+            className="gap-1.5"
+            aria-busy={busy}
+          >
+            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+            {busy ? "Approving…" : "Approve"}
+          </Button>
         ) : (
           <Button
             size="sm"
             variant="outline"
             disabled={busy}
             onClick={() => onAccessToggle(u)}
+            className="gap-1.5"
+            aria-busy={busy}
           >
-            {u.is_active ? "Deactivate" : "Activate"}
+            {busy ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                {u.is_active ? "Deactivating…" : "Activating…"}
+              </>
+            ) : u.is_active ? (
+              "Deactivate"
+            ) : (
+              "Activate"
+            )}
           </Button>
         )}
       </td>

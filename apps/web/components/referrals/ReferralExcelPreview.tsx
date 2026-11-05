@@ -66,7 +66,14 @@ export function ReferralExcelPreview({ data }: { data: ReferralPreviewData }) {
   const rightCases = ["Social Adjustment", "Academic-related", "Health"];
 
   return (
-    <div className="bg-white text-black">
+    // Inline paper colours: this is a printable document, so it must stay a
+    // white sheet with black ink even when the app is in dark mode (the
+    // global `.dark .bg-white` remap would otherwise make it unreadable).
+    <div
+      id="referral-form-sheet"
+      className="bg-white text-black"
+      style={{ backgroundColor: "#ffffff", color: "#000000" }}
+    >
       {/* Letterhead */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-3">
         <div>

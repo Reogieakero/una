@@ -1,465 +1,335 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
-  ChevronDown,
-  Clock,
   Inbox,
-  Megaphone,
-  Menu,
   MessagesSquare,
-  UserRound,
+  RefreshCw,
+  Sparkles,
   Users,
 } from "lucide-react";
+import { AnimatedSection, Eyebrow, Stagger, StaggerItem } from "@/components/AnimatedSection";
+import { useTheme } from "@/components/providers/theme-provider";
+import { useHeadDashboard, type HeadDashboardRange, type HeadPeriod } from "@/lib/hooks/use-head-dashboard";
+import { DateRangeFilter } from "@/components/ui/date-range-filter";
+import { DarkPanel } from "./dashboard/dark-panel";
+import { HeadDashboardBodySkeleton } from "./skeletons";
+import { DashboardBackdrop } from "./dashboard/dashboard-backdrop";
+import { HeadStatCard } from "./dashboard/head-stat-card";
+import { HeadTrendChart } from "./dashboard/head-trend-chart";
+import { HeadDonut } from "./dashboard/head-donut";
+import { HeadBars } from "./dashboard/head-bars";
+import { HeadWeekChart } from "./dashboard/head-week-chart";
+import { HeadSessionsLineChart } from "./dashboard/head-sessions-line-chart";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import { useHeadDashboard } from "@/lib/hooks/use-head-dashboard";
-import type { HeadDashboardPayload } from "@/lib/hooks/use-head-dashboard";
-import { cn } from "@/lib/utils";
-import { formatWhen, timeAgoLong } from "@/lib/format";
-import { EmptyState, PanelShell, ListSkeleton } from "@/components/shared/panel-shell";
+  lightPriorityColor,
+  lightStatusColor,
+  priorityColor,
+  statusColor,
+} from "./dashboard/chart-palette";
 
-const APPT_TONE: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-800",
-  assigned: "bg-indigo-100 text-indigo-800",
-  confirmed: "bg-blue-100 text-blue-800",
-  completed: "bg-green-100 text-green-800",
-  cancelled: "bg-ink/10 text-ink-muted",
-  rejected: "bg-red-100 text-red-800",
-  no_show: "bg-red-100 text-red-800",
-};
-
-/** Referral statuses are their own lifecycle — don't reuse appointment tones. */
-const REFERRAL_STATUS_TONE: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-800",
-  assigned: "bg-indigo-100 text-indigo-800",
-  acknowledged: "bg-blue-100 text-blue-800",
-  in_progress: "bg-blue-100 text-blue-800",
-  confirmed: "bg-blue-100 text-blue-800",
-  resolved: "bg-green-100 text-green-800",
-  escalated: "bg-red-100 text-red-800",
-  rejected: "bg-ink/10 text-ink-muted",
-};
-
-const PRIORITY_META: Record<string, { label: string; pill: string; dot: string; avatar: string }> = {
-  urgent: { label: "Urgent", pill: "bg-red-100 text-red-800", dot: "bg-red-500", avatar: "bg-red-100 text-red-700" },
-  high: { label: "High", pill: "bg-amber-100 text-amber-800", dot: "bg-amber-500", avatar: "bg-amber-100 text-amber-800" },
-  medium: { label: "Medium", pill: "bg-blue-100 text-blue-800", dot: "bg-blue-500", avatar: "bg-blue-50 text-primary-700" },
-  low: { label: "Low", pill: "bg-green-100 text-green-800", dot: "bg-green-500", avatar: "bg-green-50 text-green-800" },
-};
-
-/** Small meta line (scheduled moment, booked time) — icons instead of dot separators. */
-function MetaItem({ icon: Icon, children }: { icon: typeof Clock; children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <Icon aria-hidden className="h-3 w-3 shrink-0" />
-      {children}
-    </span>
-  );
+function isoDayLabel(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-const HEAD_QUICK_LINKS = [
-  { href: "/appointments", label: "Appointments", hint: "See what's booked", icon: CalendarDays, chip: "bg-blue-50 text-primary-700" },
-  { href: "/referrals", label: "Referrals", hint: "Check the inbox", icon: Inbox, chip: "bg-amber-50 text-amber-700" },
-  { href: "/users", label: "Users", hint: "Manage accounts", icon: Users, chip: "bg-green-50 text-green-800" },
-  { href: "/chat", label: "Chat", hint: "Message students", icon: MessagesSquare, chip: "bg-blue-50 text-primary-700" },
-  { href: "/announcements", label: "Announcements", hint: "Post an update", icon: Megaphone, chip: "bg-amber-50 text-amber-700" },
-  { href: "/reports", label: "Reports", hint: "Review reports", icon: BarChart3, chip: "bg-green-50 text-green-800" },
-] as const;
-
-/** Latest bookings — newest appointment requests, each linking to the row. */
-function LatestBookingsSection({
-  items,
-  loading,
-}: {
-  items: HeadDashboardPayload["latestBookings"] | undefined;
-  loading: boolean;
-}) {
-  return (
-    <PanelShell title="Latest bookings" hint="Newest appointment requests from students." viewAllHref="/appointments">
-      {loading ? (
-        <ListSkeleton />
-      ) : !items?.length ? (
-        <EmptyState
-          icon={CalendarDays}
-          title="No bookings yet"
-          hint="New appointment requests will show up here as students book."
-        />
-      ) : (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {items.map((a) => (
-            <Link
-              key={a.id}
-              href={`/appointments#focus-${a.id}`}
-              className="group flex min-w-0 flex-col gap-2.5 rounded-lg border border-ink/10 bg-cream/40 p-4 transition hover:border-primary-300 hover:bg-white hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-            >
-              <div className="flex items-start gap-2.5">
-                <span
-                  aria-hidden
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 font-display text-[13px] font-bold text-primary-700"
-                >
-                  {a.studentAlias.trim().charAt(0).toUpperCase() || "S"}
-                </span>
-                <div className="min-w-0 flex-1 leading-tight">
-                  <p className="truncate text-sm font-bold text-ink group-hover:text-primary-700">
-                    {a.studentAlias}
-                    {a.isAnonymous ? (
-                      <span className="ml-2 rounded-full bg-ink/10 px-2 py-0.5 text-[10px] font-bold text-ink-muted">
-                        Anonymous
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className="mt-1 text-[11px] font-medium text-ink-faint">Booked {timeAgoLong(a.createdAt)}</p>
-                </div>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize",
-                    APPT_TONE[a.status] ?? "bg-ink/10 text-ink-muted"
-                  )}
-                >
-                  {a.status.replace(/_/g, " ")}
-                </span>
-              </div>
-              <p className="line-clamp-2 text-[13px] leading-relaxed text-ink-muted">{a.concern}</p>
-              <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-ink/10 pt-2.5 text-[11px] font-medium text-ink-faint">
-                <MetaItem icon={CalendarDays}>{formatWhen(a.scheduledAt)}</MetaItem>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-    </PanelShell>
-  );
+/** Label for the applied range, independent of the (possibly stale) payload. */
+function rangeLabelOf(range: HeadDashboardRange): string {
+  if (range.period === "today") return "Today";
+  if (range.period === "month") return "Last 30 days";
+  if (range.period === "custom") {
+    if (range.from && range.to) return `${isoDayLabel(range.from)} – ${isoDayLabel(range.to)}`;
+    return "Custom range";
+  }
+  return "Last 7 days";
 }
 
-/** Referrals by faculty — newest cases flagged, with who filed them. */
-function FacultyReferralsSection({
-  items,
-  loading,
-}: {
-  items: HeadDashboardPayload["facultyReferrals"] | undefined;
-  loading: boolean;
-}) {
-  return (
-    <PanelShell title="Referrals by faculty" hint="Latest cases faculty flagged for the office." viewAllHref="/referrals">
-      {loading ? (
-        <ListSkeleton />
-      ) : !items?.length ? (
-        <EmptyState icon={Inbox} title="No referrals yet" hint="Cases flagged by faculty will show up here." />
-      ) : (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {items.map((r) => {
-            const meta = PRIORITY_META[r.priority] ?? PRIORITY_META["medium"];
-            return (
-              <Link
-                key={r.id}
-                href={`/referrals#focus-${r.id}`}
-                className="group flex min-w-0 flex-col gap-2.5 rounded-lg border border-ink/10 bg-cream/40 p-4 transition hover:border-primary-300 hover:bg-white hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-              >
-                <div className="flex items-start gap-2.5">
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-display text-[13px] font-bold",
-                      meta.avatar
-                    )}
-                  >
-                    {r.studentAlias.trim().charAt(0).toUpperCase() || "S"}
-                  </span>
-                  <div className="min-w-0 flex-1 leading-tight">
-                    <p className="truncate text-sm font-bold text-ink group-hover:text-primary-700">{r.studentAlias}</p>
-                    <p className="mt-1 text-[11px] font-medium text-ink-faint">{timeAgoLong(r.createdAt)}</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold",
-                      meta.pill
-                    )}
-                  >
-                    <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
-                    {meta.label}
-                  </span>
-                </div>
-                <p className="line-clamp-2 text-[13px] leading-relaxed text-ink-muted">{r.reason}</p>
-                <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-ink/10 pt-2.5">
-                  <MetaItem icon={UserRound}>Referred by {r.facultyName}</MetaItem>
-                  <span
-                    className={cn(
-                      "rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize",
-                      REFERRAL_STATUS_TONE[r.status] ?? "bg-ink/10 text-ink-muted"
-                    )}
-                  >
-                    {r.status.replace(/_/g, " ")}
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </PanelShell>
-  );
+/** Comparison window wording for the trend chips' caption. */
+function comparisonLabelOf(range: HeadDashboardRange): string {
+  if (range.period === "today") return "yesterday";
+  if (range.period === "month") return "previous 30 days";
+  if (range.period === "custom") return "previous period";
+  return "previous 7 days";
 }
 
-/** Unassigned appointments — still waiting for the head to pick a counselor. */
-function UnassignedAppointmentsPanel({
-  items,
-  loading,
-}: {
-  items: HeadDashboardPayload["unassignedAppointments"] | undefined;
-  loading: boolean;
-}) {
-  return (
-    <PanelShell title="Unassigned appointments" hint="Latest bookings with no counselor yet." viewAllHref="/appointments">
-      {loading ? (
-        <ListSkeleton />
-      ) : !items?.length ? (
-        <EmptyState icon={Inbox} title="Everyone's assigned" hint="Every active booking already has a counselor." />
-      ) : (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {items.map((a) => (
-            <Link
-              key={a.id}
-              href={`/appointments#focus-${a.id}`}
-              className="group flex min-w-0 flex-col gap-2.5 rounded-lg border border-ink/10 bg-cream/40 p-4 transition hover:border-primary-300 hover:bg-white hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-            >
-              <div className="flex items-start gap-2.5">
-                <span
-                  aria-hidden
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 font-display text-[13px] font-bold text-amber-700"
-                >
-                  {a.studentAlias.trim().charAt(0).toUpperCase() || "S"}
-                </span>
-                <div className="min-w-0 flex-1 leading-tight">
-                  <p className="truncate text-sm font-bold text-ink group-hover:text-primary-700">{a.studentAlias}</p>
-                  <p className="mt-1 text-[11px] font-medium text-ink-faint">Booked {timeAgoLong(a.createdAt)}</p>
-                </div>
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize",
-                    APPT_TONE[a.status] ?? "bg-ink/10 text-ink-muted"
-                  )}
-                >
-                  {a.status.replace(/_/g, " ")}
-                </span>
-              </div>
-              <p className="line-clamp-2 text-[13px] leading-relaxed text-ink-muted">{a.concern}</p>
-              <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-ink/10 pt-2.5 text-[11px] font-medium text-ink-faint">
-                <MetaItem icon={CalendarDays}>{formatWhen(a.scheduledAt)}</MetaItem>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-    </PanelShell>
-  );
+const HEAD_PERIODS = [
+  { key: "today", label: "Today" },
+  { key: "week", label: "This week" },
+  { key: "month", label: "This month" },
+  { key: "custom", label: "Custom" },
+];
+
+/** Seed for the custom calendar when no explicit window is applied. */
+function isoDay(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
 }
 
 /**
  * Guidance-head (admin) dashboard — cached client view.
- * First visit fetches /api/dashboard/head once; going back re-renders the
- * TanStack Query cache instantly (fresh for 60s) and revalidates in the
- * background, so the page never blocks on the query waterfall again.
+ *
+ * One immersive dark canvas inside the light staff shell. The period menu
+ * drives every filtered card + referral chart; TanStack Query keys each range
+ * separately and keeps the previous payload on screen, so switching periods
+ * never blanks the page.
  */
-export function HeadDashboardView() {
-  const { data, isLoading, isError, error, refetch } = useHeadDashboard();
+export function HeadDashboardView({ name }: { name?: string | null }) {
+  const [range, setRange] = useState<HeadDashboardRange>({ period: "week" });
+  const { data, isLoading, isFetching, isError, error, refetch } = useHeadDashboard(range);
+  const { resolvedTheme } = useTheme();
+  const darkCanvas = resolvedTheme === "dark";
+
   const loading = isLoading && !data;
+  const pending = isFetching && !isLoading;
+  const rangeLabel = rangeLabelOf(range);
 
-  // KPI stats live in a floating panel — hidden until the Stats button is
-  // clicked or hovered. Closes on outside click / Escape / mouse leave,
-  // like the notifications bell.
-  const [statsOpen, setStatsOpen] = useState(false);
-  const statsRef = useRef<HTMLDivElement>(null);
-  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Quick links are click-only: they stay hidden until the menu button opens
-  // them, so the dashboard body is all signal.
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const openStats = () => {
-    setMenuOpen(false);
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setStatsOpen(true);
-  };
-  const scheduleStatsClose = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
-  };
-  const toggleStats = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setMenuOpen(false);
-    setStatsOpen((v) => !v);
-  };
-  const toggleMenu = () => {
-    setStatsOpen(false);
-    setMenuOpen((v) => !v);
-  };
-
+  // Client-only so server and client agree on hydration (the clock differs).
+  const [greeting, setGreeting] = useState("Hello");
   useEffect(() => {
-    if (!statsOpen && !menuOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (statsOpen && statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
-      if (menuOpen && menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setStatsOpen(false);
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    };
-  }, [statsOpen, menuOpen]);
+    const now = new Date();
+    const hour = now.getHours();
+    setGreeting(hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening");
+  }, []);
+
+  const firstName = name?.trim().split(/\s+/)[0];
+  const filtered = data?.stats.filtered;
+  const snapshot = data?.stats.snapshot;
 
   return (
-    <div className="space-y-6">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Dashboard</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    <div className="-m-4 min-h-[calc(100vh-3.5rem)]" data-head-dashboard>
+      <div className="relative overflow-hidden">
+        <DashboardBackdrop />
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold">Dashboard</h1>
-          <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-            Office-wide overview — latest bookings, faculty referrals, and appointments waiting for a counselor.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-start gap-2">
-          <div ref={menuRef} className="relative">
-            <button
-              type="button"
-              onClick={toggleMenu}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-            >
-              <Menu aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
-              Quick links
-              <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", menuOpen && "rotate-180")} />
-            </button>
-            {menuOpen && (
-              <div
-                role="menu"
-                aria-label="Quick links"
-                className="absolute right-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-lg border border-ink/10 bg-white p-1 shadow-card"
-              >
-                {HEAD_QUICK_LINKS.map((q) => (
-                  <Link
-                    key={q.href}
-                    href={q.href}
-                    role="menuitem"
-                    onClick={() => setMenuOpen(false)}
-                    className="group flex items-center gap-3 rounded-md px-3 py-2 transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream"
-                  >
-                    <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full", q.chip)}>
-                      <q.icon className="h-4 w-4" aria-hidden />
-                    </span>
-                    <span className="min-w-0 flex-1 leading-tight">
-                      <span className="block truncate text-[13px] font-bold text-ink group-hover:text-primary-700">
-                        {q.label}
-                      </span>
-                      <span className="block truncate text-[11px] font-medium text-ink-muted">{q.hint}</span>
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+        <div className="relative z-10 space-y-5 px-4 pb-6 pt-4 sm:px-6 sm:pb-8 lg:px-8">
+          {/* ── Hero ─────────────────────────────────────────────────────── */}
+          <AnimatedSection>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Eyebrow compact>Guidance Office · Office-wide overview</Eyebrow>
 
-          <div ref={statsRef} className="relative" onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
-          <button
-            type="button"
-            onClick={toggleStats}
-            onFocus={openStats}
-            onBlur={scheduleStatsClose}
-            aria-haspopup="dialog"
-            aria-expanded={statsOpen}
-            className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-          >
-            Stats
-            <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
-          </button>
-          {statsOpen && (
-            <div
-              role="dialog"
-              aria-label="Key numbers"
-              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
-            >
-              {loading || !data ? (
-                <div className="animate-pulse px-4 py-3" aria-hidden>
-                  <div className="h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                </div>
-              ) : (
-                [
-                  { label: "Sessions today", value: data.kpis.sessionsToday, href: "/appointments" },
-                  { label: "Referrals waiting", value: data.kpis.referralsWaiting, href: "/referrals" },
-                  { label: "Unread messages", value: data.kpis.openChats, href: "/chat" },
-                ].map((s) => (
-                  <Link
-                    key={s.label}
-                    href={s.href}
-                    onClick={() => setStatsOpen(false)}
-                    className="flex items-center justify-between gap-3 px-4 py-2.5 transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream"
-                  >
-                    <span className="text-[13px] font-medium text-ink-muted">{s.label}</span>
-                    <span className="font-display text-xl font-bold text-ink">{s.value ?? "–"}</span>
-                  </Link>
-                ))
-              )}
+              <DateRangeFilter
+                presets={HEAD_PERIODS}
+                preset={range.period}
+                from={range.from ?? ""}
+                to={range.to ?? ""}
+                rangeLabel={rangeLabel}
+                pending={pending}
+                tone="dark"
+                dialogLabel="Dashboard filters"
+                customDefaults={{ from: isoDay(-29), to: isoDay() }}
+                disableFuture
+                footer="Stats and referral charts follow the selected period. The office snapshot cards stay all-time / this week."
+                onApply={(selection) => {
+                  if (selection.preset === "custom") {
+                    setRange({
+                      period: "custom",
+                      from: selection.from,
+                      to: selection.to,
+                    });
+                    return;
+                  }
+                  setRange({ period: selection.preset as HeadPeriod });
+                }}
+              />
             </div>
+
+            <div className="mt-4 min-w-0">
+              <h1 className="max-w-[720px] text-balance font-display text-[1.5rem] font-semibold leading-[1.15] tracking-[-0.025em] text-white sm:text-[1.85rem]">
+                {greeting}
+                {firstName ? `, ${firstName}` : ""}.{" "}
+                <span className="font-serif font-normal italic text-yellow-300">
+                  Here&apos;s the office today.
+                </span>
+              </h1>
+            </div>
+          </AnimatedSection>
+
+          {/* ── Error / content ──────────────────────────────────────────── */}
+          {isError && !data ? (
+            <div
+              role="alert"
+              className="rounded-2xl border border-red-400/20 bg-red-500/[0.08] p-5 backdrop-blur-xl"
+            >
+              <p className="text-sm font-bold text-red-200">Couldn&apos;t load the dashboard</p>
+              <p className="mt-1 text-[13px] text-red-200/70">
+                {(error as Error)?.message ?? "Something went wrong fetching the overview."}
+              </p>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full bg-red-400 px-4 text-[12px] font-bold text-[#1E3A5F] transition hover:bg-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
+              >
+                <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+                Try again
+              </button>
+            </div>
+          ) : loading ? (
+            <HeadDashboardBodySkeleton />
+          ) : (
+            <>
+              {/* ── Filtered referral cards ─────────────────────────────── */}
+              <section aria-labelledby="filtered-stats-heading" className="space-y-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h2
+                      id="filtered-stats-heading"
+                      className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-100/40"
+                    >
+                      Referrals · {rangeLabel}
+                    </h2>
+                    <span className="text-[10px] font-medium text-blue-100/30">
+                      Compared with the {comparisonLabelOf(range)}
+                    </span>
+                  </div>
+
+                  <Stagger className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <StaggerItem>
+                      <HeadStatCard
+                        label="Total referrals"
+                        value={filtered?.total}
+                        icon={Inbox}
+                        hint={rangeLabel}
+                        trend={filtered?.trends.total}
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <HeadStatCard
+                        label="Pending"
+                        value={filtered?.pending}
+                        icon={BarChart3}
+                        hint="Waiting for triage"
+                        trend={filtered?.trends.pending}
+                        accent="yellow"
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <HeadStatCard
+                        label="Assigned / In progress"
+                        value={filtered?.assigned}
+                        icon={Users}
+                        hint="With a counselor"
+                        trend={filtered?.trends.assigned}
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <HeadStatCard
+                        label="Resolved"
+                        value={filtered?.resolved}
+                        icon={Sparkles}
+                        hint="Closed in this window"
+                        trend={filtered?.trends.resolved}
+                        accent="yellow"
+                      />
+                    </StaggerItem>
+                  </Stagger>
+                </section>
+
+              {/* ── Fixed office snapshot ───────────────────────────────── */}
+              <section aria-labelledby="snapshot-heading" className="space-y-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h2
+                      id="snapshot-heading"
+                      className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-100/40"
+                    >
+                      Office snapshot
+                    </h2>
+                    <span className="text-[10px] font-medium text-blue-100/30">
+                      Fixed — does not follow the period filter
+                    </span>
+                  </div>
+
+                  <Stagger className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <StaggerItem>
+                      <HeadStatCard
+                        label="Upcoming sessions"
+                        value={snapshot?.upcomingSessionsThisWeek}
+                        icon={CalendarDays}
+                        hint="Next 7 days"
+                        href="/appointments"
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <HeadStatCard
+                        label="Active students"
+                        value={snapshot?.activeStudents}
+                        icon={Users}
+                        hint="All time"
+                        href="/users"
+                      />
+                    </StaggerItem>
+                    <StaggerItem>
+                      <HeadStatCard
+                        label="Active counselors"
+                        value={snapshot?.activeCounselors}
+                        icon={MessagesSquare}
+                        hint="All time"
+                        href="/users"
+                        accent="yellow"
+                      />
+                    </StaggerItem>
+                  </Stagger>
+                </section>
+
+              {/* ── Charts ───────────────────────────────────────────────── */}
+              <>
+                  <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
+                    <DarkPanel
+                      title="Sessions booked"
+                      hint={`Appointments booked · ${rangeLabel.toLowerCase()}`}
+                    >
+                      <div className="mt-3">
+                        <HeadSessionsLineChart points={data?.sessionTrend ?? []} />
+                      </div>
+                    </DarkPanel>
+
+                    <DarkPanel title="Pipeline by status" hint="Every status in this window.">
+                      <div className="mt-3">
+                        <HeadDonut
+                          items={data?.byStatus ?? []}
+                          colorOf={darkCanvas ? statusColor : lightStatusColor}
+                          centerLabel="referrals"
+                        />
+                      </div>
+                    </DarkPanel>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <DarkPanel title="Urgency" hint="How quickly a case needs attention.">
+                      <div className="mt-3">
+                        <HeadBars
+                          items={data?.byUrgency ?? []}
+                          colorOf={darkCanvas ? priorityColor : lightPriorityColor}
+                          emptyTitle="No urgency data"
+                          emptyHint="Referrals in this window have no priority recorded."
+                        />
+                      </div>
+                    </DarkPanel>
+
+                    <DarkPanel
+                      title="Referrals over time"
+                      hint={`Cases created · ${rangeLabel.toLowerCase()}`}
+                    >
+                      <div className="mt-3">
+                        <HeadTrendChart points={data?.referralTrend ?? []} />
+                      </div>
+                    </DarkPanel>
+                  </div>
+                </>
+
+              <DarkPanel
+                title="Sessions this week"
+                  hint="Appointments booked per day, rolling 7 days."
+                >
+                  <div className="mt-3">
+                    <HeadWeekChart points={data?.weekChart ?? []} />
+                  </div>
+                </DarkPanel>
+            </>
           )}
-          </div>
         </div>
       </div>
-
-      {isError && !data ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-5 shadow-card" role="alert">
-          <p className="text-sm font-bold text-red-800">Couldn&apos;t load the dashboard</p>
-          <p className="mt-1 text-[13px] text-red-700">
-            {(error as Error)?.message ?? "Something went wrong fetching the overview."}
-          </p>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-4 text-[13px] font-bold text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
-          >
-            Try again
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <LatestBookingsSection items={data?.latestBookings} loading={loading || !data} />
-
-          <FacultyReferralsSection items={data?.facultyReferrals} loading={loading || !data} />
-
-          <UnassignedAppointmentsPanel items={data?.unassignedAppointments} loading={loading || !data} />
-        </div>
-      )}
     </div>
   );
 }

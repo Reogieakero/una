@@ -3,7 +3,7 @@
 import { HoverMenu } from "@/components/shared/hover-menu";
 import Link from "next/link";
 import { Card, Input } from "@/components/ui/primitives";
-import { Pager, PageSize } from "@/components/shared/Pager";
+import { Pager } from "@/components/shared/Pager";
 import { pageRange } from "@/lib/pagination";
 import { formatWhen } from "@/lib/format";
 
@@ -49,7 +49,6 @@ export function StudentTable({
   size,
   hasMore,
   onPageChange,
-  onSizeChange,
   loading,
   query,
   setQuery,
@@ -70,7 +69,6 @@ export function StudentTable({
   size: number;
   hasMore: boolean;
   onPageChange: (page: number) => void;
-  onSizeChange: (size: number) => void;
   loading: boolean;
   query: string;
   setQuery: (v: string) => void;
@@ -119,11 +117,17 @@ export function StudentTable({
           />
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3 sm:px-5">
         <p className="text-xs font-medium text-ink-faint">
-          Showing {pageRange(page, size, visible.length).start}–{pageRange(page, size, visible.length).end} of {totalCount} students.
+          {loading ? (
+            "Loading students…"
+          ) : (
+            <>
+              Showing {pageRange(page, size, visible.length).start}–{pageRange(page, size, visible.length).end} of ~{totalCount} students
+              {query.trim() ? " · search matches this page only" : ""} · aliases only.
+            </>
+          )}
         </p>
-        <PageSize value={size} onChange={onSizeChange} />
       </div>
       <div className="mt-3 overflow-x-auto">
       <table className="w-full min-w-[860px] text-left text-sm">
@@ -137,8 +141,25 @@ export function StudentTable({
             <th className="px-4 py-3 text-center">Latest screening</th>
           </tr>
         </thead>
-        <tbody>
-          {visible.map((s) => {
+        <tbody aria-busy={loading}>
+          {loading
+            ? Array.from({ length: Math.min(Math.max(size, 3), 10) }).map((_, i) => (
+                <tr key={`student-skeleton-${i}`} className="border-b border-ink/5 align-top last:border-0" aria-hidden>
+                  <td className="px-4 py-3">
+                    <div className="h-4 w-24 animate-pulse rounded bg-ink/10" />
+                    <div className="mt-1.5 h-3 w-20 animate-pulse rounded bg-ink/10" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="h-4 w-32 animate-pulse rounded bg-ink/10" />
+                    <div className="mt-1.5 h-3 w-24 animate-pulse rounded bg-ink/10" />
+                  </td>
+                  <td className="px-4 py-3"><div className="mx-auto h-4 w-12 animate-pulse rounded bg-ink/10" /></td>
+                  <td className="px-4 py-3"><div className="h-4 w-28 animate-pulse rounded bg-ink/10" /></td>
+                  <td className="px-4 py-3"><div className="mx-auto h-5 w-16 animate-pulse rounded-full bg-ink/10" /></td>
+                  <td className="px-4 py-3"><div className="mx-auto h-5 w-16 animate-pulse rounded-full bg-ink/10" /></td>
+                </tr>
+              ))
+            : visible.map((s) => {
             const agg = perStudent.get(s.id);
             return (
               <tr key={s.id} className="border-b border-ink/5 align-top last:border-0">
@@ -199,15 +220,8 @@ export function StudentTable({
           No students match these filters. Try clearing the search or choosing another program.
         </p>
       )}
-      {loading && (
-        <div className="animate-pulse space-y-3 p-4" aria-hidden>
-          <div className="h-10 rounded-lg bg-ink/10" />
-          <div className="h-10 rounded-lg bg-ink/10" />
-          <div className="h-10 rounded-lg bg-ink/10" />
-        </div>
-      )}
       </div>
-      <Pager page={page} size={size} totalApprox={totalCount} hasMore={hasMore} onPage={onPageChange} />
+      <Pager page={page} size={size} totalApprox={totalCount} hasMore={hasMore} onPage={onPageChange} busy={loading} />
     </Card>
   );
 }

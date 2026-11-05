@@ -454,7 +454,7 @@ export function SessionNotesModal({
       aria-modal="true"
       aria-labelledby="session-notes-title"
     >
-      <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={() => !busy && !removingId && onClose()} />
+      <div aria-hidden className="absolute inset-0 bg-ink/40 dark:bg-black/70" onClick={() => !busy && !removingId && onClose()} />
       <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white shadow-card sm:max-w-lg">
         <div className="flex items-start justify-between gap-3 border-b border-ink/10 px-6 pb-4 pt-5">
           <div className="min-w-0">
@@ -494,9 +494,37 @@ export function SessionNotesModal({
           </p>
 
           {isPending ? (
-            <div className="flex items-center gap-2 py-8 text-sm font-medium text-ink-muted" role="status" aria-live="polite">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              Loading session notes…
+            <div className="space-y-4" role="status" aria-live="polite" aria-busy="true">
+              <span className="sr-only">Loading session notes…</span>
+              {editable ? (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="h-4 w-52 animate-pulse rounded bg-ink/10" />
+                      <div className="h-7 w-36 animate-pulse rounded-lg bg-ink/10" />
+                    </div>
+                    <div className="h-[150px] animate-pulse rounded-lg bg-ink/10" />
+                  </div>
+                  <div className="space-y-2 rounded-lg border border-ink/10 p-4">
+                    <div className="h-4 w-40 animate-pulse rounded bg-ink/10" />
+                    <div className="h-10 animate-pulse rounded-lg bg-ink/10" />
+                  </div>
+                  <div className="h-9 w-32 animate-pulse rounded bg-ink/10" />
+                </>
+              ) : (
+                <>
+                  <div className="space-y-3 rounded-lg border border-ink/10 p-4">
+                    <div className="h-3 w-24 animate-pulse rounded-full bg-ink/10" />
+                    <div className="h-4 w-full animate-pulse rounded bg-ink/10" />
+                    <div className="h-4 w-11/12 animate-pulse rounded bg-ink/10" />
+                    <div className="h-4 w-3/4 animate-pulse rounded bg-ink/10" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-11 animate-pulse rounded-lg bg-ink/10" />
+                    <div className="h-11 animate-pulse rounded-lg bg-ink/10" />
+                  </div>
+                </>
+              )}
             </div>
           ) : isError && !data ? (
             <div className="rounded-lg border border-red-200 bg-red-50 p-4" role="alert">

@@ -43,6 +43,52 @@ export const registerStaffSchema = z.object({
 });
 export type RegisterStaffInput = z.infer<typeof registerStaffSchema>;
 
+/**
+ * Public self-signup (email or Google). Only the credentials are collected up
+ * front — the role is chosen on /register/role afterwards, and staff complete
+ * their details once a guidance head approves the account.
+ */
+export const selfSignupSchema = z.object({
+  email: z.string().email("Enter a valid email address"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(72)
+    .regex(
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/,
+      "Use upper and lower case letters and a number",
+    ),
+});
+export type SelfSignupInput = z.infer<typeof selfSignupSchema>;
+
+/**
+ * Roles a first-time web user may choose for themselves. The staff portal is
+ * for counselors and faculty only; students register in the mobile app.
+ */
+export const oauthProfileSchema = z.object({
+  role: z.enum(["faculty", "counselor"], {
+    errorMap: () => ({ message: "Choose faculty or guidance counselor." }),
+  }),
+});
+export type OAuthProfileInput = z.infer<typeof oauthProfileSchema>;
+
+/**
+ * Details a self-registered counselor/faculty fills in after the guidance head
+ * approves them. Students use the mobile profile instead.
+ */
+export const completeStaffProfileSchema = z.object({
+  fullName: z.string().min(2, "Full name is required").max(120),
+  employeeNo: z
+    .string()
+    .max(32)
+    .regex(/^[A-Za-z0-9-]*$/, "Letters, numbers and dashes only")
+    .optional()
+    .or(z.literal("")),
+  department: z.string().max(120).optional().or(z.literal("")),
+  specialization: z.string().max(120).optional().or(z.literal("")),
+});
+export type CompleteStaffProfileInput = z.infer<typeof completeStaffProfileSchema>;
+
 export const resetPasswordSchema = z.object({
   email: z.string().email("Enter a valid email address"),
 });

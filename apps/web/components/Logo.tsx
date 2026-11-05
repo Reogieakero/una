@@ -24,7 +24,7 @@ export function ChekieMark({
       aria-hidden={label ? undefined : true}
       style={{ width: size, height: size }}
       className={cn(
-        "relative shrink-0 overflow-hidden rounded-full bg-white shadow-sm ring-1 ring-blue-200/70",
+        "relative inline-block shrink-0 overflow-hidden rounded-full bg-white align-middle shadow-sm ring-1 ring-blue-200/70",
         className
       )}
     >

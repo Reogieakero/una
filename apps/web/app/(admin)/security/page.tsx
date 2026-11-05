@@ -9,20 +9,12 @@ import { breakGlassSchema, type BreakGlassInput } from "@dorsu/shared-schemas";
 import { actionPolicy, type AppAction } from "@dorsu/shared-services";
 import { useSecurityBoard } from "@/lib/hooks/use-security-board";
 import { useClearSectionBadge } from "@/lib/hooks/use-clear-section-badge";
+import { Loader2 } from "lucide-react";
 import { timeAgo } from "@/lib/format";
 import { Button, Card, FieldError, Textarea } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
-import { AuditEntityFilter } from "@/components/security/AuditFilters";
 import { EventRow, type GlassLog } from "@/components/security/EventRow";
 import { notifyStaff } from "@/lib/notify";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 type AuditRow = {
   id: string;
@@ -65,7 +57,6 @@ export default function SecurityPage() {
   // Visiting the section clears its sidebar badge (badges count unread
   // notification rows, not page views).
   useClearSectionBadge("/security", !loading && !!board);
-  const [entityFilter, setEntityFilter] = useState("all");
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [studentPick, setStudentPick] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -78,11 +69,6 @@ export default function SecurityPage() {
     if (isError) toast.error("Couldn't load security data right now.");
   }, [isError]);
 
-  const entities = useMemo(() => [...new Set(audit.map((a) => a.entity))].sort(), [audit]);
-  const visibleAudit = useMemo(
-    () => audit.filter((a) => (entityFilter === "all" ? true : a.entity === entityFilter)),
-    [audit, entityFilter]
-  );
   const unreviewed = useMemo(() => logs.filter((l) => !l.reviewed_at), [logs]);
 
   const logAccess = handleSubmit(async (v) => {
@@ -148,18 +134,6 @@ export default function SecurityPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Security</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <div>
         <h1 className="font-display text-2xl font-bold">Security</h1>
         <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
@@ -214,7 +188,8 @@ export default function SecurityPage() {
               <FieldError message={formState.errors.justification?.message} />
             </div>
             <div className="flex justify-end">
-              <Button disabled={busyId === "__new__"}>
+              <Button disabled={busyId === "__new__"} className="gap-2">
+                {busyId === "__new__" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
                 {busyId === "__new__" ? "Logging…" : "Log emergency access"}
               </Button>
             </div>
@@ -265,20 +240,21 @@ export default function SecurityPage() {
         </section>
       </div>
 
-      {/* Audit trail */}
+      {/* Audit trail — preview only; the full log lives on /security/audit. */}
       <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="font-display text-base font-bold text-ink">Audit trail</h2>
-            <p className="mt-0.5 text-[13px] text-ink-muted">Append-only — rows can be written, never edited or deleted.</p>
+            <p className="mt-0.5 text-[13px] text-ink-muted">
+              Append-only — rows can be written, never edited or deleted.
+            </p>
           </div>
-          <AuditEntityFilter
-            value={entityFilter}
-            entities={entities}
-            openMenuKey={openMenuKey}
-            onOpenChange={setOpenMenuKey}
-            onChange={setEntityFilter}
-          />
+          <Link
+            href="/security/audit"
+            className="shrink-0 text-[13px] font-bold text-primary-600 hover:underline"
+          >
+            See full audit trail
+          </Link>
         </div>
         {loading ? (
           <div className="animate-pulse space-y-3 pt-3" aria-hidden>
@@ -286,9 +262,9 @@ export default function SecurityPage() {
             <div className="h-10 rounded-xl bg-ink/10" />
             <div className="h-10 rounded-xl bg-ink/10" />
           </div>
-        ) : visibleAudit.length ? (
-          <ul className="mt-3 max-h-[320px] divide-y divide-ink/10 overflow-y-auto">
-            {visibleAudit.map((a) => (
+        ) : audit.length ? (
+          <ul className="mt-3 divide-y divide-ink/10">
+            {audit.slice(0, 5).map((a) => (
               <li key={a.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2.5 first:pt-0 last:pb-0">
                 <p className="text-sm text-ink-muted">
                   <span className="font-bold text-ink">{names.get(a.actor_profile_id ?? "") ?? "System"}</span>
@@ -305,7 +281,7 @@ export default function SecurityPage() {
           </ul>
         ) : (
           <p className="mt-3 rounded-xl bg-cream px-4 py-3 text-center text-[13px] text-ink-muted">
-            {audit.length ? "No events for this entity." : "No audit events yet — break-glass accesses land here automatically."}
+            No audit events yet — break-glass accesses land here automatically.
           </p>
         )}
       </section>

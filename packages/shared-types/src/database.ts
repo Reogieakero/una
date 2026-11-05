@@ -78,6 +78,13 @@ export type ProfileRow = {
   avatar_url: string | null;
   // Added by hand (00066) — student opt-in for counselor-visible photos.
   share_avatar_with_counselor: boolean;
+  // Added by hand (00075) - self-service faculty signup waits for head approval.
+  approval_status: "pending" | "approved" | "rejected";
+  approved_by: string | null;
+  approved_at: string | null;
+  // Added by hand (00076) - approved self-signups fill in staff details before
+  // entering the workspace.
+  profile_completed: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -433,6 +440,16 @@ export interface Database {
       head_referral_status_counts: {
         Args: { from_ts?: string | null; to_ts?: string | null };
         Returns: { status: string; count: number }[];
+      };
+      // Added by hand (00077) — range-aware referral analytics for the head
+      // dashboard (trend series + status/priority/classification splits).
+      head_referral_daily_counts: {
+        Args: { from_ts: string; to_ts: string };
+        Returns: { day: string; referrals: number }[];
+      };
+      head_referral_breakdowns: {
+        Args: { from_ts?: string | null; to_ts?: string | null };
+        Returns: { dimension: string; key: string; count: number }[];
       };
       // Added by hand (00064) — student-facing "who last updated this session".
       appointment_update_info: {

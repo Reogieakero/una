@@ -9,8 +9,11 @@
 
 export type ReportSection = "all" | "sessions" | "referrals" | "satisfaction" | "wellbeing" | "operations" | "quality";
 
+/** Report audiences — each sees only the sections its payload can actually fill. */
+export type ReportsRole = "head" | "counselor" | "faculty";
+
 export const REPORT_SECTIONS: { key: ReportSection; label: string }[] = [
-  { key: "all", label: "All" },
+  { key: "all", label: "Overview" },
   { key: "sessions", label: "Sessions" },
   { key: "referrals", label: "Referrals" },
   { key: "satisfaction", label: "Satisfaction" },
@@ -19,15 +22,44 @@ export const REPORT_SECTIONS: { key: ReportSection; label: string }[] = [
   { key: "quality", label: "Data quality" },
 ];
 
+/**
+ * Tabs per role. Data quality is office-wide only (counselors have no
+ * personal quality payload), and faculty only ever have referrals — offering
+ * the other sections there produced blank/dead-end pages.
+ */
+const SECTIONS_BY_ROLE: Record<ReportsRole, { key: ReportSection; label: string }[]> = {
+  head: REPORT_SECTIONS,
+  counselor: REPORT_SECTIONS.filter((s) => s.key !== "quality"),
+  faculty: [
+    { key: "all", label: "Overview" },
+    { key: "referrals", label: "Referrals" },
+    { key: "operations", label: "Pipeline" },
+  ],
+};
+
+export function reportSectionsForRole(role: ReportsRole): { key: ReportSection; label: string }[] {
+  return SECTIONS_BY_ROLE[role];
+}
+
+/**
+ * Keeps a bookmarked `?section=` inside what the role can actually render.
+ * Without this, an old link like `?section=quality` lands a counselor on a
+ * blank page even though the tab is no longer offered.
+ */
+export function clampSectionForRole(role: ReportsRole, section: ReportSection): ReportSection {
+  return SECTIONS_BY_ROLE[role].some((s) => s.key === section) ? section : "all";
+}
+
 const SECTION_KEYS = new Set<string>(REPORT_SECTIONS.map((s) => s.key));
 
 function firstParam(v: unknown): string | undefined {
   return Array.isArray(v) ? (typeof v[0] === "string" ? v[0] : undefined) : typeof v === "string" ? v : undefined;
 }
 
+/** `?section=` allowlist; a bare /reports visit lands on the overview. */
 export function parseReportSection(v: unknown): ReportSection {
   const s = firstParam(v);
-  return s && SECTION_KEYS.has(s) ? (s as ReportSection) : "sessions";
+  return s && SECTION_KEYS.has(s) ? (s as ReportSection) : "all";
 }
 
 /* ── Cohort grouping (00071) ── */
@@ -50,7 +82,7 @@ export function parseCohortGroup(v: unknown): CohortGroup {
 
 /* ── Time range ── */
 
-export type RangePreset = "7d" | "30d" | "90d" | "all";
+export type RangePreset = "7d" | "30d" | "90d" | "month" | "all";
 
 export type ReportRange = {
   /** Preset key, or "custom" when from/to dates were picked. */
@@ -59,7 +91,7 @@ export type ReportRange = {
   from: string | null;
   /** Inclusive UTC upper bound (ISO), or null for open end. */
   to: string | null;
-  /** Human label — "All time", "Last 30 days", "Mar 1 – Mar 31, 2026". */
+  /** Human label — "Last 30 days", "This month", "Mar 1 – Mar 31, 2026". */
   label: string;
 };
 
@@ -114,19 +146,30 @@ export function parseReportRange(params: { range?: unknown; from?: unknown; to?:
     };
   }
   const preset = firstParam(params.range);
-  const days = preset === "7d" ? 7 : preset === "30d" ? 30 : preset === "90d" ? 90 : null;
-  if (days !== null) {
+  if (preset === "all") return { preset: "all", from: null, to: null, label: "All time" };
+  if (preset === "month") {
     const now = new Date();
+    const fromStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
     const toStart = startOfDayUTC(now);
-    const fromStart = toStart - (days - 1) * DAY_MS;
     return {
-      preset: preset as RangePreset,
+      preset: "month",
       from: new Date(fromStart).toISOString(),
       to: new Date(toStart + DAY_MS - 1).toISOString(),
-      label: `Last ${days} days`,
+      label: "This month",
     };
   }
-  return { preset: "all", from: null, to: null, label: "All time" };
+  // A bare visit defaults to the last 30 days so totals and the trend chart
+  // always describe the same window.
+  const days = preset === "7d" ? 7 : preset === "90d" ? 90 : 30;
+  const now = new Date();
+  const toStart = startOfDayUTC(now);
+  const fromStart = toStart - (days - 1) * DAY_MS;
+  return {
+    preset: (preset === "7d" || preset === "90d" ? preset : "30d") as RangePreset,
+    from: new Date(fromStart).toISOString(),
+    to: new Date(toStart + DAY_MS - 1).toISOString(),
+    label: `Last ${days} days`,
+  };
 }
 
 /** YYYY-MM-DD (UTC) for native date inputs, derived from a range bound. */

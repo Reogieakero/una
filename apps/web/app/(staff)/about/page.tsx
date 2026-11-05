@@ -5,14 +5,6 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/primitives";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import {
   COUNSELOR_CHECKLIST,
   COUNSELOR_PAGES,
   FACULTY_CHECKLIST,
@@ -22,22 +14,6 @@ import {
 } from "@/lib/about-content";
 import { PageAccordion } from "@/components/about/page-accordion";
 import { ChecklistSection, PipelineSection, RulesSection } from "@/components/about/handbook-sections";
-
-function AboutBreadcrumb() {
-  return (
-    <Breadcrumb>
-      <BreadcrumbList>
-        <BreadcrumbItem>
-          <BreadcrumbLink href="/">Home</BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator />
-        <BreadcrumbItem>
-          <BreadcrumbPage>About</BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
-  );
-}
 
 /**
  * /about — the in-app handbook, strictly role-scoped: counselors only ever
@@ -69,8 +45,7 @@ export default function AboutPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-3xl space-y-4">
-        <AboutBreadcrumb />
+      <div className="mx-auto w-full max-w-5xl space-y-4">
         <div className="text-center">
           <h1 className="font-display text-2xl font-bold">About this workspace</h1>
           <p className="mt-1 text-sm text-ink-muted">Loading your handbook…</p>
@@ -86,8 +61,7 @@ export default function AboutPage() {
 
   if (!role) {
     return (
-      <div className="mx-auto w-full max-w-3xl space-y-4">
-        <AboutBreadcrumb />
+      <div className="mx-auto w-full max-w-5xl space-y-4">
         <div className="text-center">
           <h1 className="font-display text-2xl font-bold">About this workspace</h1>
         </div>
@@ -108,12 +82,10 @@ export default function AboutPage() {
   const checklist = isHead ? HEAD_CHECKLIST : isFaculty ? FACULTY_CHECKLIST : COUNSELOR_CHECKLIST;
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4">
-      <AboutBreadcrumb />
-
+    <div className="mx-auto w-full max-w-5xl space-y-4">
       <div className="text-center">
         <h1 className="font-display text-2xl font-bold">About this workspace</h1>
-        <p className="mx-auto mt-1 max-w-[640px] text-sm leading-relaxed text-ink-muted">
+        <p className="mx-auto mt-1 max-w-[760px] text-sm leading-relaxed text-ink-muted">
           {isHead
             ? "The head handbook — the whole office: how cases move, what each page shows, what you may touch, and where every action goes next."
             : isFaculty

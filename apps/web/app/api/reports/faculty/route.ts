@@ -6,6 +6,7 @@ import {
   withRange,
   type ReportSection,
 } from "@/lib/reports-scope";
+import { previousRange, summarizeKpi, type ReportKpiSummary } from "@/lib/reports/kpi-summary";
 
 export type FacultyReportsReferral = {
   id: string;
@@ -21,6 +22,8 @@ export type FacultyReportsPayload = {
   range: { preset: string; from: string | null; to: string | null; label: string };
   facultyId: string;
   referrals: FacultyReportsReferral[];
+  /** Previous equal-length window, or null for All time. Overview deltas only. */
+  comparison: ReportKpiSummary | null;
   fetchedAt: string;
 };
 
@@ -74,6 +77,7 @@ export async function GET(request: Request) {
         range: { preset: range.preset, from: range.from, to: range.to, label: range.label },
         facultyId: "",
         referrals: [],
+        comparison: null,
         unlinked: true,
         fetchedAt: new Date().toISOString(),
       } satisfies FacultyReportsPayload & { unlinked: boolean },
@@ -81,24 +85,49 @@ export async function GET(request: Request) {
     );
   }
 
-  const { data } = await withRange(
-    supabase
-      .from("referrals")
-      .select("id,status,priority,case_classification,reason,created_at")
-      .eq("referring_faculty_id", facultyId)
-      .order("created_at", { ascending: false })
-      .limit(2000),
-    "created_at",
-    range
-  );
+  const previous = section === "all" ? previousRange(range) : null;
+
+  const [currentRes, previousRes] = await Promise.all([
+    withRange(
+      supabase
+        .from("referrals")
+        .select("id,status,priority,case_classification,reason,created_at")
+        .eq("referring_faculty_id", facultyId)
+        .order("created_at", { ascending: false })
+        .limit(2000),
+      "created_at",
+      range
+    ),
+    previous
+      ? withRange(
+          supabase
+            .from("referrals")
+            .select("status,priority")
+            .eq("referring_faculty_id", facultyId)
+            .limit(2000),
+          "created_at",
+          previous
+        )
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  const comparison: ReportKpiSummary | null = previous
+    ? summarizeKpi({
+        appointments: [],
+        referrals: (previousRes.data ?? []) as { status: string; priority?: string }[],
+        feedback: [],
+        screenings: [],
+      })
+    : null;
 
   const payload: FacultyReportsPayload = {
     section,
     range: { preset: range.preset, from: range.from, to: range.to, label: range.label },
     facultyId,
-    referrals: (((data ?? []) as { id: string; status: string; priority: string; case_classification: string[] | null; reason: string | null; created_at: string }[]).map(
+    referrals: (((currentRes.data ?? []) as { id: string; status: string; priority: string; case_classification: string[] | null; reason: string | null; created_at: string }[]).map(
       (r) => ({ id: r.id, status: r.status, priority: r.priority, classification: r.case_classification ?? [], reason: r.reason, created_at: r.created_at })
     )),
+    comparison,
     fetchedAt: new Date().toISOString(),
   };
 

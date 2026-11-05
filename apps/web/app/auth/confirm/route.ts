@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { resolveSupabaseEnv } from "@dorsu/supabase-client";
+import { homeForRole } from "@/lib/auth/home";
+import { REMEMBER_COOKIE, isRemembered, withRememberLifetime } from "@/lib/supabase/remember";
 
 /**
  * GET /auth/confirm — landing target for Supabase email links (recovery,
@@ -9,48 +11,28 @@ import { resolveSupabaseEnv } from "@dorsu/supabase-client";
  * - Exchanges the `code` for a session, then redirects to `?next=`
  *   (same-origin paths only — open-redirect guard).
  * - Recovery flow (`next=/update-password`) is passed through untouched.
- * - OAuth / all other flows are role-routed: existing profiles go to their
- *   role home; first-time Google users get a `student` profile + `students`
- *   row auto-provisioned (student_no stays null until they complete it).
+ * - Existing profiles are routed by role; pending staff are sent to the
+ *   approval screen and approved-but-incomplete staff to `/complete-profile`.
+ *   First-time OAuth users choose Student, Faculty, or Guidance Counselor on
+ *   `/register/role` (00075/00076).
  *
  * Cloud note: this URL must be allowlisted in Dashboard → Auth → URL
  * Configuration → Redirect URLs (local: http://localhost:3000/**) along
  * with Google as an enabled provider.
  */
-function homeForRole(role: string | null | undefined): string {
-  switch (role) {
-    case "counselor":
-      return "/dashboard";
-    case "faculty":
-      return "/dashboard";
-    case "guidance_head":
-      return "/dashboard";
-    case "student":
-    default:
-      return "/";
-  }
-}
-
-async function generateAlias(admin: ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const alias = `Client-${Math.floor(1000 + Math.random() * 9000)}`;
-    const { data } = await admin
-      .from("students")
-      .select("profile_id")
-      .eq("anonymous_alias", alias)
-      .maybeSingle();
-    if (!data) return alias;
-  }
-  return `Client-${Date.now().toString().slice(-6)}`;
-}
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-  const rawNext = url.searchParams.get("next") ?? "/update-password";
-  const next = rawNext.startsWith("/") ? rawNext : "/update-password";
+  // OAuth callbacks arrive without `next` (Google button uses a query-free
+  // redirectTo) and should land on the role home. Password recovery is the
+  // only flow that opts into `/update-password`, and it passes `next`
+  // explicitly from /reset-password.
+  const rawNext = url.searchParams.get("next") ?? "/";
+  const next = rawNext.startsWith("/") ? rawNext : "/";
   if (!code) return NextResponse.redirect(new URL("/login", url.origin));
 
   let response = NextResponse.next({ request });
+  const remembered = isRemembered(request.cookies.get(REMEMBER_COOKIE)?.value);
   const { url: supabaseUrl, anonKey } = resolveSupabaseEnv({
     NEXT_PUBLIC_SUPABASE_URL: process.env["NEXT_PUBLIC_SUPABASE_URL"],
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env["NEXT_PUBLIC_SUPABASE_ANON_KEY"],
@@ -58,11 +40,11 @@ export async function GET(request: NextRequest) {
   const supabase = createServerClient(supabaseUrl, anonKey, {
     cookies: {
       getAll: () => request.cookies.getAll(),
-      setAll: (cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) => {
+      setAll: (cookiesToSet: { name: string; value: string; options: CookieOptions }[]) => {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         response = NextResponse.next({ request });
         cookiesToSet.forEach(({ name, value, options }) =>
-          response.cookies.set(name, value, options),
+          response.cookies.set(name, value, withRememberLifetime(options, remembered)),
         );
       },
     },
@@ -83,8 +65,9 @@ export async function GET(request: NextRequest) {
     return final;
   }
 
-  // OAuth / email-confirm flows — role-aware routing + first-time Google
-  // student auto-provision (browser clients can't insert into `profiles`).
+  // OAuth / email-confirm flows — role-aware routing. A first-time OAuth user
+  // has no profile yet, so send them to the role picker; the server route that
+  // writes the profile is the only place that can assign a role.
   let destPath = next === "/" ? "/" : next;
   try {
     const {
@@ -93,37 +76,24 @@ export async function GET(request: NextRequest) {
     if (user) {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("role")
+        .select("role, approval_status, profile_completed")
         .eq("id", user.id)
         .single();
       if (profile?.role) {
-        destPath = homeForRole(profile.role);
-      } else {
-        const { createAdminClient } = await import("@/lib/supabase/admin");
-        const admin = createAdminClient();
-        const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
-        const fullName =
-          (typeof meta["full_name"] === "string" && meta["full_name"]) ||
-          (typeof meta["name"] === "string" && meta["name"]) ||
-          (typeof user.email === "string" ? user.email.split("@")[0] : "Student");
-        const { error: profileError } = await admin.from("profiles").insert({
-          id: user.id,
-          email: user.email ?? "",
-          role: "student",
-          full_name: fullName,
-          // Deliberately no OAuth avatar for students (00066): an external
-          // Google URL cannot be gated by storage RLS, and students are
-          // anonymous until they opt in from the app.
-          avatar_url: null,
-        });
-        if (!profileError) {
-          const alias = await generateAlias(admin);
-          await admin.from("students").insert({
-            profile_id: user.id,
-            anonymous_alias: alias,
-          });
+        if (profile.approval_status === "pending") {
+          destPath = "/pending-approval";
+        } else if (profile.approval_status === "rejected") {
+          destPath = "/login?rejected=1";
+        } else if (
+          profile.profile_completed === false &&
+          (profile.role === "faculty" || profile.role === "counselor")
+        ) {
+          destPath = "/complete-profile";
+        } else {
+          destPath = homeForRole(profile.role);
         }
-        destPath = "/";
+      } else {
+        destPath = "/register/role";
       }
     }
   } catch {

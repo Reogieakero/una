@@ -3,7 +3,11 @@
   "compilerOptions": {
     "baseUrl": ".",
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -15,18 +19,48 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "plugins": [{ "name": "next" }],
-    "types": ["node", "react", "react-dom"],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "types": [
+      "node",
+      "react",
+      "react-dom"
+    ],
     "paths": {
-      "@/*": ["./*"],
-      "@dorsu/shared-types": ["../../packages/shared-types/src"],
-      "@dorsu/shared-schemas": ["../../packages/shared-schemas/src"],
-      "@dorsu/shared-services": ["../../packages/shared-services/src"],
-      "@dorsu/supabase-client": ["../../packages/supabase-client/src"],
-      "@dorsu/db": ["../../packages/db/src"],
-      "@dorsu/ui-tokens": ["../../packages/ui-tokens/src"]
+      "@/*": [
+        "./*"
+      ],
+      "@dorsu/shared-types": [
+        "../../packages/shared-types/src"
+      ],
+      "@dorsu/shared-schemas": [
+        "../../packages/shared-schemas/src"
+      ],
+      "@dorsu/shared-services": [
+        "../../packages/shared-services/src"
+      ],
+      "@dorsu/supabase-client": [
+        "../../packages/supabase-client/src"
+      ],
+      "@dorsu/db": [
+        "../../packages/db/src"
+      ],
+      "@dorsu/ui-tokens": [
+        "../../packages/ui-tokens/src"
+      ]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next-build/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

@@ -25,7 +25,11 @@ import { classificationSummary } from "@/components/referrals/status";
 import { ReportTrendChart } from "@/components/shared/reports-charts";
 import { cn } from "@/lib/utils";
 import { timeAgoLong } from "@/lib/format";
-import { EmptyState, PanelShell, ListSkeleton } from "@/components/shared/panel-shell";
+import { EmptyState, PanelShell } from "@/components/shared/panel-shell";
+import {
+  ChartBlockSkeleton,
+  DivideListSkeleton,
+} from "@/components/shared/skeletons";
 
 const STATUS_TONE: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -160,9 +164,7 @@ export function FacultyDashboardView({ name }: { name: string | null }) {
             viewAllHref="/reports"
           >
             {loading || !data ? (
-              <div className="animate-pulse pt-4" aria-hidden>
-                <div className="h-[180px] rounded-lg bg-ink/10" />
-              </div>
+              <ChartBlockSkeleton height="h-[240px]" />
             ) : !data.trend.some((b) => b.referrals > 0) ? (
               <EmptyState
                 icon={CalendarDays}
@@ -177,7 +179,7 @@ export function FacultyDashboardView({ name }: { name: string | null }) {
           <div className="min-w-0 space-y-4">
             <PanelShell title="Needs the office" hint="Your pending + escalated referrals waiting on triage." viewAllHref="/referrals">
               {loading || !data ? (
-                <ListSkeleton />
+                <DivideListSkeleton rows={3} />
               ) : !data.attention.length ? (
                 <EmptyState icon={Inbox} title="Nothing waiting" hint="Your flagged cases are all moving — new flags will show here while they wait." />
               ) : (
@@ -209,7 +211,7 @@ export function FacultyDashboardView({ name }: { name: string | null }) {
 
             <PanelShell title="My recent referrals" hint="Latest cases you flagged." viewAllHref="/referrals">
               {loading || !data ? (
-                <ListSkeleton />
+                <DivideListSkeleton rows={3} />
               ) : !data.recent.length ? (
                 <EmptyState icon={UserPlus} title="No referrals yet" hint="Flag a student from the Referrals page — your cases will show up here." />
               ) : (
@@ -248,7 +250,7 @@ export function FacultyDashboardView({ name }: { name: string | null }) {
           <div className="min-w-0 space-y-4">
             <PanelShell title="Office news" hint="Latest published announcements." viewAllHref="/announcements">
               {loading || !data ? (
-                <ListSkeleton />
+                <DivideListSkeleton rows={3} pill={false} />
               ) : !data.announcements.length ? (
                 <EmptyState icon={Megaphone} title="No announcements" hint="News from the guidance office will show up here." />
               ) : (

@@ -1,31 +1,22 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BarChart3, ChevronDown } from "lucide-react";
 import { useUsersBoard, type UsersProfile } from "@/lib/hooks/use-users-board";
-import { clampPage, clampPageSize } from "@/lib/pagination";
-import { Pager, PageSize } from "@/components/shared/Pager";
-import { pageRange } from "@/lib/pagination";
-import { cn } from "@/lib/utils";
+import { clampPage } from "@/lib/pagination";
+import { Pager } from "@/components/shared/Pager";
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { ROLES, ROLE_LABEL } from "@/components/users/RolePill";
 import { UserRow } from "@/components/users/UserRow";
 import { Button, Card, Input } from "@/components/ui/primitives";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 type Profile = UsersProfile;
 
 const EMPTY_ROWS: Profile[] = [];
 const EMPTY_DETAILS = new Map<string, string>();
+/** The directory is fixed at 10 rows per page. */
+const USERS_PAGE_SIZE = 10;
 
 /** Admin user directory — stats, filters, and activate/deactivate (via a service-role route). */
 export default function AdminUsersPage() {
@@ -47,16 +38,16 @@ export default function AdminUsersPage() {
 function AdminUsersPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Client-side pager over the loaded directory (?page=&size=, 10/25/50).
+  // Client-side pager over the loaded directory (?page=, fixed 10 rows).
   // Filters and stats stay exact over the full loaded set — only the
   // rendered table rows are sliced (DOM cost, not fetch cost).
   const page = clampPage(searchParams.get("page"));
-  const size = clampPageSize(searchParams.get("size"));
+  const size = USERS_PAGE_SIZE;
   const gotoPage = useCallback(
-    (p: number, s: number = size) => {
-      router.replace(`/users?page=${p}&size=${s}`, { scroll: false });
+    (p: number) => {
+      router.replace(`/users?page=${p}`, { scroll: false });
     },
-    [router, size]
+    [router]
   );
   const { data: board, isLoading, isError, refetch } = useUsersBoard();
   const me = board?.me ?? null;
@@ -73,42 +64,6 @@ function AdminUsersPageInner() {
   const setQuery = useCallback((v: string) => { setQueryState(v); gotoPage(1); }, [gotoPage]);
   const [confirming, setConfirming] = useState<{ user: Profile; toActive: boolean } | null>(null);
 
-  // Stats live in a floating panel — same hover/click behavior as the
-  // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
-  const [statsOpen, setStatsOpen] = useState(false);
-  const statsRef = useRef<HTMLDivElement>(null);
-  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openStats = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setStatsOpen(true);
-  };
-  const scheduleStatsClose = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
-  };
-  const toggleStats = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setStatsOpen((v) => !v);
-  };
-
-  useEffect(() => {
-    if (!statsOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setStatsOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    };
-  }, [statsOpen]);
-
   useEffect(() => {
     if (isError) toast.error("Couldn't load users right now.");
   }, [isError]);
@@ -119,8 +74,9 @@ function AdminUsersPageInner() {
     for (const u of rows) byRole.set(u.role, (byRole.get(u.role) ?? 0) + 1);
     return {
       total: rows.length,
-      active: rows.filter((u) => u.is_active).length,
-      inactive: rows.filter((u) => !u.is_active).length,
+      active: rows.filter((u) => u.is_active && u.approval_status !== "pending").length,
+      inactive: rows.filter((u) => !u.is_active && u.approval_status !== "pending").length,
+      pending: rows.filter((u) => u.approval_status === "pending").length,
       staff: rows.filter((u) => u.role !== "student").length,
       newWeek: rows.filter((u) => new Date(u.created_at).getTime() >= weekAgo).length,
       byRole,
@@ -133,7 +89,15 @@ function AdminUsersPageInner() {
       .filter((u) =>
         roleFilter === "all" ? true : roleFilter === "staff" ? u.role !== "student" : u.role === roleFilter
       )
-      .filter((u) => (statusFilter === "all" ? true : statusFilter === "active" ? u.is_active : !u.is_active))
+      .filter((u) =>
+        statusFilter === "all"
+          ? true
+          : statusFilter === "active"
+            ? u.is_active && u.approval_status !== "pending"
+            : statusFilter === "pending"
+              ? u.approval_status === "pending"
+              : !u.is_active && u.approval_status !== "pending"
+      )
       .filter((u) =>
         !q ? true : `${u.full_name ?? ""} ${u.email}`.toLowerCase().includes(q)
       );
@@ -169,6 +133,26 @@ function AdminUsersPageInner() {
     }
   };
 
+  const runApproving = async (user: Profile) => {
+    if (busyId) return;
+    setBusyId(user.id);
+    try {
+      const res = await fetch("/api/staff/users/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const json = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) throw new Error(json?.error ?? "Couldn't approve that account.");
+      await refetch();
+      toast.success(`${user.full_name ?? user.email} can now finish setting up their staff profile.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't approve that account.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const resetFilters = () => {
     setRoleFilter("all");
     setStatusFilter("all");
@@ -178,6 +162,7 @@ function AdminUsersPageInner() {
   const statCards = [
     { label: "Total accounts", value: stats.total, pick: resetFilters },
     { label: "Active", value: stats.active, pick: () => setStatusFilter("active") },
+    { label: "Pending approval", value: stats.pending, pick: () => setStatusFilter("pending") },
     { label: "Deactivated", value: stats.inactive, pick: () => setStatusFilter("inactive") },
     { label: "Staff", value: stats.staff, pick: () => setRoleFilter("staff") },
     { label: "New this week", value: stats.newWeek, pick: null },
@@ -185,85 +170,37 @@ function AdminUsersPageInner() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Users</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <h1 className="font-display text-2xl font-bold">Users</h1>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold">Users</h1>
-          <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-            Every account in the workspace — filter the directory and switch access off or back on.
-            Deactivated accounts are signed out and blocked at login.
-          </p>
-        </div>
-        <div ref={statsRef} className="relative shrink-0" onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
-          <button
-            type="button"
-            onClick={toggleStats}
-            onFocus={openStats}
-            onBlur={scheduleStatsClose}
-            aria-haspopup="dialog"
-            aria-expanded={statsOpen}
-            className="inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-white px-3.5 py-2 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-          >
-            <BarChart3 className="h-4 w-4" aria-hidden />
-            Stats
-            <ChevronDown
-              aria-hidden
-              className={cn("h-4 w-4 transition-transform", statsOpen && "rotate-180")}
-            />
-          </button>
-          {statsOpen && (
-            <div
-              role="dialog"
-              aria-label="User stats"
-              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-card"
+      {/* Visible stats cards — same row pattern as /appointments. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {statCards.map((s) =>
+          s.pick ? (
+            <button
+              key={s.label}
+              type="button"
+              onClick={s.pick}
+              title={`Filter by ${s.label}`}
+              className="rounded-lg border border-ink/10 bg-white p-4 text-left shadow-card transition hover:border-primary-300 hover:bg-cream/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
             >
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-ink-muted">{s.label}</span>
               {loading ? (
-                <div className="animate-pulse px-4 py-3" aria-hidden>
-                  <div className="h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                </div>
+                <span className="mt-2 block h-8 w-12 animate-pulse rounded bg-ink/10" aria-hidden />
               ) : (
-                statCards.map((s) =>
-                  s.pick ? (
-                    <button
-                      key={s.label}
-                      type="button"
-                      onClick={() => {
-                        s.pick();
-                        setStatsOpen(false);
-                      }}
-                      title={`Filter by ${s.label}`}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-cream focus-visible:outline-none focus-visible:bg-cream"
-                    >
-                      <span className="text-[13px] font-medium text-ink-muted">{s.label}</span>
-                      <span className="font-display text-xl font-bold text-ink">{s.value}</span>
-                    </button>
-                  ) : (
-                    <div
-                      key={s.label}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
-                    >
-                      <span className="text-[13px] font-medium text-ink-muted">{s.label}</span>
-                      <span className="font-display text-xl font-bold text-ink">{s.value}</span>
-                    </div>
-                  )
-                )
+                <span className="mt-1 block font-display text-2xl font-bold text-ink">{s.value}</span>
+              )}
+            </button>
+          ) : (
+            <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-ink-muted">{s.label}</span>
+              {loading ? (
+                <span className="mt-2 block h-8 w-12 animate-pulse rounded bg-ink/10" aria-hidden />
+              ) : (
+                <span className="mt-1 block font-display text-2xl font-bold text-ink">{s.value}</span>
               )}
             </div>
-          )}
-        </div>
+          )
+        )}
       </div>
 
       {/* Directory — filters live inside, above the user table */}
@@ -300,23 +237,27 @@ function AdminUsersPageInner() {
               ariaLabel="Filter by status"
               align="right"
               buttonLabel={
-                <>Status: {statusFilter === "all" ? "All" : statusFilter === "active" ? "Active" : "Deactivated"}</>
+                <>
+                  Status:{" "}
+                  {statusFilter === "all"
+                    ? "All"
+                    : statusFilter === "active"
+                      ? "Active"
+                      : statusFilter === "pending"
+                        ? "Pending approval"
+                        : "Deactivated"}
+                </>
               }
               options={[
                 { value: "all", label: "All statuses" },
                 { value: "active", label: `Active · ${stats.active}` },
+                { value: "pending", label: `Pending approval · ${stats.pending}` },
                 { value: "inactive", label: `Deactivated · ${stats.inactive}` },
               ]}
               value={statusFilter}
               onPick={setStatusFilter}
             />
           </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5">
-          <p className="text-xs font-medium text-ink-faint">
-            Showing {pageRange(safePage, size, paged.length).start}–{pageRange(safePage, size, paged.length).end} of {visible.length} accounts.
-          </p>
-          <PageSize value={size} onChange={(s) => gotoPage(1, s)} />
         </div>
         <div className="mt-3 overflow-x-auto">
         <table className="w-full min-w-[820px] text-left text-sm">
@@ -330,30 +271,43 @@ function AdminUsersPageInner() {
               <th className="px-4 py-3">Access</th>
             </tr>
           </thead>
-          <tbody>
-            {paged.map((u) => (
-              <UserRow
-                key={u.id}
-                user={u}
-                isSelf={u.id === me}
-                busy={busyId === u.id}
-                detail={details.get(u.id)}
-                onAccessToggle={(user) => setConfirming({ user, toActive: !user.is_active })}
-              />
-            ))}
+          <tbody aria-busy={loading}>
+            {loading
+              ? Array.from({ length: Math.min(Math.max(size, 3), 10) }).map((_, i) => (
+                  <tr key={`user-skeleton-${i}`} className="border-b border-ink/5 align-top last:border-0" aria-hidden>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-ink/10" />
+                        <div className="min-w-0 flex-1">
+                          <div className="h-4 w-28 animate-pulse rounded bg-ink/10" />
+                          <div className="mt-1.5 h-3 w-36 animate-pulse rounded bg-ink/10" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3"><div className="h-5 w-20 animate-pulse rounded-full bg-ink/10" /></td>
+                    <td className="px-4 py-3"><div className="h-4 w-32 animate-pulse rounded bg-ink/10" /></td>
+                    <td className="px-4 py-3"><div className="mx-auto h-5 w-16 animate-pulse rounded-full bg-ink/10" /></td>
+                    <td className="px-4 py-3"><div className="h-4 w-24 animate-pulse rounded bg-ink/10" /></td>
+                    <td className="px-4 py-3"><div className="h-6 w-20 animate-pulse rounded bg-ink/10" /></td>
+                  </tr>
+                ))
+              : paged.map((u) => (
+                  <UserRow
+                    key={u.id}
+                    user={u}
+                    isSelf={u.id === me}
+                    busy={busyId === u.id}
+                    detail={details.get(u.id)}
+                    onAccessToggle={(user) => setConfirming({ user, toActive: !user.is_active })}
+                    onApprove={runApproving}
+                  />
+                ))}
           </tbody>
         </table>
         {!loading && !visible.length && (
           <p className="px-4 py-8 text-center text-sm text-ink-muted">
             No accounts match these filters. Try clearing the search or choosing another role.
           </p>
-        )}
-        {loading && (
-          <div className="animate-pulse space-y-3 p-4" aria-hidden>
-            <div className="h-10 rounded-xl bg-ink/10" />
-            <div className="h-10 rounded-xl bg-ink/10" />
-            <div className="h-10 rounded-xl bg-ink/10" />
-          </div>
         )}
         </div>
         <Pager

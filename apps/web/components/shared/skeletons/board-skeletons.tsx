@@ -40,9 +40,36 @@ function BoardShell({
   );
 }
 
-/** /appointments: tabs (Appointments / Follow-ups) + 7-col table, Stats hidden. */
+/**
+ * /appointments: title + actions legend, visible 6-card stats row, the
+ * Appointments / Follow-ups tabs, then the filter bar and 7-col table
+ * (10 rows by default).
+ */
 export function AppointmentsSkeleton() {
-  return <BoardShell action="stats" tabs menus={3} cols={7} rows={4} />;
+  return (
+    <SkeletonRoot>
+      <div className="flex items-start justify-between gap-3">
+        <div className="h-7 w-56 rounded-lg bg-ink/10" />
+        <div className="h-8 w-36 shrink-0 rounded border border-ink/10 bg-ink/10" />
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+            <div className="h-2.5 w-20 rounded-full bg-ink/10" />
+            <div className="mt-3 h-7 w-12 rounded-lg bg-ink/10" />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <div className="h-9 w-40 rounded-lg bg-ink/10" />
+        <div className="h-9 w-48 rounded-lg bg-ink/10" />
+      </div>
+      <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
+        <FilterBarSkeleton menus={3} />
+        <TableSkeleton rows={10} cols={7} />
+      </div>
+    </SkeletonRoot>
+  );
 }
 
 /** /referrals: List/Grid toggle + 8-col table/cards, 6 hidden stats. */
@@ -66,29 +93,32 @@ export function ReferralsSkeleton() {
 }
 
 /**
- * /students: hidden 6-stat menu + 2x xl:2 grids (Needs attention list +
- * per-program bars / screening donut + Never booked) + 6-col directory table.
+ * /students: title + 8 visible stat cards + needs-attention/program grid +
+ * screening donut + 6-col directory table.
  */
 export function StudentsSkeleton() {
   return (
     <SkeletonRoot>
-      <PageHeaderSkeleton action="stats" />
+      <div className="h-7 w-40 rounded-lg bg-ink/10" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+            <div className="h-3 w-24 max-w-full rounded-full bg-ink/10" />
+            <div className="mt-2 h-8 w-12 rounded bg-ink/10" />
+          </div>
+        ))}
+      </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <PanelShellSkeleton withHint>
           <DivideListSkeleton rows={3} />
         </PanelShellSkeleton>
-        <PanelShellSkeleton withHint>
-          <ChartBlockSkeleton />
-        </PanelShellSkeleton>
-      </div>
-      <div className="grid gap-4 xl:grid-cols-2">
         <PanelShellSkeleton withHint>
           <DonutBlockSkeleton />
         </PanelShellSkeleton>
-        <PanelShellSkeleton withHint>
-          <DivideListSkeleton rows={3} />
-        </PanelShellSkeleton>
       </div>
+      <PanelShellSkeleton withHint>
+        <ChartBlockSkeleton />
+      </PanelShellSkeleton>
       <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
         <FilterBarSkeleton menus={3} />
         <TableSkeleton rows={5} cols={6} />
@@ -101,7 +131,7 @@ export function StudentsSkeleton() {
 export function AnnouncementsSkeleton() {
   return (
     <SkeletonRoot>
-      <PageHeaderSkeleton action="stats" />
+      <PageHeaderSkeleton action="stats" breadcrumb={false} />
       <div className="mx-auto w-full max-w-2xl space-y-4">
         <div className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
           <div className="flex items-center gap-3">
@@ -153,13 +183,21 @@ export function NotificationsSkeleton() {
 }
 
 /**
- * /feedback: hidden 6 stats + verdict banner + 3x xl:2 grids
+ * /feedback: title + visible 6 stats + verdict banner + 3x xl:2 grids
  * (bars/lines h-240, donut h-200, word pills, follow-ups) + recent list.
  */
 export function FeedbackSkeleton() {
   return (
     <SkeletonRoot>
-      <PageHeaderSkeleton action="stats" />
+      <PageHeaderSkeleton action="none" breadcrumb={false} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+            <div className="h-3 w-24 max-w-full rounded-full bg-ink/10" />
+            <div className="mt-2 h-8 w-12 rounded bg-ink/10" />
+          </div>
+        ))}
+      </div>
       <div className="flex items-center gap-3 rounded-lg border border-ink/10 bg-white p-4 shadow-card">
         <div className="h-8 w-20 rounded-full bg-ink/10" />
         <div className="h-4 w-64 rounded-full bg-ink/10" />
@@ -202,9 +240,25 @@ export function FeedbackSkeleton() {
   );
 }
 
-/** /users (admin): Stats pill + 1 directory card, 6-col table, h-10 rows. */
+/** /users (admin): title + 6 visible stat cards + directory card (6-col table, 10 rows). */
 export function UsersSkeleton() {
-  return <BoardShell action="stats" menus={2} cols={6} rows={5} />;
+  return (
+    <SkeletonRoot>
+      <div className="h-7 w-32 rounded-lg bg-ink/10" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+            <div className="h-3 w-24 max-w-full rounded-full bg-ink/10" />
+            <div className="mt-2 h-8 w-12 rounded bg-ink/10" />
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
+        <FilterBarSkeleton menus={2} />
+        <TableSkeleton rows={10} cols={6} />
+      </div>
+    </SkeletonRoot>
+  );
 }
 
 /**
@@ -214,7 +268,7 @@ export function UsersSkeleton() {
 export function SecuritySkeleton() {
   return (
     <SkeletonRoot>
-      <PageHeaderSkeleton action="none" />
+      <PageHeaderSkeleton action="none" breadcrumb={false} />
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
@@ -284,11 +338,48 @@ export function AccessEventsSkeleton() {
   );
 }
 
+/** /security/audit: 5 stat cards + filter card md:3 + 5-col trail table. */
+export function AuditTrailSkeleton() {
+  return (
+    <SkeletonRoot>
+      <PageHeaderSkeleton action="buttons" breadcrumb={false} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+            <div className="h-3 w-24 max-w-full rounded-full bg-ink/10" />
+            <div className="mt-2 h-8 w-12 rounded bg-ink/10" />
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div>
+            <div className="mb-1 h-3 w-14 rounded-full bg-ink/10" />
+            <div className="h-8 rounded-lg bg-ink/10" />
+          </div>
+          <div>
+            <div className="mb-1 h-3 w-14 rounded-full bg-ink/10" />
+            <div className="h-8 rounded-lg bg-ink/10" />
+          </div>
+          <div>
+            <div className="mb-1 h-3 w-14 rounded-full bg-ink/10" />
+            <div className="h-8 rounded-lg bg-ink/10" />
+          </div>
+        </div>
+        <div className="mt-3 h-3 w-52 rounded-full bg-ink/10" />
+      </div>
+      <div className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
+        <TableSkeleton rows={6} cols={5} />
+      </div>
+    </SkeletonRoot>
+  );
+}
+
 /** /backups: header buttons + latest banner + 6-col history + runbook. */
 export function BackupsSkeleton() {
   return (
     <SkeletonRoot>
-      <PageHeaderSkeleton action="buttons" />
+      <PageHeaderSkeleton action="buttons" breadcrumb={false} />
       <div className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-ink/10" />

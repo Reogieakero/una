@@ -5,6 +5,7 @@ import "./globals.css";
 import { Toaster } from "sonner";
 import { cn } from "@/lib/utils";
 import { QueryProvider } from "@/components/providers/query-provider";
+import { ThemeProvider, THEME_STORAGE_KEY } from "@/components/providers/theme-provider";
 import { RoutePendingProvider } from "@/components/shared/route-pending";
 import { RealtimeProvider } from "@/components/shared/realtime-provider";
 
@@ -38,7 +39,7 @@ export default function RootLayout({
   children: ReactNode;
 }) {
   return (
-    <html lang="en" className="scroll-smooth">
+    <html lang="en" className="scroll-smooth" suppressHydrationWarning>
       <body
         className={cn(
           poppins.variable,
@@ -46,6 +47,13 @@ export default function RootLayout({
           "min-h-screen bg-cream font-body text-ink"
         )}
       >
+        {/* Apply the saved appearance before first paint so dark mode never
+            flashes a light frame. Mirrors ThemeProvider.resolveTheme. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var m=localStorage.getItem("${THEME_STORAGE_KEY}");if(m!=="light"&&m!=="dark"&&m!=="system")m="system";var d=m==="dark"||(m==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;r.classList.toggle("dark",d);r.dataset.theme=m;r.style.colorScheme=d?"dark":"light";}catch(e){}})();`,
+          }}
+        />
         <a
           href="#main"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-full focus:bg-ink focus:px-5 focus:py-2 focus:text-white"
@@ -55,13 +63,15 @@ export default function RootLayout({
         {/* Single instance for the whole app — survives route-group changes
             ((admin)/(staff)/(counselor) layouts remount), so pending state and
             the overlay never flicker mid-navigation. */}
-        <QueryProvider>
-          {/* One realtime channel per session lives here — bell counts,
-              toasts, and inbox patches for every page, no per-page channels. */}
-          <RealtimeProvider>
-            <RoutePendingProvider>{children}</RoutePendingProvider>
-          </RealtimeProvider>
-        </QueryProvider>
+        <ThemeProvider>
+          <QueryProvider>
+            {/* One realtime channel per session lives here — bell counts,
+                toasts, and inbox patches for every page, no per-page channels. */}
+            <RealtimeProvider>
+              <RoutePendingProvider>{children}</RoutePendingProvider>
+            </RealtimeProvider>
+          </QueryProvider>
+        </ThemeProvider>
         {/* App-wide toasts — top-right, 2s auto-dismiss, closable (see globals.css). */}
         <Toaster position="top-right" duration={2000} closeButton gap={8} />
       </body>

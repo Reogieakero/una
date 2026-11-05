@@ -35,7 +35,7 @@ export function SessionDetail({
 }) {
   const phase = sessionPhase(session.scheduled_at, session.ends_at, now);
   return (
-    <div className="mt-3 rounded-lg border border-primary-200 bg-primary-50/60 p-4">
+    <div className="mt-3 rounded-lg border border-primary-200 bg-primary-50 p-4">
       <div className="flex items-start justify-between gap-2">
         <p className="flex min-w-0 flex-wrap items-center gap-2 font-display text-sm font-bold text-ink">
           <span className="truncate">
@@ -77,8 +77,7 @@ export function SessionDetail({
         <span aria-hidden>·</span>
         <Badge tone={
           session.status === "completed" ? "success"
-            : session.status === "rejected" || session.status === "no_show" ? "danger"
-              : session.status === "cancelled" ? "muted"
+            : session.status === "rejected" || session.status === "no_show" || session.status === "cancelled" ? "danger"
               : session.status === "assigned" || session.status === "confirmed" ? "info" : "warning"
         }>
           {statusLabel(session.status)}

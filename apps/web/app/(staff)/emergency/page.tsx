@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 import { breakGlassSchema, type BreakGlassInput } from "@dorsu/shared-schemas";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -24,14 +25,6 @@ import { Dropdown } from "@/components/shared/dropdown";
 import { GrantBanner } from "@/components/emergency/grant-banner";
 import { IdentityCard, type EmergencyIdentity as Identity } from "@/components/emergency/identity-card";
 import { notifyStaff } from "@/lib/notify";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 const EMPTY_STUDENTS: { id: string; label: string; alias: string }[] = [];
 const EMPTY_IDS: string[] = [];
@@ -302,18 +295,6 @@ export default function EmergencyPage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Emergency access</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <div>
         <h1 className="font-display text-2xl font-bold">Emergency access</h1>
         <p className="mt-1 text-sm leading-relaxed text-ink-muted">
@@ -362,7 +343,10 @@ export default function EmergencyPage() {
               <FieldError message={formState.errors.justification?.message} />
             </div>
             <div className="flex justify-end">
-              <Button disabled={busy}>{busy ? "Logging…" : "Log emergency access"}</Button>
+              <Button disabled={busy} className="gap-2">
+                {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                {busy ? "Logging…" : "Log emergency access"}
+              </Button>
             </div>
           </form>
         )}
@@ -379,7 +363,8 @@ export default function EmergencyPage() {
                   and the guidance head has been notified. The Reveal button appears here once they
                   review it — this page checks automatically.
                 </div>
-                <Button size="sm" variant="outline" disabled={checking} onClick={() => void checkReview()}>
+                <Button size="sm" variant="outline" disabled={checking} onClick={() => void checkReview()} className="gap-2">
+                  {checking && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
                   {checking ? "Checking…" : "Check review status"}
                 </Button>
               </div>
@@ -389,7 +374,8 @@ export default function EmergencyPage() {
                 Resolving the real identity writes a second audit row tied to you. Only proceed
                 if the crisis requires it.
               </p>
-              <Button size="sm" variant="danger" disabled={revealing} onClick={reveal} className="mt-3">
+              <Button size="sm" variant="danger" disabled={revealing} onClick={reveal} className="mt-3 gap-2">
+                {revealing && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
                 {revealing ? "Resolving…" : "Reveal identity"}
               </Button>
             </div>

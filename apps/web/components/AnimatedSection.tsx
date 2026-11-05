@@ -84,9 +84,24 @@ export function StaggerItem({
   );
 }
 
-export function Eyebrow({ children }: { children: ReactNode }) {
+/** Small uppercase label, styled like the AuthShell eyebrow. */
+export function Eyebrow({
+  children,
+  compact = false,
+}: {
+  children: ReactNode;
+  /** Slightly smaller pill for dense app headers (e.g. the staff dashboard hero). */
+  compact?: boolean;
+}) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/70 px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.14em] text-blue-700 shadow-sm backdrop-blur">
+    <span
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] font-bold uppercase text-blue-100/60 shadow-sm backdrop-blur",
+        compact
+          ? "px-3 py-1 text-[10px] tracking-[0.14em]"
+          : "px-4 py-1.5 text-[11px] tracking-[0.16em]"
+      )}
+    >
       <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" aria-hidden />
       {children}
     </span>

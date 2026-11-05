@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
@@ -16,23 +16,16 @@ import { useMutationAction } from "@/lib/hooks/use-mutation-action";
 import { patchBoard } from "@/lib/patch-board";
 import { useManagedCounselor } from "@/lib/hooks/use-managed-counselor";
 import { fmtHours, slotMinutes } from "@/lib/availability";
-import { ChevronDown } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Badge, Card, Input } from "@/components/ui/primitives";
+import { Pager } from "@/components/shared/Pager";
 import { CoverageGrid } from "@/components/availability/coverage-grid";
 import { SLOT_ADD_BUSY_ID, SlotForm, type PendingSlots } from "@/components/availability/slot-form";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 const EMPTY_COUNSELORS: AvailabilityCounselor[] = [];
 const EMPTY_SLOTS: AvailabilitySlot[] = [];
 const EMPTY_APPTS: AvailabilityAppt[] = [];
+/** Roster pagination is fixed at 10 rows per page. */
+const ROSTER_PAGE_SIZE = 10;
 
 /**
  * Shared /availability — one URL, role-aware UI (same pattern as /appointments).
@@ -54,6 +47,7 @@ export default function AvailabilityPage() {
   const loading = isLoading && !board;
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [rosterQuery, setRosterQuery] = useState("");
+  const [rosterPage, setRosterPage] = useState(1);
 
   const { managedId, setManagedId } = useManagedCounselor({
     ready: !!board,
@@ -65,42 +59,6 @@ export default function AvailabilityPage() {
   useEffect(() => {
     if (isError) toast.error("Couldn't load availability right now.");
   }, [isError]);
-
-  // Stats live in a floating panel — same hover/click behavior as the
-  // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
-  const [statsOpen, setStatsOpen] = useState(false);
-  const statsRef = useRef<HTMLDivElement>(null);
-  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openStats = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setStatsOpen(true);
-  };
-  const scheduleStatsClose = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
-  };
-  const toggleStats = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setStatsOpen((v) => !v);
-  };
-
-  useEffect(() => {
-    if (!statsOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setStatsOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    };
-  }, [statsOpen]);
 
   const isOffice = role === "guidance_head";
   // Slot management is counselor-only — the head view is strictly read-only.
@@ -149,6 +107,22 @@ export default function AvailabilityPage() {
       (c) => c.name.toLowerCase().includes(q) || (c.spec ?? "").toLowerCase().includes(q)
     );
   }, [counselors, rosterQuery]);
+
+  // Roster paging — fixed 10 rows per page.
+  const rosterPages = Math.max(1, Math.ceil(visibleCounselors.length / ROSTER_PAGE_SIZE));
+  const safeRosterPage = Math.min(rosterPage, rosterPages);
+  const pagedCounselors = useMemo(
+    () =>
+      visibleCounselors.slice(
+        (safeRosterPage - 1) * ROSTER_PAGE_SIZE,
+        safeRosterPage * ROSTER_PAGE_SIZE
+      ),
+    [visibleCounselors, safeRosterPage]
+  );
+  // A new search always starts on the first page.
+  useEffect(() => {
+    setRosterPage(1);
+  }, [rosterQuery]);
 
   // Standard mutation lifecycle (same as /appointments): busy resolves the
   // moment the DB write settles (inside the hook's finally) — the cache is
@@ -269,68 +243,22 @@ export default function AvailabilityPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Availability</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <h1 className="font-display text-2xl font-bold">
+        {role === "counselor" ? "My availability" : "Availability"}
+      </h1>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold">
-            {role === "counselor" ? "My availability" : "Availability"}
-          </h1>
-          <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-            {role === "counselor"
-              ? "Your weekly slots — students book against these, so keep them current."
-              : "Office coverage at a glance — spot gap days and see each counselor's load. Slots are managed by each counselor."}
-          </p>
-        </div>
-        <div ref={statsRef} className="relative shrink-0" onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
-          <button
-            type="button"
-            onClick={toggleStats}
-            onFocus={openStats}
-            onBlur={scheduleStatsClose}
-            aria-haspopup="dialog"
-            aria-expanded={statsOpen}
-            className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-          >
-            Stats
-            <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
-          </button>
-          {statsOpen && (
-            <div
-              role="dialog"
-              aria-label="Availability stats"
-              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
-            >
-              {loading ? (
-                <div className="animate-pulse px-4 py-3" aria-hidden>
-                  <div className="h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                </div>
-              ) : (
-                statCards.map((s) => (
-                  <div
-                    key={s.label}
-                    className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
-                  >
-                    <span className="text-[13px] font-medium text-ink-muted">{s.label}</span>
-                    <span className="font-display text-xl font-bold text-ink">{s.value}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
+      {/* Visible stats cards — same row pattern as /appointments. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {statCards.map((s) => (
+          <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+            <span className="block text-[11px] font-bold uppercase tracking-wider text-ink-muted">{s.label}</span>
+            {loading ? (
+              <span className="mt-2 block h-8 w-12 animate-pulse rounded bg-ink/10" aria-hidden />
+            ) : (
+              <span className="mt-1 block font-display text-2xl font-bold text-ink">{s.value}</span>
+            )}
+          </div>
+        ))}
       </div>
 
       {/* Weekly coverage board */}
@@ -364,7 +292,7 @@ export default function AvailabilityPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleCounselors.map((c) => (
+                {pagedCounselors.map((c) => (
                   <tr key={c.id} className="border-b border-ink/5 last:border-0">
                     <td className="px-4 py-3">
                       <p className="font-bold text-ink">{c.name}</p>
@@ -396,6 +324,15 @@ export default function AvailabilityPage() {
               </p>
             )}
           </div>
+          {!loading && visibleCounselors.length > ROSTER_PAGE_SIZE && (
+            <Pager
+              page={safeRosterPage}
+              size={ROSTER_PAGE_SIZE}
+              totalApprox={visibleCounselors.length}
+              hasMore={safeRosterPage < rosterPages}
+              onPage={setRosterPage}
+            />
+          )}
         </section>
       )}
 

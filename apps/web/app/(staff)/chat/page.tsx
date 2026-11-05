@@ -33,14 +33,6 @@ import { ThreadList, type Convo } from "@/components/chat/ThreadList";
 import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { NewMessageModal } from "@/components/chat/NewMessageModal";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 type Thread = ChatThread;
 
@@ -623,18 +615,6 @@ export default function ChatPage() {
 
   return (
     <div className="space-y-4 lg:flex lg:h-[calc(100vh-5rem-1.5rem-1rem)] lg:flex-col lg:gap-4 lg:space-y-0 lg:overflow-hidden">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Chat</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <div className="lg:shrink-0">
         <h1 className="font-display text-2xl font-bold">Checki chats</h1>
       </div>

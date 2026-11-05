@@ -5,14 +5,6 @@ import { toast } from "sonner";
 import { DatabaseBackup, Download, HardDriveDownload, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { useBackupRuns, useRunBackup, fetchBackupDownloadUrl, type BackupRun } from "@/lib/hooks/use-backups";
 import { Badge, Button, Card } from "@/components/ui/primitives";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { timeAgoLong } from "@/lib/format";
 
 function formatBytes(n: number): string {
@@ -93,18 +85,6 @@ export default function BackupsPage() {
 
   return (
     <div className="space-y-4" aria-busy={isFetching || run.isPending}>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Backups</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold">Backups</h1>

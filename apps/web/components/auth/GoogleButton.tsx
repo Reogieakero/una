@@ -52,10 +52,21 @@ export function GoogleButton({
               provider: "google",
               options: {
                 // Lands on /auth/confirm which swaps the code for a session,
-                // auto-provisions a student profile for first-time Google
-                // users, then routes to the role home.
-                redirectTo: `${window.location.origin}/auth/confirm?next=/`,
-                queryParams: { access_type: "offline", prompt: "consent" },
+                // then routes first-time Google users to /register/role so they
+                // pick Student or Faculty before a profile is written.
+                //
+                // Keep this URL query-free. Supabase matches `redirectTo`
+                // against the dashboard allowlist (and forwards it to Google)
+                // before adding `?code=...`; an extra app parameter makes the
+                // match more fragile. `/auth/confirm` defaults to `/` now, and
+                // recovery links pass `?next=/update-password` explicitly.
+                redirectTo: `${window.location.origin}/auth/confirm`,
+                // Choose an account instead of silently reusing the last one.
+                // Do NOT force `prompt: "consent"`: on accounts with several
+                // Google sessions that makes the consent page spin forever
+                // (authuser=N). Consent is still shown the first time an
+                // account authorises the app.
+                queryParams: { prompt: "select_account" },
               },
             });
             if (oauthError) setError(oauthError.message);
@@ -67,9 +78,9 @@ export function GoogleButton({
           }
         }}
         className={cn(
-          "inline-flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-ink/10 bg-white px-5 py-3 text-sm font-bold text-ink shadow-sm transition",
-          "hover:border-ink/20 hover:bg-cream hover:shadow-card",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
+          "inline-flex w-full items-center justify-center gap-3 rounded-[1rem] border-2 border-blue-100 bg-white px-5 py-3 text-sm font-bold text-ink shadow-sm transition",
+          "hover:border-blue-200 hover:bg-yellow-50 hover:shadow-card",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/50",
           "disabled:pointer-events-none disabled:opacity-60",
           className
         )}
@@ -92,9 +103,9 @@ export function GoogleButton({
 
 export function AuthDivider({ label = "or continue with email" }: { label?: string }) {
   return (
-    <div className="my-5 flex items-center gap-3" aria-hidden>
+    <div className="my-4 flex items-center gap-3" aria-hidden>
       <span className="h-px flex-1 bg-ink/10" />
-      <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">
+      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-faint">
         {label}
       </span>
       <span className="h-px flex-1 bg-ink/10" />

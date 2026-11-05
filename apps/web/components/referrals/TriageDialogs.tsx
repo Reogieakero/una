@@ -256,7 +256,7 @@ export function TriageConfirmDialog({
       aria-labelledby="ref-confirm-title"
       aria-describedby="ref-confirm-desc"
     >
-      <div aria-hidden className="absolute inset-0 bg-ink/40" onClick={close} />
+      <div aria-hidden className="absolute inset-0 bg-black/40 dark:bg-black/70" onClick={close} />
       <div className="no-scrollbar relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-6 shadow-card sm:max-w-md">
         <h2 id="ref-confirm-title" className="font-display text-lg font-bold text-ink">
           {TRIAGE_COPY[confirming.to].title}

@@ -8,18 +8,10 @@ import {
   ClipboardList,
   Inbox,
 } from "lucide-react";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { ReportBars, ReportDonut, ReportTrendChart } from "@/components/shared/reports-charts";
 import { CLASSIFICATIONS } from "@/components/referrals/status";
 import { ReportsFilters, ReportsFiltersSkeleton } from "@/components/shared/reports-filters";
-import { Spinner } from "@/components/ui/spinner";
+import { ReportKpiCard, ReportKpiSkeleton, pointDelta, relativeDelta } from "@/components/shared/reports-kpi";
 import { useFacultyReports } from "@/lib/hooks/use-faculty-reports";
 import type { FacultyReportsPayload } from "@/lib/hooks/use-faculty-reports";
 import {
@@ -29,6 +21,7 @@ import {
   type ReportSection,
 } from "@/lib/reports-scope";
 import { timeAgoLong } from "@/lib/format";
+import { kpiChange, kpiPointChange, rate, summarizeKpi } from "@/lib/reports/kpi-summary";
 import { EmptyState, PanelShell, ListSkeleton } from "@/components/shared/panel-shell";
 import {
   CONCERN_META,
@@ -49,20 +42,6 @@ function pct(part: number, whole: number): string {
   return `${Math.round((part / whole) * 100)}%`;
 }
 
-function KpiSkeleton() {
-  return (
-    <>
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-          <div className="h-3.5 w-2/3 rounded-full bg-ink/10" />
-          <div className="mt-3 h-8 w-1/3 rounded-lg bg-ink/10" />
-          <div className="mt-2 h-3 w-1/2 rounded-full bg-ink/10" />
-        </div>
-      ))}
-    </>
-  );
-}
-
 function ChartSkeleton() {
   return (
     <div className="animate-pulse pt-4" aria-hidden>
@@ -72,26 +51,47 @@ function ChartSkeleton() {
 }
 
 function KpiGrid({ data }: { data: FacultyReportsPayload }) {
-  const total = data.referrals.length;
-  const resolved = data.referrals.filter((r) => r.status === "resolved").length;
-  const open = data.referrals.filter((r) => (OPEN_REFERRALS as readonly string[]).includes(r.status)).length;
-  const urgent = data.referrals.filter((r) => r.priority === "urgent").length;
+  const current = summarizeKpi({
+    appointments: [],
+    referrals: data.referrals,
+    feedback: [],
+    screenings: [],
+  });
+  const prev = data.comparison;
+  const resolution = rate(current.resolvedReferrals, current.referrals);
+  const prevResolution = prev ? rate(prev.resolvedReferrals, prev.referrals) : null;
 
   const cards = [
-    { label: "My referrals", value: String(total), sub: "Cases I flagged" },
-    { label: "My resolution rate", value: pct(resolved, total), sub: `${resolved} of ${total} resolved` },
-    { label: "Still open", value: String(open), sub: "With the office now" },
-    { label: "Urgent flags", value: String(urgent), sub: "Needs fastest triage" },
+    {
+      label: "My referrals",
+      value: String(current.referrals),
+      sub: "Cases I flagged",
+      delta: relativeDelta(kpiChange(current.referrals, prev?.referrals)),
+    },
+    {
+      label: "My resolution rate",
+      value: resolution == null ? "—" : `${resolution}%`,
+      sub: `${current.resolvedReferrals} of ${current.referrals} resolved`,
+      delta: pointDelta(kpiPointChange(resolution, prevResolution)),
+    },
+    {
+      label: "Still open",
+      value: String(current.openReferrals),
+      sub: "With the office now",
+      delta: relativeDelta(kpiChange(current.openReferrals, prev?.openReferrals)),
+    },
+    {
+      label: "Urgent flags",
+      value: String(current.urgentReferrals),
+      sub: "Needs fastest triage",
+      delta: relativeDelta(kpiChange(current.urgentReferrals, prev?.urgentReferrals)),
+    },
   ];
 
   return (
     <>
       {cards.map((c) => (
-        <div key={c.label} className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-          <p className="text-[13px] font-medium text-ink-muted">{c.label}</p>
-          <p className="mt-1 font-display text-3xl font-bold text-ink">{c.value}</p>
-          <p className="mt-1 text-xs font-medium text-ink-faint">{c.sub}</p>
-        </div>
+        <ReportKpiCard key={c.label} label={c.label} value={c.value} sub={c.sub} delta={c.delta} />
       ))}
     </>
   );
@@ -214,8 +214,12 @@ function PipelineWatch({ data }: { data: FacultyReportsPayload }) {  const open 
 
 function FacultyGuide() {
   return (
-    <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-      <h2 className="font-display text-base font-bold text-ink">How to read my reports</h2>
+    <details className="group rounded-lg border border-ink/10 bg-white p-5 shadow-card">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-bold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 [&::-webkit-details-marker]:hidden">
+        <span className="font-display">About my reports</span>
+        <span className="text-[13px] font-semibold text-primary-700 group-open:hidden">Show</span>
+        <span className="hidden text-[13px] font-semibold text-primary-700 group-open:inline">Hide</span>
+      </summary>
       <ul className="mt-3 list-disc space-y-2 pl-5 text-[13px] leading-relaxed text-ink-muted">
         <li>
           <span className="font-bold text-ink">My resolution rate</span> = my resolved ÷ my flagged. Pending
@@ -234,7 +238,7 @@ function FacultyGuide() {
         Privacy: this page shows your aggregates only. Session details stay with the counseling team —
         you&apos;ll be notified when your referrals move.
       </p>
-    </section>
+    </details>
   );
 }
 
@@ -248,10 +252,12 @@ export function FacultyReportsView({
   firstName,
   section,
   range,
+  sections,
 }: {
   firstName: string;
   section: ReportSection;
   range: ReportRange;
+  sections: { key: ReportSection; label: string }[];
 }) {
   const scope = {
     section,
@@ -266,7 +272,7 @@ export function FacultyReportsView({
   // "No X yet" empty states. Treat uncovered cached data as loading so panels
   // show skeletons until the new filter's payload arrives.
   const coversSection = !!data && (data.section === "all" || data.section === section);
-  const loading = isPending || (isFetching && !coversSection);
+  const loading = isPending || isFetching || !coversSection;
   const showAll = section === "all";
   const showReferrals = showAll || section === "referrals";
   const showOperations = showAll || section === "operations";
@@ -275,34 +281,13 @@ export function FacultyReportsView({
 
   return (
     <div className="space-y-6" aria-busy={isFetching}>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Reports</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold">My reports{firstName ? ` — ${firstName}` : ""}</h1>
-          <p className="mt-1 max-w-[560px] text-sm leading-relaxed text-ink-muted">
-            Your referral outcomes — what you flagged, how fast the office moves, and what&apos;s still open.
-            Aggregated and privacy-safe: counts and averages only, no student names.
-          </p>
-          {data && !loading && isFetching && (
-            <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-ink-faint" aria-live="polite">
-              <Spinner size="xs" label="Updating reports…" />
-              Updating…
-            </p>
-          )}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 max-w-[560px]">
+        <h1 className="font-display text-2xl font-bold">My reports{firstName ? ` — ${firstName}` : ""}</h1>
         </div>
         <Suspense fallback={<ReportsFiltersSkeleton />}>
           <ReportsFilters
+            sections={sections}
             section={section}
             preset={range.preset}
             fromDay={rangeDay(range.from)}
@@ -338,7 +323,7 @@ export function FacultyReportsView({
         <>
           {showAll && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {loading || !data ? <KpiSkeleton /> : <KpiGrid data={data} />}
+              {loading || !data ? <ReportKpiSkeleton count={4} /> : <KpiGrid data={data} />}
             </div>
           )}
 

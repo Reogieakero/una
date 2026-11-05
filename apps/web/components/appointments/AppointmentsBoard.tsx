@@ -5,7 +5,7 @@ import { Badge, Input } from "@/components/ui/primitives";
 import { Dropdown } from "@/components/shared/dropdown";
 import { HoverMenu } from "@/components/shared/hover-menu";
 import { IconAction } from "@/components/shared/icon-action";
-import { Pager, PageSize } from "@/components/shared/Pager";
+import { Pager } from "@/components/shared/Pager";
 import { pageRange } from "@/lib/pagination";
 import { FOCUS_RING, useFocusRow } from "@/lib/hooks/use-focus-row";
 import { formatWhen, isUpcomingSession, statusLabel, statusTone, STATUSES } from "./status";
@@ -47,8 +47,6 @@ export function AppointmentsBoard({
   totalApprox,
   hasMore,
   onPageChange,
-  onSizeChange,
-  searchActive,
 }: {
   visible: Appt[];
   loading: boolean;
@@ -83,9 +81,6 @@ export function AppointmentsBoard({
   totalApprox: number;
   hasMore: boolean;
   onPageChange: (page: number) => void;
-  onSizeChange: (size: number) => void;
-  /** Free-text search filters the loaded page only (structured filters are server-side). */
-  searchActive: boolean;
 }) {
   const focusedId = useFocusRow(visible);
   return (
@@ -143,15 +138,20 @@ export function AppointmentsBoard({
         )}
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-1 sm:px-5">
         <p className="text-xs font-medium text-ink-faint">
-          Showing {pageRange(page, size, visible.length).start}–{pageRange(page, size, visible.length).end} of ~{totalApprox} sessions
-          {searchActive ? " · search matches this page only" : ""}.
+          {loading ? (
+            "Loading appointments…"
+          ) : (
+            <>
+              Showing {pageRange(page, size, visible.length).start}–{pageRange(page, size, visible.length).end} of ~{totalApprox} sessions
+              {query.trim() ? " · search matches this page only" : ""} · student names stay private (aliases only).
+            </>
+          )}
         </p>
-        <PageSize value={size} onChange={onSizeChange} />
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[880px] text-left text-sm">
+        <table className="w-full min-w-[880px] text-left text-sm" aria-busy={loading}>
         <thead>
           <tr className="border-b border-ink/10 text-xs uppercase text-ink-muted">
             <th className="px-4 py-3">When</th>
@@ -164,7 +164,21 @@ export function AppointmentsBoard({
           </tr>
         </thead>
         <tbody>
-          {visible.map((a) => (
+          {loading
+            ? Array.from({ length: size }).map((_, i) => (
+                <tr key={`skeleton-${i}`} className="border-b border-ink/5 align-top last:border-0" aria-hidden>
+                  <td className="px-4 py-3"><div className="h-4 w-28 animate-pulse rounded bg-ink/10" /></td>
+                  <td className="px-4 py-3"><div className="h-4 w-24 animate-pulse rounded bg-ink/10" /></td>
+                  <td className="px-4 py-3"><div className="h-4 w-28 animate-pulse rounded bg-ink/10" /></td>
+                  <td className="px-4 py-3"><div className="h-4 w-16 animate-pulse rounded bg-ink/10" /></td>
+                  <td className="px-4 py-3"><div className="h-5 w-20 animate-pulse rounded-full bg-ink/10" /></td>
+                  <td className="px-4 py-3"><div className="h-4 w-40 animate-pulse rounded bg-ink/10" /></td>
+                  {canSeeActions && (
+                    <td className="px-4 py-3"><div className="h-6 w-24 animate-pulse rounded bg-ink/10" /></td>
+                  )}
+                </tr>
+              ))
+            : visible.map((a) => (
             <tr
               key={a.id}
               id={`focus-${a.id}`}
@@ -231,7 +245,7 @@ export function AppointmentsBoard({
                 <span className="inline-flex flex-wrap items-center gap-1.5">
                   <Badge tone={statusTone(a.status)}>{statusLabel(a.status)}</Badge>
                   {a.is_follow_up && (
-                    <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-[11px] font-bold text-purple-800">
+                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
                       Follow-up
                     </span>
                   )}
@@ -299,14 +313,7 @@ export function AppointmentsBoard({
             : "No sessions match these filters. Try clearing the search or choosing another status."}
         </p>
       )}
-      {loading && (
-        <div className="animate-pulse space-y-3 p-4" aria-hidden>
-          <div className="h-10 rounded-lg bg-ink/10" />
-          <div className="h-10 rounded-lg bg-ink/10" />
-          <div className="h-10 rounded-lg bg-ink/10" />
-        </div>
-      )}
-      <Pager page={page} size={size} totalApprox={totalApprox} hasMore={hasMore} onPage={onPageChange} />
+      <Pager page={page} size={size} totalApprox={totalApprox} hasMore={hasMore} onPage={onPageChange} busy={loading} />
     </>
   );
 }

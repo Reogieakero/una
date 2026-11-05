@@ -9,17 +9,9 @@ import {
   Inbox,
   MessagesSquare,
 } from "lucide-react";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { ReportBars, ReportDonut, ReportTrendChart } from "@/components/shared/reports-charts";
 import { ReportsFilters, ReportsFiltersSkeleton } from "@/components/shared/reports-filters";
-import { Spinner } from "@/components/ui/spinner";
+import { ReportKpiCard, ReportKpiSkeleton, pointDelta, relativeDelta } from "@/components/shared/reports-kpi";
 import { useCounselorReports } from "@/lib/hooks/use-counselor-reports";
 import type { CounselorReportsPayload } from "@/lib/hooks/use-counselor-reports";
 import {
@@ -30,6 +22,7 @@ import {
 } from "@/lib/reports-scope";
 import { timeAgoLong } from "@/lib/format";
 import { MIN_CELL, isSuppressed, suppressCount } from "@/lib/reports/suppression";
+import { kpiChange, kpiPointChange, rate, summarizeKpi } from "@/lib/reports/kpi-summary";
 import { EmptyState, PanelShell, ListSkeleton } from "@/components/shared/panel-shell";
 import {
   APPT_STATUS_META,
@@ -55,20 +48,6 @@ function pct(part: number, whole: number): string {
 
 /* ── Pure section renderers (same math as the old server components) ── */
 
-function KpiSkeleton() {
-  return (
-    <>
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="animate-pulse rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-          <div className="h-3.5 w-2/3 rounded-full bg-ink/10" />
-          <div className="mt-3 h-8 w-1/3 rounded-lg bg-ink/10" />
-          <div className="mt-2 h-3 w-1/2 rounded-full bg-ink/10" />
-        </div>
-      ))}
-    </>
-  );
-}
-
 function ChartSkeleton() {
   return (
     <div className="animate-pulse pt-4" aria-hidden>
@@ -78,35 +57,61 @@ function ChartSkeleton() {
 }
 
 function KpiGrid({ data }: { data: CounselorReportsPayload }) {
-  const total = data.appointments.length;
-  const completed = data.appointments.filter((a) => a.status === "completed").length;
-  const missed = data.appointments.filter((a) => ["cancelled", "rejected", "no_show"].includes(a.status)).length;
-  const ratings = data.feedback.map((f) => f.rating);
-  const avgRating = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : "—";
-  const refTotal = data.referrals.length;
-  const refResolved = data.referrals.filter((r) => r.status === "resolved").length;
-  const refOpen = data.referrals.filter((r) => (OPEN_REFERRALS as readonly string[]).includes(r.status)).length;
-  const highStress = data.screenings.filter((p) => p.band === "high").length;
+  const current = summarizeKpi({
+    appointments: data.appointments,
+    referrals: data.referrals,
+    feedback: data.feedback,
+    screenings: data.screenings,
+  });
+  const prev = data.comparison;
+  const resolution = rate(current.resolvedReferrals, current.referrals);
+  const prevResolution = prev ? rate(prev.resolvedReferrals, prev.referrals) : null;
+  const stressHidden =
+    isSuppressed(current.highStress) || (prev ? isSuppressed(prev.highStress) : false);
 
   const cards = [
-    { label: "My sessions", value: String(total), sub: "Sessions assigned to me" },
-    { label: "Completed", value: String(completed), sub: `${pct(completed, total)} completion rate` },
-    { label: "Missed", value: String(missed), sub: "Cancelled + rejected + no-show" },
-    { label: "Avg. satisfaction", value: ratings.length ? `${avgRating} / 5` : "—", sub: `${ratings.length} ratings on my sessions` },
-    { label: "My open referrals", value: String(refOpen), sub: "Assigned to me, waiting" },
-    { label: "My resolution rate", value: pct(refResolved, refTotal), sub: `${refResolved} of ${refTotal} resolved` },
-    { label: "High-stress screens", value: highStress > 0 && highStress < MIN_CELL ? `<${MIN_CELL}` : String(highStress), sub: "From students I've seen" },
-    { label: "Feedback coverage", value: completed < MIN_CELL ? "—" : pct(ratings.length, completed), sub: "Responses per my completed session" },
+    {
+      label: "Sessions completed",
+      value: String(current.completed),
+      sub: `${pct(current.completed, current.sessions)} of my booked sessions`,
+      delta: relativeDelta(kpiChange(current.completed, prev?.completed)),
+    },
+    {
+      label: "Missed sessions",
+      value: String(current.missed),
+      sub: "Cancelled + rejected + no-show",
+      delta: relativeDelta(kpiChange(current.missed, prev?.missed)),
+    },
+    {
+      label: "Open referrals",
+      value: String(current.openReferrals),
+      sub: "Assigned to me, waiting",
+      delta: relativeDelta(kpiChange(current.openReferrals, prev?.openReferrals)),
+    },
+    {
+      label: "My resolution rate",
+      value: resolution == null ? "—" : `${resolution}%`,
+      sub: `${current.resolvedReferrals} of ${current.referrals} resolved`,
+      delta: pointDelta(kpiPointChange(resolution, prevResolution)),
+    },
+    {
+      label: "Avg. satisfaction",
+      value: current.avgRating == null ? "—" : `${current.avgRating.toFixed(1)} / 5`,
+      sub: `${current.feedback} rating${current.feedback === 1 ? "" : "s"} on my sessions`,
+      delta: pointDelta(kpiPointChange(current.avgRating, prev?.avgRating ?? null)),
+    },
+    {
+      label: "High-stress screenings",
+      value: stressHidden ? `<${MIN_CELL}` : String(current.highStress),
+      sub: `${current.screenings} from students I've seen`,
+      delta: stressHidden ? null : relativeDelta(kpiChange(current.highStress, prev?.highStress)),
+    },
   ];
 
   return (
     <>
       {cards.map((c) => (
-        <div key={c.label} className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-          <p className="text-[13px] font-medium text-ink-muted">{c.label}</p>
-          <p className="mt-1 font-display text-3xl font-bold text-ink">{c.value}</p>
-          <p className="mt-1 text-xs font-medium text-ink-faint">{c.sub}</p>
-        </div>
+        <ReportKpiCard key={c.label} label={c.label} value={c.value} sub={c.sub} delta={c.delta} />
       ))}
     </>
   );
@@ -435,8 +440,12 @@ function TopConcerns({ data }: { data: CounselorReportsPayload }) {
 
 function CounselorGuide() {
   return (
-    <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-card">
-      <h2 className="font-display text-base font-bold text-ink">How to read my reports</h2>
+    <details className="group rounded-lg border border-ink/10 bg-white p-5 shadow-card">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-bold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 [&::-webkit-details-marker]:hidden">
+        <span className="font-display">About my reports</span>
+        <span className="text-[13px] font-semibold text-primary-700 group-open:hidden">Show</span>
+        <span className="hidden text-[13px] font-semibold text-primary-700 group-open:inline">Hide</span>
+      </summary>
       <ul className="mt-3 list-disc space-y-2 pl-5 text-[13px] leading-relaxed text-ink-muted">
         <li>
           <span className="font-bold text-ink">My completion rate</span> = my completed ÷ my booked. A falling
@@ -454,12 +463,15 @@ function CounselorGuide() {
           <span className="font-bold text-ink">PSS-10 bands</span> come from screenings of students I&apos;ve seen,
           not diagnoses. A rising high-stress share is a signal to adjust capacity, not to label students.
         </li>
+        <li>
+          <span className="font-bold text-ink">Counting window</span>: sessions use the session date;
+          referrals, feedback, and screenings use the date they were filed.
+        </li>
       </ul>
       <p className="mt-3 rounded-lg bg-cream px-4 py-3 text-[13px] leading-relaxed text-ink-muted">
-        Privacy: this page shows my aggregates only. Export Excel downloads my cases only — office-wide
-        figures stay with the guidance head.
+        Privacy: this page shows my aggregates only. Office-wide figures stay with the guidance head.
       </p>
-    </section>
+    </details>
   );
 }
 
@@ -474,10 +486,12 @@ export function CounselorReportsView({
   firstName,
   section,
   range,
+  sections,
 }: {
   firstName: string;
   section: ReportSection;
   range: ReportRange;
+  sections: { key: ReportSection; label: string }[];
 }) {
   const scope = {
     section,
@@ -493,41 +507,20 @@ export function CounselorReportsView({
   // states. Treat uncovered cached data as loading so panels show skeletons
   // until the new section's payload arrives.
   const coversSection = !!data && (data.section === "all" || data.section === section);
-  const loading = isPending || (isFetching && !coversSection);
+  const loading = isPending || isFetching || !coversSection;
   const showAll = section === "all";
   const scoped = range.from !== null && range.to !== null;
   const unlinked = !loading && (data as { unlinked?: boolean } | undefined)?.unlinked === true;
 
   return (
     <div className="space-y-6" aria-busy={isFetching}>
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Reports</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold">My reports{firstName ? ` — ${firstName}` : ""}</h1>
-          <p className="mt-1 max-w-[560px] text-sm leading-relaxed text-ink-muted">
-            Your personal outcomes — your sessions, your referrals, your satisfaction. Aggregated and
-            privacy-safe: counts and averages only, no student names.
-          </p>
-          {data && !loading && isFetching && (
-            <p className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-ink-faint" aria-live="polite">
-              <Spinner size="xs" label="Updating reports…" />
-              Updating…
-            </p>
-          )}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 max-w-[560px]">
+        <h1 className="font-display text-2xl font-bold">My reports{firstName ? ` — ${firstName}` : ""}</h1>
         </div>
         <Suspense fallback={<ReportsFiltersSkeleton />}>
           <ReportsFilters
+            sections={sections}
             section={section}
             preset={range.preset}
             fromDay={rangeDay(range.from)}
@@ -562,8 +555,8 @@ export function CounselorReportsView({
       ) : (
         <>
           {showAll && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {loading || !data ? <KpiSkeleton /> : <KpiGrid data={data} />}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {loading || !data ? <ReportKpiSkeleton count={6} /> : <KpiGrid data={data} />}
             </div>
           )}
 

@@ -1,24 +1,14 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useStudentsBoard } from "@/lib/hooks/use-students-board";
-import { clampPage, clampPageSize } from "@/lib/pagination";
-import { ChevronDown } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { clampPage } from "@/lib/pagination";
 import { STRESS_META } from "@/lib/report-palette";
 import { Card } from "@/components/ui/primitives";
 import { StudentTable, type Student } from "@/components/students/StudentTable";
 import { RiskSummary } from "@/components/students/RiskSummary";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 
 type ApptLite = { student_id: string; scheduled_at: string; status: string };
 type RefLite = { student_id: string; status: string; priority: string };
@@ -28,6 +18,8 @@ const EMPTY_ROWS: Student[] = [];
 const EMPTY_APPTS: ApptLite[] = [];
 const EMPTY_REFS: RefLite[] = [];
 const EMPTY_SCREENS: ScreenLite[] = [];
+/** The directory is fixed at 10 rows per page. */
+const STUDENTS_PAGE_SIZE = 10;
 
 const OPEN_REFERRALS = ["pending", "assigned", "acknowledged", "in_progress", "confirmed", "escalated"];
 const URGENT_PRIORITIES = ["urgent", "high"];
@@ -56,16 +48,16 @@ export default function StudentsPage() {
 function StudentsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Client-side pager over the loaded directory (?page=&size=, 10/25/50).
+  // Client-side pager over the loaded directory (?page=, fixed 10 rows).
   // Filters, stats, and RiskSummary stay exact over the full loaded set —
   // only the rendered table rows are sliced (DOM cost, not fetch cost).
   const page = clampPage(searchParams.get("page"));
-  const size = clampPageSize(searchParams.get("size"));
+  const size = STUDENTS_PAGE_SIZE;
   const gotoPage = useCallback(
-    (p: number, s: number = size) => {
-      router.replace(`/students?page=${p}&size=${s}`, { scroll: false });
+    (p: number) => {
+      router.replace(`/students?page=${p}`, { scroll: false });
     },
-    [router, size]
+    [router]
   );
   const { data: board, isLoading, isError } = useStudentsBoard();
   const role = board?.role ?? null;
@@ -84,42 +76,6 @@ function StudentsPageInner() {
   const setProgramFilter = useCallback((v: string) => { setProgramFilterState(v); gotoPage(1); }, [gotoPage]);
   const setYearFilter = useCallback((v: string) => { setYearFilterState(v); gotoPage(1); }, [gotoPage]);
   const setCollegeFilter = useCallback((v: string) => { setCollegeFilterState(v); gotoPage(1); }, [gotoPage]);
-
-  // Stats live in a floating panel — same hover/click behavior as the
-  // /appointments Stats menu. Closes on mouse leave, outside click, or Escape.
-  const [statsOpen, setStatsOpen] = useState(false);
-  const statsRef = useRef<HTMLDivElement>(null);
-  const statsCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const openStats = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setStatsOpen(true);
-  };
-  const scheduleStatsClose = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    statsCloseTimer.current = setTimeout(() => setStatsOpen(false), 150);
-  };
-  const toggleStats = () => {
-    if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    setStatsOpen((v) => !v);
-  };
-
-  useEffect(() => {
-    if (!statsOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (statsRef.current && !statsRef.current.contains(e.target as Node)) setStatsOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setStatsOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      if (statsCloseTimer.current) clearTimeout(statsCloseTimer.current);
-    };
-  }, [statsOpen]);
 
   useEffect(() => {
     if (isError) toast.error("Couldn't load students right now.");
@@ -187,6 +143,19 @@ function StudentsPageInner() {
     const withOpenRefs = rows.filter((s) => (perStudent.get(s.id)?.openRefs ?? 0) > 0).length;
     const highStress = rows.filter((s) => perStudent.get(s.id)?.band === "high").length;
     const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
+    let needsAttention = 0;
+    let neverBooked = 0;
+    for (const s of rows) {
+      const agg = perStudent.get(s.id);
+      if (!agg) {
+        neverBooked += 1;
+        continue;
+      }
+      if (agg.urgentRefs > 0 || (agg.band === "high" && agg.upcoming === 0) || agg.missed >= 2) {
+        needsAttention += 1;
+      }
+      if (agg.total === 0) neverBooked += 1;
+    }
     return {
       total: rows.length,
       withUpcoming,
@@ -194,6 +163,8 @@ function StudentsPageInner() {
       highStress,
       newMonth: rows.filter((s) => new Date(s.created_at).getTime() >= monthAgo).length,
       programs: programs.length,
+      needsAttention,
+      neverBooked,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, perStudent, programs]);
@@ -219,13 +190,8 @@ function StudentsPageInner() {
       }
       if (reasons.length) out.push({ student: s, reasons, rank });
     }
-    return out.sort((a, b) => b.rank - a.rank).slice(0, 8);
+    return out.sort((a, b) => b.rank - a.rank);
   }, [rows, perStudent]);
-
-  const neverBooked = useMemo(
-    () => rows.filter((s) => (perStudent.get(s.id)?.total ?? 0) === 0).slice(0, 6),
-    [rows, perStudent]
-  );
 
   const programBars = useMemo(() => {
     const counts = new Map<string, number>();
@@ -287,72 +253,35 @@ function StudentsPageInner() {
     { label: "With upcoming session", value: stats.withUpcoming },
     { label: "With open referral", value: stats.withOpenRefs },
     { label: "High stress (latest)", value: stats.highStress },
+    { label: "Needs attention", value: stats.needsAttention },
+    { label: "Never booked", value: stats.neverBooked },
     { label: "New this month", value: stats.newMonth },
     { label: "Programs", value: stats.programs },
   ];
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Students</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold">{role === "counselor" ? "My students" : "Students"}</h1>
+      <div>
+        <h1 className="font-display text-2xl font-bold">{role === "counselor" ? "My students" : "Students"}</h1>
+        {role === "counselor" && (
           <p className="mt-1 max-w-[600px] text-sm leading-relaxed text-ink-muted">
-            {role === "counselor"
-              ? "Your caseload — students from your sessions, assigned referrals, and chats. Aliases only, with each student's load with you."
-              : "Privacy-safe directory — aliases only, with each student's session load, open referrals, and latest screening band."}
+            Your caseload — students from your sessions, assigned referrals, and chats. Aliases only, with each student&apos;s load with you.
           </p>
-        </div>
-        <div ref={statsRef} className="relative shrink-0" onMouseEnter={openStats} onMouseLeave={scheduleStatsClose}>
-          <button
-            type="button"
-            onClick={toggleStats}
-            onFocus={openStats}
-            onBlur={scheduleStatsClose}
-            aria-haspopup="dialog"
-            aria-expanded={statsOpen}
-            className="inline-flex h-8 items-center gap-1.5 rounded border border-ink/10 bg-white px-3 text-[13px] font-bold text-ink-soft shadow-card transition hover:border-primary-300 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-          >
-            Stats
-            <ChevronDown aria-hidden className={cn("h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200", statsOpen && "rotate-180")} />
-          </button>
-          {statsOpen && (
-            <div
-              role="dialog"
-              aria-label="Student stats"
-              className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-lg border border-ink/10 bg-white py-1 shadow-card"
-            >
-              {loading ? (
-                <div className="animate-pulse px-4 py-3" aria-hidden>
-                  <div className="h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                  <div className="mt-2 h-10 rounded-lg bg-ink/10" />
-                </div>
-              ) : (
-                statCards.map((s) => (
-                  <div
-                    key={s.label}
-                    className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left"
-                  >
-                    <span className="text-[13px] font-medium text-ink-muted">{s.label}</span>
-                    <span className="font-display text-xl font-bold text-ink">{s.value}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
+        )}
+      </div>
+
+      {/* Visible stats cards — same row pattern as /appointments. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {statCards.map((s) => (
+          <div key={s.label} className="rounded-lg border border-ink/10 bg-white p-4 shadow-card">
+            <span className="block text-[11px] font-bold uppercase tracking-wider text-ink-muted">{s.label}</span>
+            {loading ? (
+              <span className="mt-2 block h-8 w-12 animate-pulse rounded bg-ink/10" aria-hidden />
+            ) : (
+              <span className="mt-1 block font-display text-2xl font-bold text-ink">{s.value}</span>
+            )}
+          </div>
+        ))}
       </div>
 
       {role === "counselor" && !counselorId && !loading && (
@@ -366,10 +295,9 @@ function StudentsPageInner() {
 
       <RiskSummary
         loading={loading}
-        needsAttention={needsAttention}
+        needsAttention={needsAttention.slice(0, 8)}
         programBars={programBars}
         screeningDonut={screeningDonut}
-        neverBooked={neverBooked}
       />
 
       {/* Directory — filters live inside, above the student table */}
@@ -380,7 +308,6 @@ function StudentsPageInner() {
         size={size}
         hasMore={safePage * size < visible.length}
         onPageChange={(p) => gotoPage(p)}
-        onSizeChange={(s) => gotoPage(1, s)}
         loading={loading}
         query={query}
         setQuery={setQuery}

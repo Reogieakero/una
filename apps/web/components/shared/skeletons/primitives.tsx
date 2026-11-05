@@ -15,9 +15,16 @@
  * - Tables: `Card` + filter bar (`h-8` inputs/menus) + `Showing n of m`
  */
 
-export function SkeletonRoot({ children }: { children: React.ReactNode }) {
+export function SkeletonRoot({
+  children,
+  className = "space-y-4",
+}: {
+  children: React.ReactNode;
+  /** Page-level spacing — pass `space-y-6` when the real view uses it. */
+  className?: string;
+}) {
   return (
-    <div className="min-w-0 animate-pulse space-y-4" aria-hidden role="status" aria-label="Loading">
+    <div className={`min-w-0 animate-pulse ${className}`} aria-hidden role="status" aria-label="Loading">
       {children}
     </div>
   );
@@ -31,14 +38,17 @@ export function CrumbSkeleton({ width = "w-44" }: { width?: string }) {
 export function PageHeaderSkeleton({
   descWidth = "max-w-[600px]",
   action = "stats",
+  breadcrumb = true,
 }: {
   descWidth?: string;
   /** stats = h-8 Stats button · cta = rounded-full pill · filters = 2x h-8 · tabs = tab row · none */
   action?: "stats" | "cta" | "filters" | "tabs" | "buttons" | "none";
+  /** Set false for pages that no longer render breadcrumbs. */
+  breadcrumb?: boolean;
 }) {
   return (
     <div className="space-y-3">
-      <CrumbSkeleton />
+      {breadcrumb && <CrumbSkeleton />}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="h-7 w-64 max-w-full rounded-lg bg-ink/10" />
@@ -94,12 +104,15 @@ export function KpiGridSkeleton({
 export function PanelShellSkeleton({
   rows = 3,
   rowHeight = "h-10",
+  titleWidth = "w-40",
   withHint = false,
   withViewAll = false,
   children,
 }: {
   rows?: number;
   rowHeight?: string;
+  /** Real panel titles vary in length — match the heading width. */
+  titleWidth?: string;
   withHint?: boolean;
   withViewAll?: boolean;
   children?: React.ReactNode;
@@ -108,7 +121,7 @@ export function PanelShellSkeleton({
     <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-card">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="h-4 w-40 rounded-full bg-ink/10" />
+          <div className={`h-4 ${titleWidth} rounded-full bg-ink/10`} />
           {withHint && <div className="mt-1.5 h-3 w-2/3 rounded-full bg-ink/10" />}
         </div>
         {withViewAll && <div className="h-4 w-14 shrink-0 rounded-full bg-ink/10" />}
@@ -194,7 +207,7 @@ export function QuickLinksSkeleton({ rows = 6 }: { rows?: number }) {
 }
 
 /** Divide-y list rows: bold line + muted line + pill (sessions/referrals). */
-export function DivideListSkeleton({ rows = 3 }: { rows?: number }) {
+export function DivideListSkeleton({ rows = 3, pill = true }: { rows?: number; pill?: boolean }) {
   return (
     <ul className="mt-3 divide-y divide-ink/10" aria-hidden>
       {Array.from({ length: rows }).map((_, i) => (
@@ -203,7 +216,7 @@ export function DivideListSkeleton({ rows = 3 }: { rows?: number }) {
             <div className="h-3.5 w-3/4 rounded-full bg-ink/10" />
             <div className="mt-1.5 h-3 w-1/2 rounded-full bg-ink/10" />
           </div>
-          <div className="h-5 w-16 shrink-0 rounded-full bg-ink/10" />
+          {pill && <div className="h-5 w-16 shrink-0 rounded-full bg-ink/10" />}
         </li>
       ))}
     </ul>

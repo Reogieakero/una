@@ -13,33 +13,48 @@ import { patchBoard } from "@/lib/patch-board";
 import { notifyStaff } from "@/lib/notify";
 import { MONTHS, dayKey, isSessionLive, startOfDay, weekDays } from "@/lib/calendar";
 import { Button, Card } from "@/components/ui/primitives";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+import { DateRangeFilter, type DateRangeSelection } from "@/components/ui/date-range-filter";
+import { useTheme } from "@/components/providers/theme-provider";
 import { cn } from "@/lib/utils";
 import { ACTION_DEFS, formatWhen, type ActionKind } from "@/components/appointments/status";
 import { AppointmentConfirmDialogs } from "@/components/appointments/AppointmentConfirmDialogs";
 import { SessionNotesModal } from "@/components/appointments/SessionNotesModal";
 import { MonthGrid } from "@/components/sessions/month-grid";
 import { WeekStrip } from "@/components/sessions/week-strip";
-import { DaySchedule } from "@/components/sessions/day-schedule";
 import { LiveSessionBanner, NextSessionTimer } from "@/components/sessions/next-session-timer";
-import { SessionDetail } from "@/components/sessions/session-detail";
+import { DayOverlay } from "@/components/sessions/day-overlay";
 
-type View = "month" | "week" | "day";
+type View = "month" | "week";
+
+/** Same period presets as the guidance-head dashboard filter. */
+const PERIOD_PRESETS = [
+  { key: "today", label: "Today" },
+  { key: "week", label: "This week" },
+  { key: "month", label: "This month" },
+  { key: "custom", label: "Custom" },
+];
 
 const EMPTY_MAP = new Map<string, string>();
 
+/** Local YYYY-MM-DD (avoids the UTC shift of toISOString). */
+function isoDay(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Short label for a YYYY-MM-DD custom range endpoint. */
+function isoDayLabel(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 /**
- * Counselor session calendar — month / week / day views over confirmed
+ * Counselor session calendar — month / week views over confirmed
  * sessions only (counselor-scheduled, including referral-minted ones;
- * office-wide for the head). Clicking a day shows that day's
- * schedule in the side panel; clicking a session shows its details.
+ * office-wide for the head). Clicking a day opens that day's schedule in an
+ * overlay; clicking a session opens its details there.
  * Counselors can Complete / mark No-show a started session right from the
  * detail card (same confirm dialog + notify fan-out as /appointments), and
  * the page detects the live-now session from its start time.
@@ -49,6 +64,7 @@ const EMPTY_MAP = new Map<string, string>();
  */
 export default function SessionCalendarPage() {
   const qc = useQueryClient();
+  const { resolvedTheme } = useTheme();
   const { data: calendar, isLoading, isError, refetch } = useSessionsCalendar();
   const { busyId, run: runMutation } = useMutationAction();
   const role = calendar?.role ?? null;
@@ -60,9 +76,12 @@ export default function SessionCalendarPage() {
   const headIds = calendar?.headIds ?? [];
   const slots = calendar?.slots ?? [];
   const loading = isLoading && !calendar;
+  const tone = resolvedTheme === "dark" ? "dark" : "light";
+  const [range, setRange] = useState<DateRangeSelection>({ preset: "month", from: "", to: "" });
   const [view, setView] = useState<View>("month");
   const [cursor, setCursor] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(new Date()));
+  const [overlayOpen, setOverlayOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<{ appt: CalendarSession; kind: Extract<ActionKind, "complete" | "no-show"> } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -117,12 +136,6 @@ export default function SessionCalendarPage() {
   }, [visible]);
 
   const today = useMemo(() => new Date(), []);
-  const todayCount = byDay.get(dayKey(today))?.length ?? 0;
-  const weekCount = useMemo(
-    () => weekDays(cursor).reduce((n, d) => n + (byDay.get(dayKey(d))?.length ?? 0), 0),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cursor, byDay]
-  );
 
   const selectedSessions = byDay.get(dayKey(selectedDay)) ?? [];
   const selected = selectedId ? visible.find((s) => s.id === selectedId) ?? null : null;
@@ -242,6 +255,7 @@ export default function SessionCalendarPage() {
           onClick: () => {
             setSelectedDay(startOfDay(new Date(s.scheduled_at)));
             setSelectedId(s.id);
+            setOverlayOpen(true);
           },
         },
       });
@@ -269,8 +283,7 @@ export default function SessionCalendarPage() {
     setCursor((c) => {
       const n = new Date(c);
       if (view === "month") n.setMonth(c.getMonth() + dir);
-      else if (view === "week") n.setDate(c.getDate() + dir * 7);
-      else n.setDate(c.getDate() + dir);
+      else n.setDate(c.getDate() + dir * 7);
       return n;
     });
   };
@@ -278,23 +291,55 @@ export default function SessionCalendarPage() {
   const pickDay = (d: Date) => {
     setSelectedDay(startOfDay(d));
     setSelectedId(null);
+    setOverlayOpen(true);
+  };
+  // Same period filter as the dashboard/reports header — here it jumps the
+  // calendar to the chosen window instead of scoping a query.
+  const applyPeriod = (selection: DateRangeSelection) => {
+    setRange(selection);
+    setSelectedId(null);
+    if (selection.preset === "custom" && selection.from) {
+      const d = new Date(`${selection.from}T12:00:00`);
+      if (!Number.isNaN(d.getTime())) {
+        setCursor(d);
+        setSelectedDay(startOfDay(d));
+      }
+      return;
+    }
+    const n = new Date();
+    setCursor(n);
+    setSelectedDay(startOfDay(n));
+    if (selection.preset === "week") setView("week");
+    else if (selection.preset === "month") setView("month");
   };
   const pickSession = (s: CalendarSession) => {
     setSelectedDay(startOfDay(new Date(s.scheduled_at)));
     setSelectedId(s.id);
+    setOverlayOpen(true);
   };
   const expandDay = (d: Date) => {
     setSelectedDay(startOfDay(d));
     setSelectedId(null);
-    setView("day");
+    setOverlayOpen(true);
+  };
+  const closeOverlay = () => {
+    setOverlayOpen(false);
+    setSelectedId(null);
   };
 
   const title =
     view === "month"
       ? `${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`
-      : view === "week"
-        ? `Week of ${weekDays(cursor)[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-        : selectedDay.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+      : `Week of ${weekDays(cursor)[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+
+  const rangeLabel =
+    range.preset === "today"
+      ? "Today"
+      : range.preset === "week"
+        ? "This week"
+        : range.preset === "custom" && range.from && range.to
+          ? `${isoDayLabel(range.from)} – ${isoDayLabel(range.to)}`
+          : "This month";
 
   if (!loading && (!role || !["counselor", "guidance_head"].includes(role))) {
     return (
@@ -319,142 +364,165 @@ export default function SessionCalendarPage() {
 
   return (
     <div className="space-y-4">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/">Home</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Session calendar</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold">Session calendar</h1>
-          <p className="mt-1 text-sm leading-relaxed text-ink-muted">
-            {role === "counselor" ? "Your sessions" : "Office-wide sessions"} — click a day to see its schedule, click a session for details.
-            {" "}{todayCount} today · {weekCount} this week.
-          </p>
         </div>
-        {/* View switcher */}
-        <div className="flex rounded border border-ink/15 bg-white p-1 shadow-card" role="tablist" aria-label="Calendar view">
-          {((["month", "week", "day"] as View[])).map((v) => (
-            <button
-              key={v}
-              type="button"
-              role="tab"
-              aria-selected={view === v}
-              onClick={() => setView(v)}
-              className={cn(
-                "h-8 rounded px-4 text-[13px] font-bold transition-colors",
-                view === v ? "bg-primary-600 text-white shadow-soft" : "text-ink-soft hover:bg-cream"
+
+        {/* Same period filter as the dashboard/reports, plus the compact
+            next-session card docked in the top-right. */}
+        <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+          <DateRangeFilter
+            presets={PERIOD_PRESETS}
+            preset={range.preset}
+            from={range.from}
+            to={range.to}
+            rangeLabel={rangeLabel}
+            tone={tone}
+            size="sm"
+            labelPrefix="Period"
+            dialogLabel="Calendar period"
+            customDefaults={{ from: isoDay(-29), to: isoDay() }}
+            footer="Jumps the calendar to the selected period. Every date stays browsable."
+            onApply={applyPeriod}
+          />
+          {(liveSession || nextSession) && (
+            <div className="w-full sm:w-[300px]">
+              {liveSession ? (
+                <LiveSessionBanner
+                  session={liveSession}
+                  alias={
+                    liveSession.student_id
+                      ? (aliases.get(liveSession.student_id) ?? "Student")
+                      : "Walk-in"
+                  }
+                  onSelect={pickSession}
+                />
+              ) : (
+                nextSession && (
+                  <NextSessionTimer
+                    session={nextSession}
+                    alias={
+                      nextSession.student_id
+                        ? (aliases.get(nextSession.student_id) ?? "Student")
+                        : "Walk-in"
+                    }
+                    onSelect={pickSession}
+                  />
+                )
               )}
-            >
-              {v.charAt(0).toUpperCase() + v.slice(1)}
-            </button>
-          ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {!loading && liveSession && (
-        <LiveSessionBanner
-          session={liveSession}
-          alias={
-            liveSession.student_id ? (aliases.get(liveSession.student_id) ?? "Student") : "Walk-in"
-          }
-          onSelect={pickSession}
-        />
-      )}
-      {!loading && !liveSession && nextSession && (
-        <NextSessionTimer
-          session={nextSession}
-          alias={
-            nextSession.student_id ? (aliases.get(nextSession.student_id) ?? "Student") : "Walk-in"
-          }
-          onSelect={pickSession}
-        />
-      )}
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        {/* Calendar */}        <Card className="xl:col-span-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <Button size="sm" variant="outline" onClick={goToday}>Today</Button>
+      {/* Full-width calendar — the schedule itself lives in the day overlay. */}
+      <section className="overflow-hidden rounded-lg border border-ink/10 bg-white shadow-card">
+        <div className="flex flex-col gap-3 border-b border-ink/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button size="sm" variant="outline" onClick={goToday}>
+              Today
+            </Button>
+            <div className="inline-flex overflow-hidden rounded-lg border border-ink/15 bg-white">
               <button
                 type="button"
-                aria-label="Previous"
+                aria-label="Previous period"
                 onClick={() => step(-1)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded border border-ink/15 bg-white text-ink transition-colors hover:border-primary-400 hover:bg-cream"
+                className="inline-flex h-8 w-8 items-center justify-center border-r border-ink/10 text-ink transition-colors hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
               >
                 <ChevronLeft className="h-4 w-4" aria-hidden />
               </button>
               <button
                 type="button"
-                aria-label="Next"
+                aria-label="Next period"
                 onClick={() => step(1)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded border border-ink/15 bg-white text-ink transition-colors hover:border-primary-400 hover:bg-cream"
+                className="inline-flex h-8 w-8 items-center justify-center text-ink transition-colors hover:bg-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
               >
                 <ChevronRight className="h-4 w-4" aria-hidden />
               </button>
             </div>
-            <h2 className="font-display text-lg font-bold text-ink">{title}</h2>
+            <h2 className="ml-1 font-display text-lg font-bold text-ink">{title}</h2>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
             <span className="hidden items-center gap-1.5 text-xs font-semibold text-ink-faint sm:inline-flex">
               <CalendarDays className="h-4 w-4" aria-hidden /> {visible.length} sessions
             </span>
+            <div
+              className="flex rounded-lg border border-ink/15 bg-white p-1 shadow-card"
+              role="tablist"
+              aria-label="Calendar view"
+            >
+              {(["month", "week"] as View[]).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === v}
+                  onClick={() => setView(v)}
+                  className={cn(
+                    "h-7 rounded-md px-4 text-[13px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-400",
+                    view === v
+                      ? "bg-primary-600 text-white shadow-soft"
+                      : "text-ink-soft hover:bg-cream"
+                  )}
+                >
+                  {v.charAt(0).toUpperCase() + v.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
+        </div>
 
+        <div className="p-3 sm:p-5">
           {loading ? (
-            <div className="animate-pulse space-y-2 pt-4" aria-hidden>
-              <div className="h-10 rounded-lg bg-ink/10" />
-              <div className="h-40 rounded-lg bg-ink/10" />
+            <div className="animate-pulse" aria-hidden>
+              <div className="grid grid-cols-7 gap-1.5">
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <div key={`h-${i}`} className="h-4 rounded-full bg-ink/10" />
+                ))}
+              </div>
+              <div className="mt-2 grid grid-cols-7 gap-1.5">
+                {Array.from({ length: 35 }).map((_, i) => (
+                  <div key={`c-${i}`} className="min-h-[112px] rounded-lg bg-ink/10" />
+                ))}
+              </div>
             </div>
           ) : view === "month" ? (
             <MonthGrid {...gridProps} />
           ) : (
-            <WeekStrip {...gridProps} daysClickable={view === "week"} />
+            <WeekStrip {...gridProps} daysClickable />
           )}
-        </Card>
+        </div>
 
-        {/* Schedule panel */}
-        <Card className="h-fit xl:sticky xl:top-20">
-          <h2 className="font-display text-base font-bold text-ink">
-            Schedule — {selectedDay.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-          </h2>
-          <p className="mt-0.5 text-[13px] text-ink-muted">
-            {selectedSessions.length
-              ? `${selectedSessions.length} session${selectedSessions.length > 1 ? "s" : ""} this day.`
-              : "No sessions scheduled this day."}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink/10 bg-cream/40 px-4 py-2.5 sm:px-5">
+          <p className="flex items-center gap-1.5 text-[12px] font-medium text-ink-muted">
+            <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Click any date to open its schedule — no page change.
           </p>
+          <span className="text-[11px] font-semibold text-ink-faint">
+            {visible.length} confirmed session{visible.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      </section>
 
-          {selected && (
-            <SessionDetail
-              session={selected}
-              alias={selected.student_id ? (aliases.get(selected.student_id) ?? "Student") : "Walk-in"}
-              counselorName={selected.counselor_id ? (counselorNames.get(selected.counselor_id) ?? "Counselor") : "Unassigned"}
-              showCounselor={role === "guidance_head"}
-              onClear={() => setSelectedId(null)}
-              now={now}
-              canManage={isCounselor && !!counselorId && selected.counselor_id === counselorId}
-              busy={busyId === selected.id}
-              onComplete={() => setConfirming({ appt: selected, kind: "complete" })}
-              onNoShow={() => setConfirming({ appt: selected, kind: "no-show" })}
-            />
-          )}
-
-          <DaySchedule
-            sessions={selectedSessions}
-            selectedId={selectedId}
-            aliases={aliases}
-            role={role}
-            counselorNames={counselorNames}
-            onSelect={setSelectedId}
-            now={now}
-          />
-        </Card>
-      </div>
+      {overlayOpen && (
+        <DayOverlay
+          day={selectedDay}
+          sessions={selectedSessions}
+          selected={selected}
+          aliases={aliases}
+          counselorNames={counselorNames}
+          role={role}
+          now={now}
+          busyId={busyId}
+          canManage={(s) => isCounselor && !!counselorId && s.counselor_id === counselorId}
+          onClose={closeOverlay}
+          onSelect={setSelectedId}
+          onComplete={(s) => setConfirming({ appt: s, kind: "complete" })}
+          onNoShow={(s) => setConfirming({ appt: s, kind: "no-show" })}
+        />
+      )}
 
       <AppointmentConfirmDialogs
         confirming={confirming}

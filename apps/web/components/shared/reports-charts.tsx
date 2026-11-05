@@ -29,6 +29,12 @@ export const ReportTrendChart = dynamic<{ data: TrendPoint[] }>(
   { ...opts, loading: ChartFallback }
 );
 
+/** Sessions-per-day line + area trend (headline sessions panel). */
+export const ReportAreaChart = dynamic<{ data: TrendPoint[] }>(
+  () => import("./reports-charts-inner").then((m) => m.ReportAreaChart),
+  { ...opts, loading: ChartFallback }
+);
+
 /** Generic donut with centered legend (status, mode, stress bands…). */
 export const ReportDonut = dynamic<{ data: DonutSlice[] }>(
   () => import("./reports-charts-inner").then((m) => m.ReportDonut),
